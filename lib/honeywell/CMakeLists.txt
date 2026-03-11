@@ -1,0 +1,3 @@
+add_library(honeywell_spi honeywell_spi.c)
+target_include_directories(honeywell_spi PUBLIC ${CMAKE_CURRENT_LIST_DIR})
+target_link_libraries(honeywell_spi pico_stdlib hardware_spi)

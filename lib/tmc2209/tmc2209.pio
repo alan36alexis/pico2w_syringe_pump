@@ -1,0 +1,62 @@
+;
+; Adaptado de stepgen.pio para tmc2209 library
+;
+.program tmc2209_stepgen
+
+; Genera una onda cuadrada leyendo tiempos en alto/bajo por FIFO en cada ciclo (pensado para DMA)
+public dma_stream:
+    pull block      ; Recibir tiempo en alto
+    mov y, osr
+    set pins, 1
+dma_high:
+    jmp y-- dma_high
+
+    pull block      ; Recibir tiempo en bajo
+    mov y, osr
+    set pins, 0
+dma_low:
+    jmp y-- dma_low
+    jmp dma_stream
+
+; Genera una onda cuadrada continua (Velocidad constante)
+public infinite:
+    pull block      ; Recibir tiempo en alto
+    mov isr, osr    ; Guardar en ISR
+    pull block      ; Recibir tiempo en bajo
+inf_loop:
+    mov y, isr      ; Cargar tiempo alto
+    set pins, 1     ; Pin en Alto
+inf_high:
+    jmp y-- inf_high
+
+    mov y, osr      ; Cargar tiempo bajo
+    set pins, 0     ; Pin en Bajo
+inf_low:
+    jmp y-- inf_low
+    jmp inf_loop
+
+; Genera una ráfaga (burst) de N ciclos (Pasos exactos)
+public burst:
+    pull block      ; Recibir cantidad de ciclos (N-1)
+    mov x, osr      ; Guardar en X
+    pull block      ; Recibir tiempo en alto
+    mov isr, osr    ; Guardar en ISR
+    pull block      ; Recibir tiempo en bajo
+burst_loop:
+    mov y, isr      ; Cargar tiempo alto
+    set pins, 1     ; Pin en Alto
+bur_high:
+    jmp y-- bur_high
+
+    mov y, osr      ; Cargar tiempo bajo
+    set pins, 0     ; Pin en Bajo
+bur_low:
+    jmp y-- bur_low
+    jmp x-- burst_loop
+    
+    ; Al terminar, vuelve al inicio (dma_stream) y se bloquea en el pull
+    ; Esto permite detectar que terminó verificando el flag de TX STALL
+
+% c-sdk {
+// Helper function to initialize the PIO program is handled in tmc2209.c
+%}
