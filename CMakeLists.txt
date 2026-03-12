@@ -24,6 +24,7 @@ project(pico2w_syringe_pump C CXX ASM)
 # Set standard C/CXX versions
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 # Initialize the Raspberry Pi Pico SDK
 pico_sdk_init()
@@ -44,6 +45,7 @@ add_executable(pico2w_syringe_pump
     src/main.c
     src/core0_main.c
     src/core1_main.c
+    src/crosscore_logger.c
     src/test_modes.c
 )
 
@@ -59,6 +61,7 @@ target_link_libraries(pico2w_syringe_pump
     honeywell_spi
     pico_cyw43_arch_none
     pico_multicore
+    pico_util
     freertos
 )
 

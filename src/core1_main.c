@@ -1,20 +1,21 @@
-#include <stdio.h>
 #include <math.h>
 #include <stdbool.h>
+#include <stdio.h>
 
-#include "pico/stdlib.h"
-#include "pico/multicore.h"
 #include "hardware/spi.h"
+#include "pico/multicore.h"
+#include "pico/stdlib.h"
 
 // Componentes del proyecto
 #include "core1_main.h"
+#include "crosscore_logger.h"
+#include "honeywell_spi.h"
 #include "test_modes.h"
 #include "tmc2209.h"
-#include "honeywell_spi.h"
 
 // --- DEBUG MODE ---
 // 1 = Activado (printf habilitado), 0 = Desactivado (printf mudo)
-#define DEBUG_MODE 1
+#define DEBUG_MODE 0
 
 #if DEBUG_MODE
 #define LOG_DEBUG(...) printf(__VA_ARGS__)
@@ -43,15 +44,17 @@
 // Parámetros de resolucion
 #define MOTOR_STEPS_PER_REV 200
 #define MOTOR_MICROSTEPS_VAL 16
-#define MOTOR_MICROSTEPS TMC2209_MICROSTEPS_2 // 1-> 1600, 2-> 6400, 4-> 12800, 16-> 3200
-#define STEPS_PER_REV MOTOR_MICROSTEPS_VAL * MOTOR_STEPS_PER_REV
+#define MOTOR_MICROSTEPS                                                       \
+  TMC2209_MICROSTEPS_2 // 1-> 1600, 2-> 6400, 4-> 12800, 16-> 3200
+#define STEPS_PER_REV MOTOR_MICROSTEPS_VAL *MOTOR_STEPS_PER_REV
 #define NSTEPS STEPS_PER_REV * 1000
 #define STEP_FREQ 6400 * 2   // Frecuencia de pasos en Hz
 #define GEARBOX_RATIO 27.00f // Relación de reducción (1.0 = Directo)
-#define GEARBOX_STEPS_PER_REV STEPS_PER_REV * GEARBOX_RATIO
+#define GEARBOX_STEPS_PER_REV STEPS_PER_REV *GEARBOX_RATIO
 #define GEARBOX_NSTEPS GEARBOX_STEPS_PER_REV * 1000
 #define GEARBOX_STEP_FREQ 7000
-// Selección de Modo: true = Modo UART (Pines fijan dirección), false = Modo Pines (Pines fijan pasos)
+// Selección de Modo: true = Modo UART (Pines fijan dirección), false = Modo
+// Pines (Pines fijan pasos)
 #define USE_UART_MODE true
 
 // Pines de Finales de Carrera
@@ -81,16 +84,13 @@ bool honeywell_timer_callback(repeating_timer_t *rt) {
   honeywell_hsc_data_t data;
   if (honeywell_hsc_read(&pressure_sensor, &data)) {
     float pressure_mmhg = data.pressure_psi * 51.7149f;
-    LOG_DEBUG("Status: %d, Pressure: %.2f psi (%.2f mmHg)\n", data.status,
-              data.pressure_psi, pressure_mmhg);
+    logger_send_pressure_update(data.pressure_psi);
 
     switch (emergency_state) {
     case EMERGENCY_NORMAL:
       if (data.status == 0 && data.pressure_psi > 20.0f) {
         if (global_motor != NULL && tmc2209_is_moving(global_motor)) {
-          LOG_DEBUG(
-              "ALERTA: Sobrepresion (%.2f PSI). Frenando para retroceder!\n",
-              data.pressure_psi);
+          logger_send_pressure_alert(data.pressure_psi);
           tmc2209_stop_s_curve_dma(global_motor, 0.0f, 20);
           emergency_state = EMERGENCY_STOPPING;
         }
@@ -99,10 +99,11 @@ bool honeywell_timer_callback(repeating_timer_t *rt) {
 
     case EMERGENCY_STOPPING:
       if (global_motor != NULL && !tmc2209_is_moving(global_motor)) {
-        LOG_DEBUG("Motor detenido. Iniciando retroceso...\n");
+        logger_send_motor_stopped();
         bool inv_dir = !global_motor->direction;
         tmc2209_set_direction(global_motor, inv_dir);
         // Retroceso continuo (e.g. 3000 Hz)
+        logger_send_motor_retracting();
         tmc2209_start_s_curve_dma(global_motor, 500.0f, 3000.0f, 0.5f, 100, 2);
         emergency_state = EMERGENCY_RETRACTING;
       }
@@ -110,8 +111,7 @@ bool honeywell_timer_callback(repeating_timer_t *rt) {
 
     case EMERGENCY_RETRACTING:
       if (data.status == 0 && data.pressure_psi < 15.0f) {
-        LOG_DEBUG("Presion segura (%.2f PSI). Deteniendo definitivamente.\n",
-                  data.pressure_psi);
+        logger_send_pressure_safe(data.pressure_psi);
         tmc2209_stop_s_curve_dma(global_motor, 0.0f, 20);
         emergency_state = EMERGENCY_STOPPED;
       }
@@ -223,7 +223,7 @@ void move_back_and_forth_limits(TMC2209_t *motor, float freq_cw,
 
       if (!direction) { // Moviendo hacia Inicio (False)
         if (start_hit) {
-          LOG_DEBUG("Tope INICIO alcanzado. Iniciando frenado suave...\n");
+          logger_send_motor_start_hit();
           stop_triggered = true;
           // Frenado suave en Curva S hasta 0 Hz
           tmc2209_stop_s_curve_dma(motor, 0.0f, RAMP_STEPS_DECEL);
@@ -240,7 +240,7 @@ void move_back_and_forth_limits(TMC2209_t *motor, float freq_cw,
         }
       } else { // Moviendo hacia Fin (True)
         if (end_hit) {
-          LOG_DEBUG("Tope FIN alcanzado. Iniciando frenado suave...\n");
+          logger_send_motor_end_hit();
           stop_triggered = true;
           // Frenado suave en Curva S hasta 0 Hz
           tmc2209_stop_s_curve_dma(motor, 0.0f, RAMP_STEPS_DECEL);
@@ -257,7 +257,7 @@ void move_back_and_forth_limits(TMC2209_t *motor, float freq_cw,
         }
       }
       uint16_t stall = tmc2209_read_sg_result(motor);
-      LOG_DEBUG("$%u;", stall);
+      logger_send_motor_stall(stall);
 
       sleep_ms(10); // Evitar saturación
     }
@@ -471,7 +471,7 @@ void move_back_and_forth_profile_dma(TMC2209_t *motor) {
     while (tmc2209_is_moving(motor)) {
       sleep_ms(10);
       stall = tmc2209_read_sg_result(motor);
-      LOG_DEBUG("$%u;", stall);
+      logger_send_motor_stall(stall);
     }
 
     LOG_DEBUG("Fin del perfil. Pausa de 1 seg...\n");
@@ -529,10 +529,9 @@ void core1_main(void) {
     // o falta de VM).
     uint32_t check_uart = tmc2209_read_register(&motor1, 0x06);
     if (check_uart == 0) {
-      LOG_DEBUG("⚠️ ERROR CRÍTICO: No hay comunicación UART (Lectura = "
-                "0).\nRevisar conexión TX/RX y alimentación VM.\n");
+      logger_send_uart_init_fail();
     } else {
-      LOG_DEBUG("✅ Conexión UART Exitosa. IOIN: 0x%08X\n", check_uart);
+      logger_send_uart_init_ok(check_uart);
     }
 
     // Configurar pdn_disable = 1 en GCONF (Bit 6)
@@ -563,10 +562,10 @@ void core1_main(void) {
     tmc2209_enable(&motor1, true);
 
     uint16_t msteps_read = tmc2209_get_microsteps(&motor1);
-    LOG_DEBUG("Microsteps Leido: %d\n", msteps_read);
+    logger_send_uart_init_microsteps_read(msteps_read);
   } else {
     // MODO PINES: Configuramos los pines para microstepping
-    LOG_DEBUG("Iniciando en MODO PINES (Pines MS usados para microstepping)\n");
+    logger_send_pins_init_mode();
     tmc2209_set_microstepping_by_pins(&motor1, MOTOR_MICROSTEPS);
   }
 
@@ -620,48 +619,18 @@ void core1_main(void) {
 
       // Detectar y reportar errores
       if (gstat & 0x01) {
-        LOG_DEBUG("⚠️ GSTAT: Reset detectado.\n");
         tmc2209_clear_gstat(&motor1, 1);
       }
       if (gstat & 0x02) {
-        LOG_DEBUG("⚠️ GSTAT: DRV_ERR (Falla en driver).\n");
         tmc2209_clear_gstat(&motor1, 2);
       }
       if (gstat & 0x04) {
-        LOG_DEBUG("⚠️ GSTAT: UV_CP (Bomba de carga baja).\n");
         tmc2209_clear_gstat(&motor1, 4);
       }
 
-      if (drv_status & 0x00000001) {
-        LOG_DEBUG("⚠️ DRV_STATUS: OLA (Ola abierta A).\n");
+      if (gstat || drv_status || stall) {
+        logger_send_drv_status_error(stall, drv_status, gstat);
       }
-      if (drv_status & 0x00000002) {
-        LOG_DEBUG("⚠️ DRV_STATUS: OLB (Ola abierta B).\n");
-      }
-      if (drv_status & 0x00000004) {
-        LOG_DEBUG("⚠️ DRV_STATUS: OTW (Sobre temp).\n");
-      }
-      if (drv_status & 0x00000008) {
-        LOG_DEBUG("⚠️ DRV_STATUS: OT (Sobre temp critica).\n");
-      }
-      if (drv_status & 0x00000010) {
-        LOG_DEBUG("⚠️ DRV_STATUS: S2G (Corto a tierra A).\n");
-      }
-      if (drv_status & 0x00000020) {
-        LOG_DEBUG("⚠️ DRV_STATUS: S2G (Corto a tierra B).\n");
-      }
-      if (drv_status & 0x00000040) {
-        LOG_DEBUG("⚠️ DRV_STATUS: S2V (Corto a VM A).\n");
-      }
-      if (drv_status & 0x00000080) {
-        LOG_DEBUG("⚠️ DRV_STATUS: S2V (Corto a VM B).\n");
-      }
-      if (drv_status & 0x00000100) {
-        LOG_DEBUG("⚠️ DRV_STATUS: StallGuard detected.\n");
-      }
-
-      LOG_DEBUG("Stall: %u | DRV: 0x%X | GSTAT: 0x%X\n", stall, drv_status,
-                gstat);
 
       sleep_ms(10);
     }
@@ -669,15 +638,9 @@ void core1_main(void) {
       ;
     break;
   case 7:
-    tmc2209_move_linear_um_dma(&motor1, -53000.0f, 1000.0f);
+    tmc2209_move_linear_um_dma(&motor1, 53000.0f, 50.0f);
     while (tmc2209_is_moving(&motor1)) {
       sleep_ms(10);
-      
-      // Enviar contador de prueba hacia el core 0 por FIFO a modo de Heartbeat
-      counter++;
-      if (multicore_fifo_wready()) {
-          multicore_fifo_push_blocking(counter);
-      }
     }
     while (true)
       ;

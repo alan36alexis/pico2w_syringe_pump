@@ -24,7 +24,7 @@
                 "load \"${command:raspberry-pi-pico.launchTargetPath}\""
             ],
             "openOCDLaunchCommands": [
-                "adapter speed 5000"
+                "adapter speed 1000"
             ]
         },
         {
