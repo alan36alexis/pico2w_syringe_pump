@@ -3,14 +3,12 @@
 #include <stdio.h>
 
 #include "hardware/spi.h"
-#include "pico/multicore.h"
 #include "pico/stdlib.h"
 
 // Componentes del proyecto
 #include "core1_main.h"
 #include "crosscore_logger.h"
 #include "honeywell_spi.h"
-#include "test_modes.h"
 #include "tmc2209.h"
 
 // --- DEBUG MODE ---
@@ -145,156 +143,6 @@ void tmc2209_set_current_amps(TMC2209_t *motor, float run_amps,
                               float hold_amps) {
   tmc2209_set_current(motor, tmc2209_amps_to_cs(run_amps),
                       tmc2209_amps_to_cs(hold_amps), 20);
-}
-
-void move_back_and_forth_limits(TMC2209_t *motor, float freq_cw,
-                                float freq_ccw) {
-  // Deshabilitar el manejo automático de finales de carrera del driver
-  // para manejarlo manualmente aquí con lógica de dirección
-  motor->limit_switches_enabled = false;
-
-  // Estado inicial: Hacia el inicio (False)
-  bool direction = false;
-
-  // Parámetros de la curva S
-  // Escalamiento correpondiente a 256/16 = 16
-  const uint32_t RAMP_STEPS_ACCEL = 1000 / 16; // Pasos para acelerar
-  const uint32_t RAMP_STEPS_DECEL = 1000 / 16; // Pasos para frenar
-  const float START_FREQ_HZ =
-      1000.0f / 16.0f; // Frecuencia inicial de arranque suave
-  const int S_CURVE_AGGRESSIVENESS =
-      3; // Agresividad de la curva (1=Lineal, 5=Muy Agresiva)
-
-  LOG_DEBUG("Iniciando bucle de va y ven con LIMIT SW (Curva S)...\n");
-
-  while (true) {
-    // Configurar dirección
-    tmc2209_set_direction(motor, direction);
-
-    // Seleccionar frecuencia objetivo según dirección
-    float target_freq = direction ? freq_ccw : freq_cw;
-
-    // Iniciar movimiento con aceleración en Curva S
-    // Iniciar movimiento
-    LOG_DEBUG("Iniciando movimiento %s -> Target: %.1f Hz\n",
-              direction ? "CCW" : "CW", target_freq);
-
-    // Registrar tiempo de inicio para cálculo de pasos
-    absolute_time_t start_time = get_absolute_time();
-
-    tmc2209_start_s_curve_dma(motor, START_FREQ_HZ, target_freq, 0.5f,
-                              RAMP_STEPS_ACCEL, S_CURVE_AGGRESSIVENESS);
-
-    // Bucle de polling activo
-    bool stop_triggered = false;
-    while (tmc2209_is_moving(motor)) {
-      // Leer finales de carrera (Lógica negativa: 0 = Activado)
-      bool start_hit = !gpio_get(motor->limit_switch_start_pin);
-      bool end_hit = !gpio_get(motor->limit_switch_end_pin);
-
-      // Check if any limit is hit to calculate steps BEFORE stopping logic (for
-      // precision)
-      if ((!direction && start_hit) || (direction && end_hit)) {
-        absolute_time_t end_time = get_absolute_time();
-        int64_t total_us = absolute_time_diff_us(start_time, end_time);
-
-        // Cálculo de pasos estimados
-        // 1. Calcular tiempo de rampa de aceleración
-        float avg_v = (START_FREQ_HZ + target_freq) / 2.0f;
-        float accel_time_s = (float)RAMP_STEPS_ACCEL / avg_v;
-        int64_t accel_time_us = (int64_t)(accel_time_s * 1000000.0f);
-
-        long estimated_steps = 0;
-        if (total_us <= accel_time_us) {
-          // Si el movimiento duró menos que la rampa (muy corto)
-          // Aproximación lineal simple (aunque es curva S)
-          float frac = (float)total_us / (float)accel_time_us;
-          estimated_steps = (long)(RAMP_STEPS_ACCEL * frac);
-        } else {
-          // Rampa completa + Estado estacionario
-          int64_t steady_us = total_us - accel_time_us;
-          long steady_steps = (long)((steady_us / 1000000.0f) * target_freq);
-          estimated_steps = RAMP_STEPS_ACCEL + steady_steps;
-        }
-        LOG_DEBUG(">>> Pasos estimados (%s): %ld (Tiempo: %lld ms)\n",
-                  direction ? "IDA" : "VUELTA", estimated_steps,
-                  total_us / 1000);
-      }
-
-      if (!direction) { // Moviendo hacia Inicio (False)
-        if (start_hit) {
-          logger_send_motor_start_hit();
-          stop_triggered = true;
-          // Frenado suave en Curva S hasta 0 Hz
-          tmc2209_stop_s_curve_dma(motor, 0.0f, RAMP_STEPS_DECEL);
-
-          // Esperar a que el motor se detenga completamente antes de cambiar
-          // dirección
-          while (tmc2209_is_moving(motor)) {
-            sleep_ms(1);
-          }
-
-          sleep_ms(200);    // Pausa extra de seguridad
-          direction = true; // Cambiar a True (Hacia Fin)
-          break;            // Salir del polling para reiniciar movimiento
-        }
-      } else { // Moviendo hacia Fin (True)
-        if (end_hit) {
-          logger_send_motor_end_hit();
-          stop_triggered = true;
-          // Frenado suave en Curva S hasta 0 Hz
-          tmc2209_stop_s_curve_dma(motor, 0.0f, RAMP_STEPS_DECEL);
-
-          // Esperar a que el motor se detenga completamente antes de cambiar
-          // dirección
-          while (tmc2209_is_moving(motor)) {
-            sleep_ms(1);
-          }
-
-          sleep_ms(200);     // Pausa extra de seguridad
-          direction = false; // Cambiar a False (Hacia Inicio)
-          break;             // Salir del polling para reiniciar movimiento
-        }
-      }
-      uint16_t stall = tmc2209_read_sg_result(motor);
-      logger_send_motor_stall(stall);
-
-      sleep_ms(10); // Evitar saturación
-    }
-  }
-}
-
-void move_back_and_forth_steps(TMC2209_t *motor, float freq_cw, int steps_cw,
-                               float freq_ccw, int steps_ccw) {
-  LOG_DEBUG("Iniciando bucle de va y ven por PASOS (Sin Limit SW)...\n");
-
-  // Estado inicial: Hacia el inicio (False)
-  bool direction = false;
-
-  while (true) {
-    // Configurar dirección
-    tmc2209_set_direction(motor, direction);
-
-    float target_freq = direction ? freq_ccw : freq_cw;
-    int target_steps = direction ? steps_ccw : steps_cw;
-
-    LOG_DEBUG("Moviendo %d pasos %s a %.1f Hz\n", target_steps,
-              direction ? "CCW" : "CW", target_freq);
-
-    // Usar modo pasos fijos (Burst mode - velocidad constante por ahora)
-    // Nota: tmc2209_send_nsteps_at_freq usa PIO en modo burst
-    tmc2209_send_nsteps_at_freq(motor, target_steps, target_freq);
-
-    // Esperar a que termine el movimiento
-    while (tmc2209_is_moving(motor)) {
-      sleep_ms(10);
-    }
-
-    sleep_ms(500); // Pausa entre movimientos
-
-    // Cambiar dirección
-    direction = !direction;
-  }
 }
 
 // --- Cinematica y Reducción ---
@@ -436,51 +284,6 @@ void tmc2209_move_linear_um_dma(TMC2209_t *motor, float target_um,
                                  f_mid_decel, d_p2, f_end);
 }
 
-void move_back_and_forth_profile_dma(TMC2209_t *motor) {
-  LOG_DEBUG(
-      "Iniciando prueba de perfil completo IDA y VUELTA (Sin Limit SW)...\n");
-
-  bool direction = false;
-
-  // Frecuencias y pasos de ejemplo
-  float f_start = 50.0f;
-  float f_mid_accel = 500.0f;
-  float f_target = 1000.0f;
-  float f_mid_decel = 500.0f;
-  float f_end = 50.0f;
-
-  uint32_t a_p1 = 100;  // Pasos de Aceleracion 1
-  uint32_t a_p2 = 100;  // Pasos de Aceleracion 2
-  uint32_t s_p = 20000; // Pasos de Crucero Constante
-  uint32_t d_p1 = 100;  // Pasos de Deceleracion 1
-  uint32_t d_p2 = 100;  // Pasos de Deceleracion 2
-
-  uint16_t stall = 0;
-
-  while (true) {
-    tmc2209_set_direction(motor, direction);
-
-    LOG_DEBUG("Lanzando perfil 2-partes %s. Total Pasos: %u\n",
-              direction ? "CCW" : "CW", a_p1 + a_p2 + s_p + d_p1 + d_p2);
-
-    tmc2209_move_2part_profile_dma(motor, f_start, a_p1, f_mid_accel, a_p2,
-                                   f_target, s_p, d_p1, f_mid_decel, d_p2,
-                                   f_end);
-
-    // Bloquear mientras el DMA hace ping pong con el perfil
-    while (tmc2209_is_moving(motor)) {
-      sleep_ms(10);
-      stall = tmc2209_read_sg_result(motor);
-      logger_send_motor_stall(stall);
-    }
-
-    LOG_DEBUG("Fin del perfil. Pausa de 1 seg...\n");
-    sleep_ms(1000); // Pausa entre idas y vueltas
-
-    direction = !direction;
-  }
-}
-
 /**
  * @brief Funciones y ejecución principal para Core 1 (Baremetal)
  */
@@ -569,84 +372,28 @@ void core1_main(void) {
     tmc2209_set_microstepping_by_pins(&motor1, MOTOR_MICROSTEPS);
   }
 
-  // --- SELECCION DE MODO DE EJECUCION ---
-  // 0: Modo Normal (Limit Switches)
-  // 1: Modo Pasos Fijos
-  // 2: Test RPM Demo
-  // 3: Test StallGuard Analysis
-  // 4: Test Microstepping Cycle
-  // 5: Test Single Function 2-Part Profile (Ida y Vuelta Autónomo)
-  int run_mode = 7;
+  // --- EJECUCION DE MOVIMIENTO LINEAL ---
+  tmc2209_move_linear_um_dma(&motor1, 53000.0f, 50.0f);
 
-  switch (run_mode) {
-  case 0:
-    move_back_and_forth_limits(&motor1, 6250.0f, 6250.0f);
-    break;
-  case 1:
-    move_back_and_forth_steps(&motor1, 100.0f, 20000, 100.0f, 10000);
-    break;
-  case 2:
-    while (1)
-      test_rpm_movement_demo(&motor1);
-    break;
-  case 3:
-    test_stallguard_analysis(&motor1);
-    break;
-  case 4:
-    while (1)
-      test_microstepping_cycle(&motor1, USE_UART_MODE);
-    break;
-  case 5:
-    move_back_and_forth_profile_dma(&motor1);
-    break;
-  case 6:
-    tmc2209_set_direction(&motor1, true);
-    // tmc2209_move_2part_profile_dma(&motor1, 500.0f, 5000, 3000.0f, 15000,
-    //                                5000.0f, 500000, 5000, 3000.0f, 5000,
-    //                                500.0f); //1/4
-    tmc2209_move_2part_profile_dma(&motor1, 500.0f, 3000, 2000.0f, 5000,
-                                   5300.0f, 500000, 3000, 1200.0f, 5000,
-                                   500.0f); // 1/2
-    // tmc2209_move_2part_profile_dma(&motor1, 100.0f, 1000, 200.0f, 3000,
-    // 500.0f,
-    //                                50000, 3000, 200.0f, 5000,
-    //                                100.0f); // 1/2
+  while (true) {
     while (tmc2209_is_moving(&motor1)) {
-
       uint32_t drv_status = tmc2209_read_drv_status(&motor1);
       uint32_t gstat = tmc2209_read_gstat(&motor1);
       uint16_t stall = tmc2209_read_sg_result(&motor1);
 
       // Detectar y reportar errores
-      if (gstat & 0x01) {
+      if (gstat & 0x01)
         tmc2209_clear_gstat(&motor1, 1);
-      }
-      if (gstat & 0x02) {
+      if (gstat & 0x02)
         tmc2209_clear_gstat(&motor1, 2);
-      }
-      if (gstat & 0x04) {
+      if (gstat & 0x04)
         tmc2209_clear_gstat(&motor1, 4);
-      }
 
       if (gstat || drv_status || stall) {
         logger_send_drv_status_error(stall, drv_status, gstat);
       }
-
       sleep_ms(10);
     }
-    while (true)
-      ;
-    break;
-  case 7:
-    tmc2209_move_linear_um_dma(&motor1, 53000.0f, 50.0f);
-    while (tmc2209_is_moving(&motor1)) {
-      sleep_ms(10);
-    }
-    while (true)
-      ;
-    break;
-  default:
-    move_back_and_forth_limits(&motor1, 6250.0f, 6250.0f);
-    break;
+    sleep_ms(100);
   }
 }
