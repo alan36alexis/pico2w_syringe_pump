@@ -111,3 +111,10 @@ void logger_send_pins_init_mode(void) {
     msg.id = LOG_EVENT_PINS_INIT_MODE;
     _try_send(&msg);
 }
+
+void logger_send_string(const char *str) {
+    LogMessage_t msg;
+    msg.id = LOG_EVENT_STRING_MSG;
+    msg.payload.msg_str = str;
+    _try_send(&msg);
+}

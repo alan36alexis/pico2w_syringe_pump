@@ -94,6 +94,9 @@ static void task_logger(void *params) {
                 case LOG_EVENT_GENERAL_DEBUG:
                     printf("Debug raw: %u\n", msg.payload.raw_data);
                     break;
+                case LOG_EVENT_STRING_MSG:
+                    printf("%s\n", msg.payload.msg_str);
+                    break;
                 default:
                     printf("Unknown crosscore logger event: %d\n", msg.id);
                     break;

@@ -168,16 +168,16 @@ void tmc2209_move_linear_um_dma(TMC2209_t *motor, float target_um,
   TMC2209_ChopperMode_t chop_mode;
   float run_amps;
 
-  if (target_velocity_ums < 50.0f) {
+  if (target_velocity_ums < 350.0f) {
     msteps = TMC2209_MICROSTEPS_16;
     chop_mode = TMC2209_CHOPPER_STEALTHCHOP;
     run_amps = 0.5f;
-  } else if (target_velocity_ums <= 500.0f) {
-    msteps = TMC2209_MICROSTEPS_8;
-    chop_mode = TMC2209_CHOPPER_STEALTHCHOP;
+  } else if (target_velocity_ums <= 550.0f) {
+    msteps = TMC2209_MICROSTEPS_16;
+    chop_mode = TMC2209_CHOPPER_SPREADCYCLE;
     run_amps = 1.0f;
   } else if (target_velocity_ums <= 800.0f) {
-    msteps = TMC2209_MICROSTEPS_4;
+    msteps = TMC2209_MICROSTEPS_8;
     chop_mode = TMC2209_CHOPPER_SPREADCYCLE;
     run_amps = 1.5f;
   } else {
@@ -189,7 +189,7 @@ void tmc2209_move_linear_um_dma(TMC2209_t *motor, float target_um,
   // Aplicar Conf. al Driver
   tmc2209_set_direction(motor, direction);
 
-  // Detener temporalmente (por si acaso) y configurar driver
+  // Detener temporalmente (justin) y configurar driver
   tmc2209_stop(motor);
   sleep_ms(5); // Pequeña pausa
   tmc2209_set_current_amps(motor, run_amps, 0.4f);
@@ -373,7 +373,7 @@ void core1_main(void) {
   }
 
   // --- EJECUCION DE MOVIMIENTO LINEAL ---
-  tmc2209_move_linear_um_dma(&motor1, 53000.0f, 50.0f);
+  tmc2209_move_linear_um_dma(&motor1, -15000.0f, 450.0f);
 
   while (true) {
     while (tmc2209_is_moving(&motor1)) {
