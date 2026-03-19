@@ -8,6 +8,7 @@
 // Componentes del proyecto
 #include "core1_main.h"
 #include "crosscore_logger.h"
+#include "crosscore_cmd.h"
 #include "honeywell_spi.h"
 #include "tmc2209.h"
 
@@ -373,10 +374,31 @@ void core1_main(void) {
   }
 
   // --- EJECUCION DE MOVIMIENTO LINEAL ---
-  tmc2209_move_linear_um_dma(&motor1, -15000.0f, 450.0f);
+  // tmc2209_move_linear_um_dma(&motor1, -15000.0f, 450.0f);
 
   while (true) {
+    Core1CmdMessage_t cmd;
+    
+    // Check for commands from Core 0
+    if (queue_try_remove(&crosscore_cmd_queue, &cmd)) {
+      if (cmd.id == CMD_MOVE_LINEAR_UM) {
+        LOG_DEBUG("CMD received: move_linear_um (%.1f, %.1f)\n", cmd.payload.move_linear.target_um, cmd.payload.move_linear.target_velocity_ums);
+        tmc2209_move_linear_um_dma(global_motor, cmd.payload.move_linear.target_um, cmd.payload.move_linear.target_velocity_ums);
+      } else if (cmd.id == CMD_STOP_MOTOR) {
+        LOG_DEBUG("CMD received: stop_motor\n");
+        tmc2209_stop_s_curve_dma(global_motor, 0.0f, 20);
+      }
+    }
+
     while (tmc2209_is_moving(&motor1)) {
+      // Check for incoming commands while moving
+      if (queue_try_remove(&crosscore_cmd_queue, &cmd)) {
+        if (cmd.id == CMD_STOP_MOTOR || cmd.id == CMD_MOVE_LINEAR_UM) {
+          LOG_DEBUG("CMD received while moving, aborting current move.\n");
+          tmc2209_stop_s_curve_dma(global_motor, 0.0f, 20);
+        }
+      }
+
       uint32_t drv_status = tmc2209_read_drv_status(&motor1);
       uint32_t gstat = tmc2209_read_gstat(&motor1);
       uint16_t stall = tmc2209_read_sg_result(&motor1);

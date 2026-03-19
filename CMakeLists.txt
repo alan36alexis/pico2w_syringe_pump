@@ -46,7 +46,9 @@ add_executable(pico2w_syringe_pump
     src/core0_main.c
     src/core1_main.c
     src/crosscore_logger.c
+    src/crosscore_cmd.c
     src/test_modes.c
+    src/mqtt_client.c
 )
 
 # Enable stdout
@@ -59,10 +61,16 @@ target_link_libraries(pico2w_syringe_pump
     hardware_spi
     tmc2209
     honeywell_spi
-    pico_cyw43_arch_none
+    pico_cyw43_arch_lwip_sys_freertos
+    pico_lwip_mqtt
     pico_multicore
     pico_util
     freertos
+)
+
+# Provide include directories for lwIP and others
+target_include_directories(pico2w_syringe_pump PRIVATE 
+    ${CMAKE_CURRENT_LIST_DIR}/src
 )
 
 # Additional output formats
