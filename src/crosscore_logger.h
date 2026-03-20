@@ -14,6 +14,7 @@ typedef enum {
     LOG_EVENT_PRESSURE_UPDATE,
     LOG_EVENT_PRESSURE_ALERT,
     LOG_EVENT_PRESSURE_SAFE,
+    LOG_EVENT_MOTOR_MOVING,
     LOG_EVENT_MOTOR_STOPPED,
     LOG_EVENT_MOTOR_RETRACTING,
     LOG_EVENT_MOTOR_START_HIT,
@@ -60,6 +61,7 @@ void logger_send_heartbeat(uint32_t count);
 void logger_send_pressure_update(float psi);
 void logger_send_pressure_alert(float psi);
 void logger_send_pressure_safe(float psi);
+void logger_send_motor_moving(void);
 void logger_send_motor_stopped(void);
 void logger_send_motor_retracting(void);
 void logger_send_motor_start_hit(void);

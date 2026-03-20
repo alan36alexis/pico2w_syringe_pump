@@ -134,6 +134,10 @@ static void task_logger(void *params) {
         printf("Debug raw: %u\n", msg.payload.raw_data);
         snprintf(buf, sizeof(buf), "Debug raw: %u", msg.payload.raw_data);
         break;
+      case LOG_EVENT_MOTOR_MOVING:
+        printf("Motor en movimiento...\n");
+        snprintf(buf, sizeof(buf), "Motor en movimiento...");
+        break;
       case LOG_EVENT_STRING_MSG:
         printf("%s\n", msg.payload.msg_str);
         snprintf(buf, sizeof(buf), "%s", msg.payload.msg_str);
@@ -144,7 +148,33 @@ static void task_logger(void *params) {
         break;
       }
       
-      mqtt_client_publish("syringe_pump/log", buf);
+      const char *topic = "syringe_pump/log/system";
+      switch (msg.id) {
+        case LOG_EVENT_MOTOR_MOVING:
+        case LOG_EVENT_MOTOR_STOPPED:
+        case LOG_EVENT_MOTOR_RETRACTING:
+        case LOG_EVENT_MOTOR_START_HIT:
+        case LOG_EVENT_MOTOR_END_HIT:
+          topic = "syringe_pump/log/motor_state";
+          break;
+        case LOG_EVENT_PRESSURE_UPDATE:
+        case LOG_EVENT_PRESSURE_ALERT:
+        case LOG_EVENT_PRESSURE_SAFE:
+          topic = "syringe_pump/log/pressure";
+          break;
+        case LOG_EVENT_MOTOR_STALL:
+        case LOG_EVENT_DRV_STATUS_ERROR:
+        case LOG_EVENT_UART_INIT_OK:
+        case LOG_EVENT_UART_INIT_FAIL:
+        case LOG_EVENT_UART_INIT_MICROSTEPS_READ:
+        case LOG_EVENT_PINS_INIT_MODE:
+          topic = "syringe_pump/log/motor_regs";
+          break;
+        default:
+          topic = "syringe_pump/log/system";
+          break;
+      }
+      mqtt_client_publish(topic, buf);
     }
     vTaskDelay(pdMS_TO_TICKS(10)); // Poll cada 10ms
   }

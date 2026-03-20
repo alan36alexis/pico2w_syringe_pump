@@ -383,12 +383,15 @@ void core1_main(void) {
     if (queue_try_remove(&crosscore_cmd_queue, &cmd)) {
       if (cmd.id == CMD_MOVE_LINEAR_UM) {
         LOG_DEBUG("CMD received: move_linear_um (%.1f, %.1f)\n", cmd.payload.move_linear.target_um, cmd.payload.move_linear.target_velocity_ums);
+        logger_send_motor_moving();
         tmc2209_move_linear_um_dma(global_motor, cmd.payload.move_linear.target_um, cmd.payload.move_linear.target_velocity_ums);
       } else if (cmd.id == CMD_STOP_MOTOR) {
         LOG_DEBUG("CMD received: stop_motor\n");
         tmc2209_stop_s_curve_dma(global_motor, 0.0f, 20);
       }
     }
+
+    bool was_moving = tmc2209_is_moving(&motor1);
 
     while (tmc2209_is_moving(&motor1)) {
       // Check for incoming commands while moving
@@ -416,6 +419,11 @@ void core1_main(void) {
       }
       sleep_ms(10);
     }
+    
+    if (was_moving && emergency_state == EMERGENCY_NORMAL) {
+      logger_send_motor_stopped();
+    }
+    
     sleep_ms(100);
   }
 }

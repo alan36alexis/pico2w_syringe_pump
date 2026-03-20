@@ -46,6 +46,12 @@ void logger_send_pressure_safe(float psi) {
     _try_send(&msg);
 }
 
+void logger_send_motor_moving(void) {
+    LogMessage_t msg;
+    msg.id = LOG_EVENT_MOTOR_MOVING;
+    _try_send(&msg);
+}
+
 void logger_send_motor_stopped(void) {
     LogMessage_t msg;
     msg.id = LOG_EVENT_MOTOR_STOPPED;
