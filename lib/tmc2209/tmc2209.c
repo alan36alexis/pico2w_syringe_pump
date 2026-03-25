@@ -1156,6 +1156,74 @@ void tmc2209_stop_2part_curve_dma(TMC2209_t *motor, float freq_start,
   dma_channel_start(motor->dma_ramp_ch);
 }
 
+float tmc2209_get_current_freq_hz(TMC2209_t *motor) {
+  if (!tmc2209_is_moving(motor)) {
+    return 0.0f;
+  }
+
+  int active_ch = -1;
+  // Primero verificamos qué canal DMA está activo
+  if (dma_channel_is_busy(motor->dma_ramp_ch)) {
+    active_ch = motor->dma_ramp_ch;
+  } else if (dma_channel_is_busy(motor->dma_steady_ch)) {
+    active_ch = motor->dma_steady_ch;
+  }
+
+  if (active_ch != -1) {
+    uint32_t read_addr = dma_channel_hw_addr(active_ch)->read_addr;
+    uint32_t *ptr = (uint32_t *)read_addr;
+
+    uint32_t offset = 0;
+    bool valid_ptr = false;
+
+    // Alinear el puntero al inicio del buffer correspondiente para obtener su índice
+    if (ptr >= motor->bufA &&
+        ptr < motor->bufA + TMC2209_PING_PONG_BUFFER_WORDS) {
+      offset = ptr - motor->bufA;
+      valid_ptr = true;
+    } else if (ptr >= motor->bufB &&
+               ptr < motor->bufB + TMC2209_PING_PONG_BUFFER_WORDS) {
+      offset = ptr - motor->bufB;
+      valid_ptr = true;
+    } else if (ptr >= motor->steady_buf && ptr <= motor->steady_buf + 2) {
+      offset = ptr - motor->steady_buf;
+      valid_ptr = true;
+    }
+
+    if (valid_ptr) {
+      // Como los datos se guardan en pares [Ton, Toff]
+      // Si el offset es par, ptr apunta a Ton. Su Toff asociado es ptr[1].
+      // Si el offset es impar, ptr apunta a Toff. Su Ton asociado es ptr[-1].
+      uint32_t ton_cycles = (offset % 2 == 0) ? ptr[0] : ptr[-1];
+      uint32_t toff_cycles = (offset % 2 == 0) ? ptr[1] : ptr[0];
+
+      uint32_t total_cycles = ton_cycles + toff_cycles;
+      if (total_cycles > 0) {
+        uint32_t sys_hz = clock_get_hz(clk_sys);
+        return (float)sys_hz / (float)total_cycles;
+      }
+    }
+  }
+
+  // Si no pudimos determinarla (o hubo algún problema con los punteros), devolvemos la última calculada o configurada.
+  return motor->freq_target_hz > 0 ? motor->freq_target_hz : motor->freq_start_hz;
+}
+
+void tmc2209_stop_from_current_freq_dma(TMC2209_t *motor, uint32_t pulses_seg1,
+                                        float freq_mid, uint32_t pulses_seg2,
+                                        float freq_target) {
+  // 1. Obtenemos la frecuencia actual leyendo exactamente lo que está haciendo el motor.
+  float current_freq = tmc2209_get_current_freq_hz(motor);
+  
+  if (current_freq < 0.1f) {
+    current_freq = 0.1f;
+  }
+
+  // 2. Usamos la función de frenado base, inyectando la frecuencia actual real.
+  tmc2209_stop_2part_curve_dma(motor, current_freq, pulses_seg1, freq_mid,
+                               pulses_seg2, freq_target);
+}
+
 void tmc2209_move_2part_profile_dma(
     TMC2209_t *motor, float freq_start, uint32_t accel_pulses_1,
     float accel_freq_mid, uint32_t accel_pulses_2, float freq_target,

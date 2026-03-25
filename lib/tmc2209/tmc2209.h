@@ -447,6 +447,29 @@ void tmc2209_change_frequency_dma(TMC2209_t *motor, float freq_new_hz,
                                   uint ramp_steps);
 
 /**
+ * @brief Obtiene la frecuencia instantánea (Hz) a la que se está moviendo el motor.
+ * Basado en la lectura en tiempo real del DMA.
+ * 
+ * @param motor Puntero a la estructura del motor.
+ * @return float Frecuencia instantánea en Hz. Devuelve 0.0f si está detenido.
+ */
+float tmc2209_get_current_freq_hz(TMC2209_t *motor);
+
+/**
+ * @brief Inicia un frenado dinámico comenzando desde la frecuencia instantánea real.
+ * Reutiliza la lógica de curva de 2 partes.
+ * 
+ * @param motor Puntero a la estructura del motor.
+ * @param pulses_seg1 Cantidad de pulsos del segmento 1 de frenado.
+ * @param freq_mid Frecuencia intermedia en Hz.
+ * @param pulses_seg2 Cantidad de pulsos del segmento 2 de frenado.
+ * @param freq_target Frecuencia final en Hz (generalmente 0.1f para detenerse).
+ */
+void tmc2209_stop_from_current_freq_dma(TMC2209_t *motor, uint32_t pulses_seg1, 
+                                        float freq_mid, uint32_t pulses_seg2, 
+                                        float freq_target);
+
+/**
  * @brief Inicia un movimiento con una curva de aceleración de 2 partes (2
  * rectas).
  *

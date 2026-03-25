@@ -169,7 +169,11 @@ void tmc2209_move_linear_um_dma(TMC2209_t *motor, float target_um,
   TMC2209_ChopperMode_t chop_mode;
   float run_amps;
 
-  if (target_velocity_ums < 350.0f) {
+  if (target_velocity_ums == 0.0f) {
+    msteps = TMC2209_MICROSTEPS_16;
+    chop_mode = TMC2209_CHOPPER_STEALTHCHOP;
+    run_amps = 0.5f;
+  } else if (target_velocity_ums < 350.0f) {
     msteps = TMC2209_MICROSTEPS_16;
     chop_mode = TMC2209_CHOPPER_STEALTHCHOP;
     run_amps = 0.5f;

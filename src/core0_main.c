@@ -9,6 +9,8 @@
 #include "task.h"
 #include <stdio.h>
 
+static void wifi_keepalive_task(void *params);
+
 /**
  * @brief Tarea de inicializacion
  */
@@ -33,8 +35,28 @@ static void task_init(void *params) {
   // Iniciar la tarea cliente MQTT
   xTaskCreate(mqtt_client_task, "MQTT_Task", configMINIMAL_STACK_SIZE * 4, NULL, 2, NULL);
 
+  xTaskCreate(wifi_keepalive_task, "WiFi_Keepalive", configMINIMAL_STACK_SIZE, NULL, 1, NULL);
+
   // Elimino la tarea para liberar recursos tras una única ejecución
   vTaskDelete(NULL);
+}
+
+/**
+ * @brief Tarea para mantener la conexion Wi-Fi
+ */
+static void wifi_keepalive_task(void *params) {
+  while (1) {
+    int link_status = cyw43_tcpip_link_status(&cyw43_state, CYW43_ITF_STA);
+    if (link_status != CYW43_LINK_UP) {
+      printf("Wi-Fi disconnected (status: %d). Reconnecting...\n", link_status);
+      if (cyw43_arch_wifi_connect_timeout_ms(WIFI_SSID, WIFI_PASSWORD, CYW43_AUTH_WPA2_AES_PSK, 30000)) {
+          printf("Failed to reconnect to Wi-Fi.\n");
+      } else {
+          printf("Reconnected to Wi-Fi.\n");
+      }
+    }
+    vTaskDelay(pdMS_TO_TICKS(10000));
+  }
 }
 
 /**
