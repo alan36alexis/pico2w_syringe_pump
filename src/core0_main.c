@@ -7,9 +7,29 @@
 #include "pico/multicore.h"
 #include "pico/stdlib.h"
 #include "task.h"
+#include "queue.h"
 #include <stdio.h>
+#include <stdarg.h>
+#include "syringe_pump_api.h"
 
 static void wifi_keepalive_task(void *params);
+
+#define PRINT_QUEUE_LENGTH 15
+#define PRINT_MSG_MAX_LEN 128
+static QueueHandle_t print_q = NULL;
+
+/**
+ * @brief Thread-safe proxy para mandar strings al logger centralizado.
+ */
+void safe_printf(const char *fmt, ...) {
+    if (print_q == NULL) return;
+    char buf[PRINT_MSG_MAX_LEN];
+    va_list args;
+    va_start(args, fmt);
+    vsnprintf(buf, sizeof(buf), fmt, args);
+    va_end(args);
+    xQueueSend(print_q, buf, 0); // Si está llena, se descarta el log (non-blocking)
+}
 
 /**
  * @brief Tarea de inicializacion
@@ -17,19 +37,19 @@ static void wifi_keepalive_task(void *params);
 static void task_init(void *params) {
   // Inicializacion de GPIO y Wi-Fi chip (CYW43)
   if (cyw43_arch_init_with_country(CYW43_COUNTRY_WORLDWIDE)) {
-    printf("Wi-Fi init failed\n");
+    safe_printf("Wi-Fi init failed\n");
     vTaskDelete(NULL);
     return;
   }
   
   cyw43_arch_enable_sta_mode();
-  printf("Connecting to Wi-Fi (%s)...\n", WIFI_SSID);
+  safe_printf("Connecting to Wi-Fi (%s)...\n", WIFI_SSID);
   if (cyw43_arch_wifi_connect_timeout_ms(WIFI_SSID, WIFI_PASSWORD, CYW43_AUTH_WPA2_AES_PSK, 30000)) {
-      printf("Failed to connect to Wi-Fi.\n");
+      safe_printf("Failed to connect to Wi-Fi.\n");
       vTaskDelete(NULL);
       return;
   }
-  printf("Connected to Wi-Fi.\n");
+  safe_printf("Connected to Wi-Fi.\n");
   cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, 1);
 
   // Iniciar la tarea cliente MQTT
@@ -48,11 +68,11 @@ static void wifi_keepalive_task(void *params) {
   while (1) {
     int link_status = cyw43_tcpip_link_status(&cyw43_state, CYW43_ITF_STA);
     if (link_status != CYW43_LINK_UP) {
-      printf("Wi-Fi disconnected (status: %d). Reconnecting...\n", link_status);
+      safe_printf("Wi-Fi disconnected (status: %d). Reconnecting...\n", link_status);
       if (cyw43_arch_wifi_connect_timeout_ms(WIFI_SSID, WIFI_PASSWORD, CYW43_AUTH_WPA2_AES_PSK, 30000)) {
-          printf("Failed to reconnect to Wi-Fi.\n");
+          safe_printf("Failed to reconnect to Wi-Fi.\n");
       } else {
-          printf("Reconnected to Wi-Fi.\n");
+          safe_printf("Reconnected to Wi-Fi.\n");
       }
     }
     vTaskDelay(pdMS_TO_TICKS(10000));
@@ -78,7 +98,13 @@ static void task_blinky(void *params) {
 static void task_logger(void *params) {
   LogMessage_t msg;
   char buf[256];
+  char print_msg[PRINT_MSG_MAX_LEN];
   while (1) {
+    // Procesa peticiones de impresión procedentes de otras tareas del Core 0
+    while (xQueueReceive(print_q, print_msg, 0) == pdTRUE) {
+      printf("%s", print_msg);
+    }
+    
     // Verifica si hay mensajes en la cola desde el Core 1
     while (queue_try_remove(&crosscore_log_queue, &msg)) {
       buf[0] = '\0';
@@ -92,6 +118,9 @@ static void task_logger(void *params) {
                msg.payload.pressure_psi, msg.payload.pressure_psi * 51.7149f);
         snprintf(buf, sizeof(buf), "Status: OK, Pressure: %.2f psi (%.2f mmHg)",
                msg.payload.pressure_psi, msg.payload.pressure_psi * 51.7149f);
+        
+        // Feed real-time pressure to API
+        Pump_UpdatePressure(msg.payload.pressure_psi * 51.7149f);
         break;
       case LOG_EVENT_PRESSURE_ALERT:
         printf("ALERTA: Sobrepresion (%.2f PSI). Frenando para retroceder!\n",
@@ -206,12 +235,33 @@ static void task_logger(void *params) {
  * @brief Tarea de ejemplo interno (mantenida para uso interno/testing)
  */
 static void task_example_internal_cmd(void *params) {
+  // Inicializar API Clínica y configurar jeringa genérica de ejemplo
+  Pump_Init();
+  Pump_SelectSyringe(19.13f, 20.0f);
+
+  // Esperar 10 segundos antes de accionar (para estabilizar red y driver)
+  vTaskDelay(pdMS_TO_TICKS(10000));
+  safe_printf("Iniciando bomba jeringa a 50 mL/h en Modo Continuo...\n");
+  Pump_Mode_Continuous(50.0f);
+
   while (1) {
-    // Incrementar el delay a 60s para que no dispare aleatoriamente
     vTaskDelay(pdMS_TO_TICKS(60000));
-    // cmd_send_move_linear_um(10000.0f, 450.0f);
-    // vTaskDelay(pdMS_TO_TICKS(10000));
-    // cmd_send_stop_motor();
+  }
+}
+
+/**
+ * @brief Tarea para reportar telemetría JSON
+ */
+static void task_pump_telemetry(void *params) {
+  char json_buf[256];
+  const uint32_t telemetry_period_ms = 2000;
+
+  while (1) {
+    // Calculadora temporal: Avanza el volumen y contador de tiempo 2000 ms = 2 seg
+    Pump_Tick(telemetry_period_ms);
+    Pump_GetTelemetryJSON(json_buf, sizeof(json_buf));
+    mqtt_client_publish("syringe_pump/telemetry", json_buf);
+    vTaskDelay(pdMS_TO_TICKS(telemetry_period_ms)); // Publicar cada 2 segundos
   }
 }
 
@@ -220,7 +270,8 @@ static void task_example_internal_cmd(void *params) {
  * FreeRTOS
  */
 void core0_main_setup(void) {
-  // Inicializar la cola crosscore
+  // Inicializar colas y frameworks de logeo
+  print_q = xQueueCreate(PRINT_QUEUE_LENGTH, PRINT_MSG_MAX_LEN);
   crosscore_logger_init();
   crosscore_cmd_init();
 
@@ -229,6 +280,7 @@ void core0_main_setup(void) {
   xTaskCreate(task_blinky, "Blinky", configMINIMAL_STACK_SIZE, NULL, 1, NULL);
   xTaskCreate(task_logger, "Logger", configMINIMAL_STACK_SIZE * 3, NULL, 1,
               NULL);
+  xTaskCreate(task_pump_telemetry, "Telemetry", configMINIMAL_STACK_SIZE * 2, NULL, 1, NULL);
   xTaskCreate(task_example_internal_cmd, "CmdExample", configMINIMAL_STACK_SIZE, NULL,
               1, NULL);
 }

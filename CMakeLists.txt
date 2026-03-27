@@ -49,6 +49,7 @@ add_executable(pico2w_syringe_pump
     src/crosscore_cmd.c
     src/test_modes.c
     src/mqtt_client.c
+    src/syringe_pump_api.c
 )
 
 # Enable stdout
