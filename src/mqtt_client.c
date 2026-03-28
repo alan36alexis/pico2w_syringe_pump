@@ -20,6 +20,13 @@ static void mqtt_incoming_data_cb(void *arg, const u8_t *data, u16_t len, u8_t f
     printf("MQTT Payload received: %s\n", payload_str);
     
     // Parse the payload depending on the topic length/context.
+    // Check for "STOP" or "stop" command
+    if (strncmp(payload_str, "stop", 4) == 0 || strncmp(payload_str, "STOP", 4) == 0) {
+        printf("Executing STOP command via MQTT\n");
+        cmd_send_stop_motor();
+        return;
+    }
+
     // For now, assume it's cmd_send_move_linear_um
     float speed = 0.0f, pos = 0.0f;
     char *comma = strchr(payload_str, ',');

@@ -7,10 +7,11 @@
 
 // Componentes del proyecto
 #include "core1_main.h"
-#include "crosscore_logger.h"
 #include "crosscore_cmd.h"
+#include "crosscore_logger.h"
 #include "honeywell_spi.h"
 #include "tmc2209.h"
+
 
 // --- DEBUG MODE ---
 // 1 = Activado (printf habilitado), 0 = Desactivado (printf mudo)
@@ -309,7 +310,8 @@ void core1_main(void) {
 
   // Iniciar timer repetitivo cada 500ms
   repeating_timer_t honeywell_timer;
-  add_repeating_timer_ms(500, honeywell_timer_callback, NULL, &honeywell_timer);
+  // add_repeating_timer_ms(500, honeywell_timer_callback, NULL,
+  // &honeywell_timer);
 
   TMC2209_t motor1;
   global_motor = &motor1;
@@ -382,16 +384,25 @@ void core1_main(void) {
 
   while (true) {
     Core1CmdMessage_t cmd;
-    
+
     // Check for commands from Core 0
     if (queue_try_remove(&crosscore_cmd_queue, &cmd)) {
       if (cmd.id == CMD_MOVE_LINEAR_UM) {
-        LOG_DEBUG("CMD received: move_linear_um (%.1f, %.1f)\n", cmd.payload.move_linear.target_um, cmd.payload.move_linear.target_velocity_ums);
+        LOG_DEBUG("CMD received: move_linear_um (%.1f, %.1f)\n",
+                  cmd.payload.move_linear.target_um,
+                  cmd.payload.move_linear.target_velocity_ums);
         logger_send_motor_moving();
-        tmc2209_move_linear_um_dma(global_motor, cmd.payload.move_linear.target_um, cmd.payload.move_linear.target_velocity_ums);
+        tmc2209_move_linear_um_dma(global_motor,
+                                   cmd.payload.move_linear.target_um,
+                                   cmd.payload.move_linear.target_velocity_ums);
       } else if (cmd.id == CMD_STOP_MOTOR) {
         LOG_DEBUG("CMD received: stop_motor\n");
-        tmc2209_stop_s_curve_dma(global_motor, 0.0f, 20);
+        if (tmc2209_is_moving(global_motor)) {
+          float current_freq = tmc2209_get_current_freq_hz(global_motor);
+          tmc2209_stop_from_current_freq_dma(global_motor, 200, current_freq * 0.5f, 200, 50.0f);
+        } else {
+          tmc2209_stop(global_motor);
+        }
       }
     }
 
@@ -402,7 +413,8 @@ void core1_main(void) {
       if (queue_try_remove(&crosscore_cmd_queue, &cmd)) {
         if (cmd.id == CMD_STOP_MOTOR || cmd.id == CMD_MOVE_LINEAR_UM) {
           LOG_DEBUG("CMD received while moving, aborting current move.\n");
-          tmc2209_stop_s_curve_dma(global_motor, 0.0f, 20);
+          float current_freq = tmc2209_get_current_freq_hz(global_motor);
+          tmc2209_stop_from_current_freq_dma(global_motor, 200, current_freq * 0.5f, 200, 50.0f);
         }
       }
 
@@ -423,11 +435,11 @@ void core1_main(void) {
       }
       sleep_ms(10);
     }
-    
+
     if (was_moving && emergency_state == EMERGENCY_NORMAL) {
       logger_send_motor_stopped();
     }
-    
+
     sleep_ms(100);
   }
 }
