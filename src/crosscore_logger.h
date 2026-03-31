@@ -26,7 +26,9 @@ typedef enum {
     LOG_EVENT_UART_INIT_MICROSTEPS_READ,
     LOG_EVENT_PINS_INIT_MODE,
     LOG_EVENT_GENERAL_DEBUG,
-    LOG_EVENT_STRING_MSG
+    LOG_EVENT_STRING_MSG,
+    LOG_EVENT_ENCODER_UPDATE,
+    LOG_EVENT_ENCODER_INDEP_UPDATE
 } LogEventID_t;
 
 // Payload Struct (Union to save space)
@@ -48,6 +50,11 @@ typedef struct {
             int step_count;
             int time_ms;
         } steps_info;              // For step logging
+        int32_t encoder_count;     // For encoder polling
+        struct {
+            int32_t count_a;
+            int32_t count_b;
+        } encoder_indep_count;
         uint32_t raw_data;         // For arbitrary data
         const char *msg_str;       // For string messages (pointers)
     } payload;
@@ -73,5 +80,7 @@ void logger_send_uart_init_fail(void);
 void logger_send_uart_init_microsteps_read(uint16_t msteps);
 void logger_send_pins_init_mode(void);
 void logger_send_string(const char *str);
+void logger_send_encoder_count(int32_t count);
+void logger_send_encoder_indep_counts(int32_t count_a, int32_t count_b);
 
 #endif // CROSSCORE_LOGGER_H

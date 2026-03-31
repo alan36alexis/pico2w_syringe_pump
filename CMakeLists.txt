@@ -52,6 +52,9 @@ add_executable(pico2w_syringe_pump
     src/syringe_pump_api.c
 )
 
+pico_generate_pio_header(pico2w_syringe_pump ${CMAKE_CURRENT_LIST_DIR}/src/quadrature_encoder.pio)
+pico_generate_pio_header(pico2w_syringe_pump ${CMAKE_CURRENT_LIST_DIR}/src/pulse_counter.pio)
+
 # Enable stdout
 pico_enable_stdio_usb(pico2w_syringe_pump 1)
 pico_enable_stdio_uart(pico2w_syringe_pump 1)
@@ -67,6 +70,7 @@ target_link_libraries(pico2w_syringe_pump
     pico_multicore
     pico_util
     freertos
+    hardware_pio
 )
 
 # Provide include directories for lwIP and others

@@ -124,3 +124,18 @@ void logger_send_string(const char *str) {
     msg.payload.msg_str = str;
     _try_send(&msg);
 }
+
+void logger_send_encoder_count(int32_t count) {
+    LogMessage_t msg;
+    msg.id = LOG_EVENT_ENCODER_UPDATE;
+    msg.payload.encoder_count = count;
+    _try_send(&msg);
+}
+
+void logger_send_encoder_indep_counts(int32_t count_a, int32_t count_b) {
+    LogMessage_t msg;
+    msg.id = LOG_EVENT_ENCODER_INDEP_UPDATE;
+    msg.payload.encoder_indep_count.count_a = count_a;
+    msg.payload.encoder_indep_count.count_b = count_b;
+    _try_send(&msg);
+}

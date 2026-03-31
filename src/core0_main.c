@@ -12,7 +12,6 @@
 #include <stdarg.h>
 #include <stdio.h>
 
-
 static void wifi_keepalive_task(void *params);
 
 #define PRINT_QUEUE_LENGTH 15
@@ -57,11 +56,13 @@ static void task_init(void *params) {
   cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, 1);
 
   // Iniciar la tarea cliente MQTT
-  xTaskCreate(mqtt_client_task, "MQTT_Task", configMINIMAL_STACK_SIZE * 4, NULL,
-              2, NULL);
+  // xTaskCreate(mqtt_client_task, "MQTT_Task", configMINIMAL_STACK_SIZE * 4,
+  // NULL,
+  //             2, NULL);
 
-  xTaskCreate(wifi_keepalive_task, "WiFi_Keepalive", configMINIMAL_STACK_SIZE,
-              NULL, 1, NULL);
+  // xTaskCreate(wifi_keepalive_task, "WiFi_Keepalive",
+  // configMINIMAL_STACK_SIZE,
+  //             NULL, 1, NULL);
 
   // Elimino la tarea para liberar recursos tras una única ejecución
   vTaskDelete(NULL);
@@ -145,8 +146,8 @@ static void task_logger(void *params) {
                  msg.payload.pressure_psi);
         break;
       case LOG_EVENT_MOTOR_STOPPED:
-        printf("Motor detenido. Iniciando retroceso...\n");
-        snprintf(buf, sizeof(buf), "Motor detenido. Iniciando retroceso...");
+        printf("Motor detenido.\n");
+        snprintf(buf, sizeof(buf), "Motor detenido.");
         break;
       case LOG_EVENT_MOTOR_RETRACTING:
         printf("Retroceso iniciado...\n");
@@ -167,10 +168,10 @@ static void task_logger(void *params) {
         snprintf(buf, sizeof(buf), "$%u;", msg.payload.motor_status.stall);
         break;
       case LOG_EVENT_DRV_STATUS_ERROR:
-        printf("Stall: %u | DRV: 0x%X | GSTAT: 0x%X\n",
-               msg.payload.motor_status.stall,
-               msg.payload.motor_status.drv_status,
-               msg.payload.motor_status.gstat);
+        // printf("Stall: %u | DRV: 0x%X | GSTAT: 0x%X\n",
+        //        msg.payload.motor_status.stall,
+        //        msg.payload.motor_status.drv_status,
+        //        msg.payload.motor_status.gstat);
         snprintf(buf, sizeof(buf), "Stall: %u | DRV: 0x%X | GSTAT: 0x%X",
                  msg.payload.motor_status.stall,
                  msg.payload.motor_status.drv_status,
@@ -212,6 +213,19 @@ static void task_logger(void *params) {
         printf("%s\n", msg.payload.msg_str);
         snprintf(buf, sizeof(buf), "%s", msg.payload.msg_str);
         break;
+      case LOG_EVENT_ENCODER_UPDATE:
+        printf("Encoder Val: %d\n", msg.payload.encoder_count);
+        snprintf(buf, sizeof(buf), "Encoder Val: %d",
+                 msg.payload.encoder_count);
+        break;
+      case LOG_EVENT_ENCODER_INDEP_UPDATE:
+        printf("Encoder Indep: A=%d B=%d\n",
+               msg.payload.encoder_indep_count.count_a,
+               msg.payload.encoder_indep_count.count_b);
+        snprintf(buf, sizeof(buf), "{\"A\": %d, \"B\": %d}",
+                 msg.payload.encoder_indep_count.count_a,
+                 msg.payload.encoder_indep_count.count_b);
+        break;
       default:
         printf("Unknown crosscore logger event: %d\n", msg.id);
         snprintf(buf, sizeof(buf), "Unknown crosscore logger event: %d",
@@ -241,6 +255,12 @@ static void task_logger(void *params) {
       case LOG_EVENT_PINS_INIT_MODE:
         topic = "syringe_pump/log/motor_regs";
         break;
+      case LOG_EVENT_ENCODER_UPDATE:
+        topic = "syringe_pump/log/encoder";
+        break;
+      case LOG_EVENT_ENCODER_INDEP_UPDATE:
+        topic = "syringe_pump/log/encoder_indep";
+        break;
       default:
         topic = "syringe_pump/log/system";
         break;
@@ -260,10 +280,14 @@ static void task_example_internal_cmd(void *params) {
   Pump_SelectSyringe(19.13f, 20.0f);
 
   // Esperar 10 segundos antes de accionar (para estabilizar red y driver)
-  vTaskDelay(pdMS_TO_TICKS(10000));
-  safe_printf("Iniciando bomba jeringa a 50 mL/h en Modo Continuo...\n");
-  // Pump_Mode_Continuous(50.0f);
-  Pump_Mode_Bolus(10.0f, 60.0f);
+  vTaskDelay(pdMS_TO_TICKS(5000));
+  // safe_printf("Iniciando bomba jeringa a 50 mL/h en Modo Continuo...\n");
+  // Pump_Mode_Continuous(10.0f);
+  Pump_Mode_Bolus(2.0f, 60.0f);
+
+  // float turns = 0;
+  // cmd_send_move_2part_profile(20.0f, 200, 400.0f, 200, 700.0f,
+  //                             2400 + turns * 3200, 200, 400.0f, 200, 20.0f);
 
   while (1) {
     vTaskDelay(pdMS_TO_TICKS(60000));

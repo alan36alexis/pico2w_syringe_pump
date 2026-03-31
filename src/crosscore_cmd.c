@@ -29,3 +29,23 @@ bool cmd_send_stop_motor(void) {
     // Add to queue (non-blocking). Returns true if added, false if queue is full.
     return queue_try_add(&crosscore_cmd_queue, &msg);
 }
+
+bool cmd_send_move_2part_profile(float start_freq, uint32_t a_p1, float f_mid_accel,
+                                 uint32_t a_p2, float f_target, uint32_t c_steps,
+                                 uint32_t d_p1, float f_mid_decel, uint32_t d_p2,
+                                 float f_end) {
+    Core1CmdMessage_t msg;
+    msg.id = CMD_MOVE_2PART_PROFILE;
+    msg.payload.move_2part.start_freq = start_freq;
+    msg.payload.move_2part.a_p1 = a_p1;
+    msg.payload.move_2part.f_mid_accel = f_mid_accel;
+    msg.payload.move_2part.a_p2 = a_p2;
+    msg.payload.move_2part.f_target = f_target;
+    msg.payload.move_2part.c_steps = c_steps;
+    msg.payload.move_2part.d_p1 = d_p1;
+    msg.payload.move_2part.f_mid_decel = f_mid_decel;
+    msg.payload.move_2part.d_p2 = d_p2;
+    msg.payload.move_2part.f_end = f_end;
+    
+    return queue_try_add(&crosscore_cmd_queue, &msg);
+}

@@ -1,0 +1,63 @@
+;
+; PIO program to count pulses (rising edges) independently on a single pin
+;
+
+.pio_version 0 // only requires PIO version 0
+
+.program pulse_counter
+
+    ; Initialize X counter to 0xFFFFFFFF
+    mov x, ~null
+
+.wrap_target
+start:
+    wait 0 pin 0  ; Wait for pin to be low
+    wait 1 pin 0  ; Wait for pin to be high (rising edge)
+    jmp x-- start ; Decrement X and loop
+.wrap
+
+% c-sdk {
+
+#include "hardware/clocks.h"
+#include "hardware/gpio.h"
+
+static inline void pulse_counter_program_init(PIO pio, uint sm, uint offset, uint pin)
+{
+    // Configure pin direction as input
+    pio_sm_set_consecutive_pindirs(pio, sm, pin, 1, false);
+    
+    // Initialize GPIO for PIO
+    pio_gpio_init(pio, pin);
+    gpio_pull_up(pin);
+
+    // Get default configuration
+    pio_sm_config c = pulse_counter_program_get_default_config(offset);
+
+    // Set the input pin base
+    sm_config_set_in_pins(&c, pin);
+    
+    // Run at maximum speed
+    sm_config_set_clkdiv(&c, 1.0);
+
+    // Initialize and enable the state machine
+    pio_sm_init(pio, sm, offset, &c);
+    pio_sm_set_enabled(pio, sm, true);
+}
+
+static inline int32_t pulse_counter_get_count(PIO pio, uint sm)
+{
+    // To read the current counter (X register) without pausing the SM:
+    // 1. Tell SM to put X into ISR:  IN X, 32
+    // 2. Tell SM to push ISR to FIFO: PUSH
+    
+    pio_sm_exec(pio, sm, pio_encode_in(pio_x, 32));
+    pio_sm_exec(pio, sm, pio_encode_push(false, false));
+    
+    // Read the value from the RX FIFO
+    uint32_t current_x = pio_sm_get_blocking(pio, sm);
+    
+    // The count is how many times X was decremented from 0xFFFFFFFF
+    return 0xFFFFFFFF - current_x;
+}
+
+%}

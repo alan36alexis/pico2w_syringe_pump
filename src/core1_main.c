@@ -9,9 +9,14 @@
 #include "core1_main.h"
 #include "crosscore_cmd.h"
 #include "crosscore_logger.h"
+#include "hardware/pio.h"
 #include "honeywell_spi.h"
+#include "pulse_counter.pio.h"
+#include "quadrature_encoder.pio.h"
 #include "tmc2209.h"
 
+// Opción para alternar entre Cuadratura y Conteo Independiente
+#define USE_QUADRATURE_ENCODER false
 
 // --- DEBUG MODE ---
 // 1 = Activado (printf habilitado), 0 = Desactivado (printf mudo)
@@ -45,7 +50,7 @@
 #define MOTOR_STEPS_PER_REV 200
 #define MOTOR_MICROSTEPS_VAL 16
 #define MOTOR_MICROSTEPS                                                       \
-  TMC2209_MICROSTEPS_2 // 1-> 1600, 2-> 6400, 4-> 12800, 16-> 3200
+  TMC2209_MICROSTEPS_16 // 1-> 1600, 2-> 6400, 4-> 12800, 16-> 3200
 #define STEPS_PER_REV MOTOR_MICROSTEPS_VAL *MOTOR_STEPS_PER_REV
 #define NSTEPS STEPS_PER_REV * 1000
 #define STEP_FREQ 6400 * 2   // Frecuencia de pasos en Hz
@@ -58,8 +63,12 @@
 #define USE_UART_MODE true
 
 // Pines de Finales de Carrera
-#define LIMIT_SW_START_PIN 20
-#define LIMIT_SW_END_PIN 21
+#define LIMIT_SW_START_PIN 26
+#define LIMIT_SW_END_PIN 27
+
+// Pines de Encoder
+#define ENCODER_PIN_A 20
+#define ENCODER_PIN_B 21
 
 // --- Pines Honeywell SPI0 ---
 #define SPI_PORT spi0
@@ -295,6 +304,9 @@ void tmc2209_move_linear_um_dma(TMC2209_t *motor, float target_um,
  */
 void core1_main(void) {
   uint32_t counter = 0;
+  int32_t last_encoder_count = 0;
+  int32_t last_encoder_a = 0;
+  int32_t last_encoder_b = 0;
 
   // Configurar pines SPI1 para Honeywell
   spi_init(SPI_PORT, 1000 * 1000);
@@ -365,7 +377,7 @@ void core1_main(void) {
 
     // Configuración de corriente en Amperes
     // IRUN: 1.0A (~CS 14/15), IHOLD: 0.5A (~CS 7)
-    tmc2209_set_current_amps(&motor1, 1.5f, 0.4f);
+    tmc2209_set_current_amps(&motor1, 0.6f, 0.3f);
 
     // Habilitar el driver AL FINAL de la configuración para evitar movimientos
     // bruscos
@@ -379,8 +391,24 @@ void core1_main(void) {
     tmc2209_set_microstepping_by_pins(&motor1, MOTOR_MICROSTEPS);
   }
 
+  // --- INICIALIZACION ENCODER (PIO) ---
+  uint sm_enc_q, sm_enc_a, sm_enc_b;
+  if (USE_QUADRATURE_ENCODER) {
+    uint offset = pio_add_program(pio1, &quadrature_encoder_program);
+    sm_enc_q = pio_claim_unused_sm(pio1, true);
+    quadrature_encoder_program_init(pio1, sm_enc_q, ENCODER_PIN_A, 0);
+  } else {
+    uint offset = pio_add_program(pio1, &pulse_counter_program);
+    sm_enc_a = pio_claim_unused_sm(pio1, true);
+    sm_enc_b = pio_claim_unused_sm(pio1, true);
+    pulse_counter_program_init(pio1, sm_enc_a, offset, ENCODER_PIN_A);
+    pulse_counter_program_init(pio1, sm_enc_b, offset, ENCODER_PIN_B);
+  }
+
   // --- EJECUCION DE MOVIMIENTO LINEAL ---
   // tmc2209_move_linear_um_dma(&motor1, -15000.0f, 450.0f);
+  // tmc2209_set_direction(&motor1, false);
+  // tmc2209_send_nsteps_at_freq(&motor1, 3200, 500.0f);
 
   while (true) {
     Core1CmdMessage_t cmd;
@@ -399,10 +427,21 @@ void core1_main(void) {
         LOG_DEBUG("CMD received: stop_motor\n");
         if (tmc2209_is_moving(global_motor)) {
           float current_freq = tmc2209_get_current_freq_hz(global_motor);
-          tmc2209_stop_from_current_freq_dma(global_motor, 200, current_freq * 0.5f, 200, 50.0f);
+          tmc2209_stop_from_current_freq_dma(global_motor, 200,
+                                             current_freq * 0.5f, 200, 50.0f);
         } else {
           tmc2209_stop(global_motor);
         }
+      } else if (cmd.id == CMD_MOVE_2PART_PROFILE) {
+        LOG_DEBUG("CMD received: move_2part_profile\n");
+        logger_send_motor_moving();
+        tmc2209_move_2part_profile_dma(
+            global_motor, cmd.payload.move_2part.start_freq,
+            cmd.payload.move_2part.a_p1, cmd.payload.move_2part.f_mid_accel,
+            cmd.payload.move_2part.a_p2, cmd.payload.move_2part.f_target,
+            cmd.payload.move_2part.c_steps, cmd.payload.move_2part.d_p1,
+            cmd.payload.move_2part.f_mid_decel, cmd.payload.move_2part.d_p2,
+            cmd.payload.move_2part.f_end);
       }
     }
 
@@ -411,10 +450,12 @@ void core1_main(void) {
     while (tmc2209_is_moving(&motor1)) {
       // Check for incoming commands while moving
       if (queue_try_remove(&crosscore_cmd_queue, &cmd)) {
-        if (cmd.id == CMD_STOP_MOTOR || cmd.id == CMD_MOVE_LINEAR_UM) {
+        if (cmd.id == CMD_STOP_MOTOR || cmd.id == CMD_MOVE_LINEAR_UM ||
+            cmd.id == CMD_MOVE_2PART_PROFILE) {
           LOG_DEBUG("CMD received while moving, aborting current move.\n");
           float current_freq = tmc2209_get_current_freq_hz(global_motor);
-          tmc2209_stop_from_current_freq_dma(global_motor, 200, current_freq * 0.5f, 200, 50.0f);
+          tmc2209_stop_from_current_freq_dma(global_motor, 200,
+                                             current_freq * 0.5f, 200, 50.0f);
         }
       }
 
@@ -433,11 +474,49 @@ void core1_main(void) {
       if (gstat || drv_status || stall) {
         logger_send_drv_status_error(stall, drv_status, gstat);
       }
+
+      // Enviar progreso del encoder cada 100ms aprox (10 * 10ms)
+      if (counter % 10 == 0) {
+        if (USE_QUADRATURE_ENCODER) {
+          int32_t current_count = quadrature_encoder_get_count(pio1, sm_enc_q);
+          if (current_count != last_encoder_count) {
+            logger_send_encoder_count(current_count);
+            last_encoder_count = current_count;
+          }
+        } else {
+          int32_t a = pulse_counter_get_count(pio1, sm_enc_a);
+          int32_t b = pulse_counter_get_count(pio1, sm_enc_b);
+          if (a != last_encoder_a || b != last_encoder_b) {
+            logger_send_encoder_indep_counts(a, b);
+            last_encoder_a = a;
+            last_encoder_b = b;
+          }
+        }
+      }
+      counter++;
+
       sleep_ms(10);
     }
 
     if (was_moving && emergency_state == EMERGENCY_NORMAL) {
       logger_send_motor_stopped();
+    }
+
+    // Reportar encoder en idle si cambió
+    if (USE_QUADRATURE_ENCODER) {
+      int32_t current_count = quadrature_encoder_get_count(pio1, sm_enc_q);
+      if (current_count != last_encoder_count) {
+        logger_send_encoder_count(current_count);
+        last_encoder_count = current_count;
+      }
+    } else {
+      int32_t a = pulse_counter_get_count(pio1, sm_enc_a);
+      int32_t b = pulse_counter_get_count(pio1, sm_enc_b);
+      if (a != last_encoder_a || b != last_encoder_b) {
+        logger_send_encoder_indep_counts(a, b);
+        last_encoder_a = a;
+        last_encoder_b = b;
+      }
     }
 
     sleep_ms(100);

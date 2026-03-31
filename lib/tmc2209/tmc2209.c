@@ -139,42 +139,22 @@ static void build_constant_cycles_pair(uint32_t out_pair[2], float freq_hz) {
   out_pair[1] = low_cycles;
 }
 
-static void fill_ping_pong_buffer(TMC2209_t *ctx, uint32_t *target_buf) {
+static uint32_t fill_ping_pong_buffer(TMC2209_t *ctx, uint32_t *target_buf) {
   const uint32_t sys_hz = clock_get_hz(clk_sys);
   uint32_t high_cycles =
       (uint32_t)(TMC2209_FIXED_HIGH_TIME_US * 1e-6f * sys_hz);
   if (high_cycles < 1u)
     high_cycles = 1u;
 
-  // Llenaremos hasta TMC2209_PING_PONG_BUFFER_STEPS pasos
   uint32_t steps_to_fill = TMC2209_PING_PONG_BUFFER_STEPS;
 
-  // Validar finalización
   if (ctx->current_step_idx >= ctx->total_ramp_steps) {
-    if (ctx->is_braking) {
-      // Si es frenado, al terminar nos detenemos (no mandamos más pulsos)
-      // Llenar con ciclos en bajo masivos o detener directamente.
-      // Para ser seguros, simulamos frecuencia muy baja (0 Hz es infinito,
-      // ponemos max uint32)
-      for (uint32_t i = 0; i < steps_to_fill; i++) {
-        target_buf[2u * i + 0u] = high_cycles;
-        target_buf[2u * i + 1u] = 0x7fffffffu; // Espera casi infinita
-      }
-    } else {
-      // Rampa terminó en aceleración normal. Llenamos con la frecuencia target
-      // constante.
-      for (uint32_t i = 0; i < steps_to_fill; i++) {
-        uint64_t total_cycles =
-            (uint64_t)((double)sys_hz / (double)ctx->freq_target_hz);
-        total_cycles = clamp_u32(total_cycles, high_cycles + 1u, 0x7fffffffu);
-        target_buf[2u * i + 0u] = high_cycles;
-        target_buf[2u * i + 1u] = total_cycles - high_cycles;
-      }
-    }
-    return;
+    // Si la fase terminó, no mandamos pasos en este buffer (se controlará en la
+    // IRQ)
+    return 0;
   }
 
-  // Calcular cuánto le queda a la rampa
+  // Limitar al restante exacto
   uint32_t remaining = ctx->total_ramp_steps - ctx->current_step_idx;
   if (remaining < steps_to_fill) {
     steps_to_fill = remaining;
@@ -183,11 +163,9 @@ static void fill_ping_pong_buffer(TMC2209_t *ctx, uint32_t *target_buf) {
   for (uint32_t i = 0; i < steps_to_fill; i++) {
     float f_hz;
     if (ctx->current_step_idx < ctx->transition_step_idx) {
-      // Segmento 1
       f_hz = ctx->freq_start_hz +
              ctx->current_slope1 * (float)ctx->current_step_idx;
     } else {
-      // Segmento 2
       uint32_t steps_in_seg2 = ctx->current_step_idx - ctx->transition_step_idx;
       f_hz = ctx->current_freq_mid + ctx->current_slope2 * (float)steps_in_seg2;
     }
@@ -205,16 +183,7 @@ static void fill_ping_pong_buffer(TMC2209_t *ctx, uint32_t *target_buf) {
     ctx->current_step_idx++;
   }
 
-  // Rellenar lo sobrante del buffer con la última frecuencia para
-  // evitar latencia si era el tramo final
-  if (steps_to_fill < TMC2209_PING_PONG_BUFFER_STEPS) {
-    uint32_t last_high = target_buf[2u * (steps_to_fill - 1) + 0u];
-    uint32_t last_low = target_buf[2u * (steps_to_fill - 1) + 1u];
-    for (uint32_t i = steps_to_fill; i < TMC2209_PING_PONG_BUFFER_STEPS; i++) {
-      target_buf[2u * i + 0u] = last_high;
-      target_buf[2u * i + 1u] = last_low;
-    }
-  }
+  return steps_to_fill * 2;
 }
 
 static void tmc2209_dma_irq_handler(void) {
@@ -270,14 +239,34 @@ static void tmc2209_dma_irq_handler(void) {
 
         if (stop_engine) {
           if (ctx->is_braking) {
-            // Deshabilitar el PIO y poner motor en reposo
-            pio_sm_set_enabled(ctx->pio, ctx->sm, false);
-            pio_sm_set_pins(ctx->pio, ctx->sm, 0);
-            pio_sm_clear_fifos(ctx->pio, ctx->sm);
-            ctx->mode = TMC2209_MODE_STANDBY_HOLD;
+            int other_ch = (ctx->dma_ramp_ch == ch) ? ctx->dma_steady_ch
+                                                    : ctx->dma_ramp_ch;
 
-            dma_channel_abort(ctx->dma_ramp_ch);
-            dma_channel_abort(ctx->dma_steady_ch);
+            // Desactivar el encadenamiento en ambos canales para que no repitan
+            // el ciclo
+            dma_channel_hw_addr(ch)->al1_ctrl =
+                (dma_channel_hw_addr(ch)->al1_ctrl &
+                 ~DMA_CH0_CTRL_TRIG_CHAIN_TO_BITS) |
+                (ch << DMA_CH0_CTRL_TRIG_CHAIN_TO_LSB);
+            dma_channel_hw_addr(other_ch)->al1_ctrl =
+                (dma_channel_hw_addr(other_ch)->al1_ctrl &
+                 ~DMA_CH0_CTRL_TRIG_CHAIN_TO_BITS) |
+                (other_ch << DMA_CH0_CTRL_TRIG_CHAIN_TO_LSB);
+
+            if (dma_channel_is_busy(other_ch)) {
+              // El otro canal ya está transmitiendo el ÚLTIMO segmento del
+              // movimiento. Simplemente lo dejamos terminar sin tocarlo. Cuando
+              // termine emitirá una IRQ.
+            } else {
+              // Ningún canal DMA está enviando datos. Terminó todo el bloque de
+              // memoria útil. Avisar al PIO que espere a que el FIFO se vacíe
+              // (TXSTALL).
+              ctx->pio->fdebug = (1u << (PIO_FDEBUG_TXSTALL_LSB + ctx->sm));
+              ctx->mode = TMC2209_MODE_NSTEPS;
+              // Abortamos ambos por seguridad y limpieza
+              dma_channel_abort(ctx->dma_ramp_ch);
+              dma_channel_abort(ctx->dma_steady_ch);
+            }
           } else {
             // Dejar en velocidad constante mantenida por el ping-pong residual
             dma_channel_set_irq0_enabled(ctx->dma_ramp_ch, false);
@@ -288,21 +277,30 @@ static void tmc2209_dma_irq_handler(void) {
 
         // Generar próximos pasos en el buffer que ahora está "libre"
         if (ctx->dma_ramp_ch == ch) {
-          // dma_ramp_ch (bufA) terminó, B está corriendo. Rellenamos A.
-          fill_ping_pong_buffer(ctx, ctx->bufA);
+          uint32_t words = fill_ping_pong_buffer(ctx, ctx->bufA);
+          if (words == 0) {
+            ctx->bufA[0] = 1000;
+            ctx->bufA[1] = 0x7FFFFFFF;
+            words = 2;
+          }
+          dma_channel_set_trans_count(ctx->dma_ramp_ch, words, false);
           dma_channel_set_read_addr(ctx->dma_ramp_ch, ctx->bufA, false);
         } else {
-          // dma_steady_ch (bufB) terminó, A está corriendo. Rellenamos B.
-          fill_ping_pong_buffer(ctx, ctx->bufB);
+          uint32_t words = fill_ping_pong_buffer(ctx, ctx->bufB);
+          if (words == 0) {
+            ctx->bufB[0] = 1000;
+            ctx->bufB[1] = 0x7FFFFFFF;
+            words = 2;
+          }
+          dma_channel_set_trans_count(ctx->dma_steady_ch, words, false);
           dma_channel_set_read_addr(ctx->dma_steady_ch, ctx->bufB, false);
         }
       }
       // Si este canal es su canal de parada definitiva (stop_ch)
       else if (ctx->dma_stop_ch == ch) {
-        pio_sm_set_enabled(ctx->pio, ctx->sm, false);
-        pio_sm_set_pins(ctx->pio, ctx->sm, 0);
-        pio_sm_clear_fifos(ctx->pio, ctx->sm);
-        ctx->mode = TMC2209_MODE_STANDBY_HOLD;
+        // Al igual que antes, esperamos que el FIFO se vacíe
+        ctx->pio->fdebug = (1u << (PIO_FDEBUG_TXSTALL_LSB + ctx->sm));
+        ctx->mode = TMC2209_MODE_NSTEPS;
       }
     }
   }
@@ -557,13 +555,16 @@ void tmc2209_set_rpm(TMC2209_t *motor, float rpm) {
   // Configurar PIO en modo INFINITE
   pio_sm_set_enabled(motor->pio, motor->sm, false);
   pio_sm_clear_fifos(motor->pio, motor->sm);
+  motor->pio->fdebug =
+      (1u << (PIO_FDEBUG_TXSTALL_LSB + motor->sm)); // Limpiar stall preventivo
   pio_sm_exec(motor->pio, motor->sm,
               pio_encode_jmp(motor->offset + tmc2209_stepgen_offset_infinite));
-  pio_sm_set_enabled(motor->pio, motor->sm, true);
 
-  // Enviar tiempos (High, Low)
+  // Enviar tiempos AL FIFO (High, Low)
   pio_sm_put_blocking(motor->pio, motor->sm, high_cycles);
   pio_sm_put_blocking(motor->pio, motor->sm, low_cycles);
+
+  pio_sm_set_enabled(motor->pio, motor->sm, true);
 
   if (motor->direction == true) {
     motor->mode = TMC2209_MODE_RUN_CW; // Modo avance
@@ -619,15 +620,18 @@ void tmc2209_send_nsteps_at_freq(TMC2209_t *motor, int nsteps, float freq) {
   // Configurar PIO en modo BURST
   pio_sm_set_enabled(motor->pio, motor->sm, false);
   pio_sm_clear_fifos(motor->pio, motor->sm);
+  motor->pio->fdebug =
+      (1u << (PIO_FDEBUG_TXSTALL_LSB + motor->sm)); // Limpiar stall
   pio_sm_exec(motor->pio, motor->sm,
               pio_encode_jmp(motor->offset + tmc2209_stepgen_offset_burst));
-  pio_sm_set_enabled(motor->pio, motor->sm, true);
 
-  // Enviar datos: N-1, High, Low
+  // Enviar datos: N-1, High, Low AL FIFO ANTES DE HABILITAR EL SM!
+  // Esto evita que el `pull block` tire un TXSTALL falso al arrancar.
   pio_sm_put_blocking(motor->pio, motor->sm, nsteps - 1);
   pio_sm_put_blocking(motor->pio, motor->sm, high_cycles);
   pio_sm_put_blocking(motor->pio, motor->sm, low_cycles);
 
+  pio_sm_set_enabled(motor->pio, motor->sm, true);
   motor->mode = TMC2209_MODE_NSTEPS;
 }
 
@@ -1019,9 +1023,24 @@ void tmc2209_start_2part_curve_dma(TMC2209_t *motor, float freq_start,
 
   motor->current_phase = TMC2209_PHASE_NONE; // Modo individual
 
-  // Llenar BufA y BufB iniciales
-  fill_ping_pong_buffer(motor, motor->bufA); // Consume pasos 0 a 15
-  fill_ping_pong_buffer(motor, motor->bufB); // Consume pasos 16 a 31
+  // Llenar BufA y BufB iniciales con logica de palabras exactas
+  uint32_t words_a = fill_ping_pong_buffer(motor, motor->bufA);
+  uint32_t words_b = fill_ping_pong_buffer(motor, motor->bufB);
+
+  // Si B o A quedaron vacios (ej: movimiento hiper corto que entró entero en A)
+  // Añadimos un paso "dummy" de espera infinita para que el ping-pong no cicle
+  // a lo loco. El stop_engine en la IRQ lo va a abortar de todas formas.
+  if (words_a == 0) {
+    motor->bufA[0] = 1000;
+    motor->bufA[1] = 0x7FFFFFFF;
+    words_a = 2;
+  }
+  if (words_b == 0) {
+    motor->bufB[0] = 1000;
+    motor->bufB[1] = 0x7FFFFFFF;
+    words_b = 2;
+  }
+
   motor->active_buffer_is_A = true;
 
   // Y el steady state para el final total por si a caso (aunque podemos dejar
@@ -1042,12 +1061,6 @@ void tmc2209_start_2part_curve_dma(TMC2209_t *motor, float freq_start,
       pio_encode_jmp(motor->offset + tmc2209_stepgen_offset_dma_stream));
   pio_sm_set_enabled(motor->pio, motor->sm, true);
 
-  // DMA steady_ch funcionará como "segundo canal" del ping pong usando bufB
-  // temporalmente Opcionalmente podemos usar ramp_ch + steady_ch de forma
-  // cruzada. Vamos a cruzarlos: ramp_ch envía memoria en read_addr. Encadena a
-  // steady_ch. steady_ch envía memoria en read_addr. Encadena a ramp_ch. Con
-  // interrupciones encendidas solo en ramp_ch, el procesador atiende.
-
   dma_channel_config c_a = dma_channel_get_default_config(motor->dma_ramp_ch);
   channel_config_set_transfer_data_size(&c_a, DMA_SIZE_32);
   channel_config_set_read_increment(&c_a, true);
@@ -1062,12 +1075,12 @@ void tmc2209_start_2part_curve_dma(TMC2209_t *motor, float freq_start,
   channel_config_set_dreq(&c_b, dreq);
   channel_config_set_chain_to(&c_b, motor->dma_ramp_ch); // Chain back to A
 
-  // Configuramos los canales, sin iniciarlos
+  // Configuramos los canales con los contadores de palabras EXACTOS
   dma_channel_configure(motor->dma_steady_ch, &c_b, pio_txf, motor->bufB,
-                        TMC2209_PING_PONG_BUFFER_WORDS, false);
+                        words_b, false);
 
-  dma_channel_configure(motor->dma_ramp_ch, &c_a, pio_txf, motor->bufA,
-                        TMC2209_PING_PONG_BUFFER_WORDS, false);
+  dma_channel_configure(motor->dma_ramp_ch, &c_a, pio_txf, motor->bufA, words_a,
+                        false);
 
   // Activar interrupción cuando TERMINA ramp_ch (bufA) y steady_ch (bufB)
   dma_channel_set_irq0_enabled(motor->dma_ramp_ch, true);
@@ -1176,7 +1189,8 @@ float tmc2209_get_current_freq_hz(TMC2209_t *motor) {
     uint32_t offset = 0;
     bool valid_ptr = false;
 
-    // Alinear el puntero al inicio del buffer correspondiente para obtener su índice
+    // Alinear el puntero al inicio del buffer correspondiente para obtener su
+    // índice
     if (ptr >= motor->bufA &&
         ptr < motor->bufA + TMC2209_PING_PONG_BUFFER_WORDS) {
       offset = ptr - motor->bufA;
@@ -1205,16 +1219,19 @@ float tmc2209_get_current_freq_hz(TMC2209_t *motor) {
     }
   }
 
-  // Si no pudimos determinarla (o hubo algún problema con los punteros), devolvemos la última calculada o configurada.
-  return motor->freq_target_hz > 0 ? motor->freq_target_hz : motor->freq_start_hz;
+  // Si no pudimos determinarla (o hubo algún problema con los punteros),
+  // devolvemos la última calculada o configurada.
+  return motor->freq_target_hz > 0 ? motor->freq_target_hz
+                                   : motor->freq_start_hz;
 }
 
 void tmc2209_stop_from_current_freq_dma(TMC2209_t *motor, uint32_t pulses_seg1,
                                         float freq_mid, uint32_t pulses_seg2,
                                         float freq_target) {
-  // 1. Obtenemos la frecuencia actual leyendo exactamente lo que está haciendo el motor.
+  // 1. Obtenemos la frecuencia actual leyendo exactamente lo que está haciendo
+  // el motor.
   float current_freq = tmc2209_get_current_freq_hz(motor);
-  
+
   if (current_freq < 0.1f) {
     current_freq = 0.1f;
   }
