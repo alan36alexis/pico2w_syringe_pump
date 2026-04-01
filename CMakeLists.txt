@@ -71,6 +71,7 @@ target_link_libraries(pico2w_syringe_pump
     pico_util
     freertos
     hardware_pio
+    hardware_adc
 )
 
 # Provide include directories for lwIP and others

@@ -25,8 +25,7 @@ typedef enum {
   // RETROCESO
   TMC2209_MODE_RUN_CW = 2,  // Motor en movimiento sentido horario
   TMC2209_MODE_RUN_CCW = 3, // Motor en movimiento sentido antihorario
-  TMC2209_MODE_NSTEPS =
-      4, // Motor en movimiento por un número específico de pasos
+  TMC2209_MODE_NSTEPS = 4, // Motor en movimiento por un número específico de pasos
   TMC2209_MODE_ALARM = 5 // Modo de alarma, motor detenido
 } TMC2209_Mode_t;
 

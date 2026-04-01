@@ -1,4 +1,8 @@
 #include "core0_main.h"
+
+// Descomentar o comentar esta linea para habilitar/deshabilitar el monitoreo de salud del sistema
+#define ENABLE_SYS_HEALTH_MONITOR
+
 #include "FreeRTOS.h"
 #include "crosscore_cmd.h"
 #include "crosscore_logger.h"
@@ -6,6 +10,9 @@
 #include "pico/cyw43_arch.h"
 #include "pico/multicore.h"
 #include "pico/stdlib.h"
+#ifdef ENABLE_SYS_HEALTH_MONITOR
+#include "hardware/adc.h"
+#endif
 #include "queue.h"
 #include "syringe_pump_api.h"
 #include "task.h"
@@ -311,6 +318,66 @@ static void task_pump_telemetry(void *params) {
   }
 }
 
+#ifdef ENABLE_SYS_HEALTH_MONITOR
+/**
+ * @brief Tarea para monitorear la salud del sistema (Temp, RAM, Stack de tareas)
+ */
+static void task_system_monitor(void *params) {
+  // Inicializar ADC y lectura de sensor de temperatura
+  adc_init();
+  adc_set_temp_sensor_enabled(true);
+  adc_select_input(4);
+
+  char json_buf[128];
+  
+  while (1) {
+    // 1. Lectura de temperatura del procesador RP2040
+    uint16_t result = adc_read();
+    float voltage = result * 3.3f / (1 << 12);
+    // Formula para RP2040: T = 27 - (V - 0.706) / 0.001721
+    float temp_c = 27.0f - (voltage - 0.706f) / 0.001721f;
+
+    // 2. Lectura de Heap Global FreeRTOS
+    // Al usar heap_3.c, FreeRTOS usa el malloc estandar de stdlib y no tiene 
+    // metricas de xPortGetFreeHeapSize activas de forma nativa sin mallinfo.
+    uint32_t free_heap = 0;
+    uint32_t min_free_heap = 0;
+
+    // 3. Imprimir marcas de agua del stack por tarea en UART
+    safe_printf("\n--- System Health ---\n");
+    safe_printf("CPU Temp : %.2f C\n", temp_c);
+    // safe_printf("Free Heap: %u bytes (Min: %u bytes)\n", free_heap, min_free_heap);
+    
+    // Obtener y mostrar el High Water Mark de cada tarea (stack restante minimo historico en words)
+    UBaseType_t num_tasks = uxTaskGetNumberOfTasks();
+    TaskStatus_t *pxTaskStatusArray = pvPortMalloc(num_tasks * sizeof(TaskStatus_t));
+    if (pxTaskStatusArray != NULL) {
+      uint32_t total_run_time;
+      // Obtener el estado del array. Nota: Como configGENERATE_RUN_TIME_STATS es 0, el run time puede ser omitido.
+      num_tasks = uxTaskGetSystemState(pxTaskStatusArray, num_tasks, &total_run_time);
+      safe_printf("\n[Task Name]      [Least Free Stack] (Words)\n");
+      for(UBaseType_t i = 0; i < num_tasks; i++) {
+         safe_printf("%-16s %u\n", 
+                     pxTaskStatusArray[i].pcTaskName, 
+                     pxTaskStatusArray[i].usStackHighWaterMark);
+      }
+      vPortFree(pxTaskStatusArray);
+    } else {
+      safe_printf("Could not allocate memory for task status.\n");
+    }
+    safe_printf("---------------------\n\n");
+
+    // 4. Enviar JSON resumido por MQTT
+    snprintf(json_buf, sizeof(json_buf), 
+             "{\"cpu_temp_c\": %.2f, \"free_heap_bytes\": %u, \"min_free_heap_bytes\": %u}", 
+             temp_c, free_heap, min_free_heap);
+    mqtt_client_publish("syringe_pump/telemetry/system_health", json_buf);
+
+    vTaskDelay(pdMS_TO_TICKS(10000)); // Repetir cada 10 segundos
+  }
+}
+#endif
+
 /**
  * @brief Función para configurar todas las tareas del Core 0 antes de iniciar
  * FreeRTOS
@@ -328,6 +395,10 @@ void core0_main_setup(void) {
               NULL);
   xTaskCreate(task_pump_telemetry, "Telemetry", configMINIMAL_STACK_SIZE * 2,
               NULL, 1, NULL);
+#ifdef ENABLE_SYS_HEALTH_MONITOR
+  xTaskCreate(task_system_monitor, "SysMon", configMINIMAL_STACK_SIZE * 3,
+              NULL, 1, NULL);
+#endif
   xTaskCreate(task_example_internal_cmd, "CmdExample", configMINIMAL_STACK_SIZE,
               NULL, 1, NULL);
 }
