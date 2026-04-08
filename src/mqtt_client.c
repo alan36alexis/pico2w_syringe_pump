@@ -4,6 +4,9 @@
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include "config_manager.h"
+
+#include "pico/cyw43_arch.h"
 
 static mqtt_client_t *mqtt_client = NULL;
 static bool mqtt_connected = false;
@@ -19,26 +22,8 @@ static void mqtt_incoming_data_cb(void *arg, const u8_t *data, u16_t len, u8_t f
     
     printf("MQTT Payload received: %s\n", payload_str);
     
-    // Parse the payload depending on the topic length/context.
-    // Check for "STOP" or "stop" command
-    if (strncmp(payload_str, "stop", 4) == 0 || strncmp(payload_str, "STOP", 4) == 0) {
-        printf("Executing STOP command via MQTT\n");
-        cmd_send_stop_motor();
-        return;
-    }
-
-    // For now, assume it's cmd_send_move_linear_um
-    float speed = 0.0f, pos = 0.0f;
-    char *comma = strchr(payload_str, ',');
-    if (comma != NULL) {
-        *comma = '\0'; // Dividir el string en 2
-        speed = (float)atof(payload_str);
-        pos = (float)atof(comma + 1);
-        printf("Executing command via MQTT: speed=%.2f, pos=%.2f\n", speed, pos);
-        cmd_send_move_linear_um(speed, pos);
-    } else {
-        printf("Failed to parse command payload\n");
-    }
+    // Parse and execute the command
+    cmd_parse_and_execute(payload_str);
 }
 
 static void mqtt_incoming_publish_cb(void *arg, const char *topic, u32_t tot_len) {
@@ -75,9 +60,12 @@ static void mqtt_connection_cb(mqtt_client_t *client, void *arg, mqtt_connection
 void mqtt_client_task(void *params) {
     (void)params;
     ip_addr_t broker_ip;
-    ipaddr_aton(MQTT_BROKER_IP, &broker_ip);
+    ipaddr_aton(g_sys_config.mqtt_ip, &broker_ip);
 
+    cyw43_arch_lwip_begin();
     mqtt_client = mqtt_client_new();
+    cyw43_arch_lwip_end();
+
     if (mqtt_client == NULL) {
         printf("Failed to create MQTT client\n");
         vTaskDelete(NULL);
@@ -89,11 +77,23 @@ void mqtt_client_task(void *params) {
     ci.client_id = "pico2w_syringe_pump";
     ci.keep_alive = 60;
 
+    // Retry loop
     while (1) {
-        if (!mqtt_client_is_connected(mqtt_client)) {
+        cyw43_arch_lwip_begin();
+        bool is_connected = mqtt_client_is_connected(mqtt_client);
+        cyw43_arch_lwip_end();
+
+        if (!is_connected) {
+            // Update broker IP in case it was changed dynamically
+            ipaddr_aton(g_sys_config.mqtt_ip, &broker_ip);
+
             mqtt_connected = false;
-            printf("Attempting MQTT connection...\n");
-            err_t err = mqtt_client_connect(mqtt_client, &broker_ip, MQTT_BROKER_PORT, mqtt_connection_cb, NULL, &ci);
+            printf("Attempting MQTT connection to %s:%d...\n", g_sys_config.mqtt_ip, g_sys_config.mqtt_port);
+            
+            cyw43_arch_lwip_begin();
+            err_t err = mqtt_client_connect(mqtt_client, &broker_ip, g_sys_config.mqtt_port, mqtt_connection_cb, NULL, &ci);
+            cyw43_arch_lwip_end();
+
             if (err != ERR_OK) {
                 printf("MQTT connection error: %d\n", err);
             }
@@ -107,6 +107,18 @@ bool mqtt_client_publish(const char *topic, const char *payload) {
         return false;
     }
     
+    cyw43_arch_lwip_begin();
     err_t err = mqtt_publish(mqtt_client, topic, payload, strlen(payload), 0, 0, mqtt_request_cb, NULL);
+    cyw43_arch_lwip_end();
+    
     return (err == ERR_OK);
+}
+
+void mqtt_client_force_reconnect(void) {
+    if (mqtt_client != NULL && mqtt_client_is_connected(mqtt_client)) {
+        printf("Forcing MQTT disconnect...\n");
+        cyw43_arch_lwip_begin();
+        mqtt_disconnect(mqtt_client);
+        cyw43_arch_lwip_end();
+    }
 }

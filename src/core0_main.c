@@ -1,7 +1,8 @@
 #include "core0_main.h"
 
-// Descomentar o comentar esta linea para habilitar/deshabilitar el monitoreo de salud del sistema
-#define ENABLE_SYS_HEALTH_MONITOR
+// Descomentar o comentar esta linea para habilitar/deshabilitar el monitoreo de
+// salud del sistema
+// #define ENABLE_SYS_HEALTH_MONITOR
 
 #include "FreeRTOS.h"
 #include "crosscore_cmd.h"
@@ -10,6 +11,7 @@
 #include "pico/cyw43_arch.h"
 #include "pico/multicore.h"
 #include "pico/stdlib.h"
+#include "config_manager.h"
 #ifdef ENABLE_SYS_HEALTH_MONITOR
 #include "hardware/adc.h"
 #endif
@@ -44,6 +46,8 @@ void safe_printf(const char *fmt, ...) {
  * @brief Tarea de inicializacion
  */
 static void task_init(void *params) {
+  config_manager_init();
+
   // Inicializacion de GPIO y Wi-Fi chip (CYW43)
   if (cyw43_arch_init_with_country(CYW43_COUNTRY_WORLDWIDE)) {
     safe_printf("Wi-Fi init failed\n");
@@ -52,8 +56,8 @@ static void task_init(void *params) {
   }
 
   cyw43_arch_enable_sta_mode();
-  safe_printf("Connecting to Wi-Fi (%s)...\n", WIFI_SSID);
-  if (cyw43_arch_wifi_connect_timeout_ms(WIFI_SSID, WIFI_PASSWORD,
+  safe_printf("Connecting to Wi-Fi (%s)...\n", g_sys_config.wifi_ssid);
+  if (cyw43_arch_wifi_connect_timeout_ms(g_sys_config.wifi_ssid, g_sys_config.wifi_pass,
                                          CYW43_AUTH_WPA2_AES_PSK, 30000)) {
     safe_printf("Failed to connect to Wi-Fi.\n");
     vTaskDelete(NULL);
@@ -63,13 +67,11 @@ static void task_init(void *params) {
   cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, 1);
 
   // Iniciar la tarea cliente MQTT
-  // xTaskCreate(mqtt_client_task, "MQTT_Task", configMINIMAL_STACK_SIZE * 4,
-  // NULL,
-  //             2, NULL);
+  xTaskCreate(mqtt_client_task, "MQTT_Task", configMINIMAL_STACK_SIZE * 4, NULL,
+              2, NULL);
 
-  // xTaskCreate(wifi_keepalive_task, "WiFi_Keepalive",
-  // configMINIMAL_STACK_SIZE,
-  //             NULL, 1, NULL);
+  xTaskCreate(wifi_keepalive_task, "WiFi_Keepalive", configMINIMAL_STACK_SIZE,
+              NULL, 1, NULL);
 
   // Elimino la tarea para liberar recursos tras una única ejecución
   vTaskDelete(NULL);
@@ -82,9 +84,9 @@ static void wifi_keepalive_task(void *params) {
   while (1) {
     int link_status = cyw43_tcpip_link_status(&cyw43_state, CYW43_ITF_STA);
     if (link_status != CYW43_LINK_UP) {
-      safe_printf("Wi-Fi disconnected (status: %d). Reconnecting...\n",
-                  link_status);
-      if (cyw43_arch_wifi_connect_timeout_ms(WIFI_SSID, WIFI_PASSWORD,
+      safe_printf("Wi-Fi disconnected (status: %d). Reconnecting to %s...\n",
+                  link_status, g_sys_config.wifi_ssid);
+      if (cyw43_arch_wifi_connect_timeout_ms(g_sys_config.wifi_ssid, g_sys_config.wifi_pass,
                                              CYW43_AUTH_WPA2_AES_PSK, 30000)) {
         safe_printf("Failed to reconnect to Wi-Fi.\n");
       } else {
@@ -233,6 +235,33 @@ static void task_logger(void *params) {
                  msg.payload.encoder_indep_count.count_a,
                  msg.payload.encoder_indep_count.count_b);
         break;
+      case LOG_EVENT_ENCODER_SPEED:
+        printf("Encoder Speed: %.2f PPS\n", msg.payload.encoder_speed);
+        snprintf(buf, sizeof(buf), "{\"speed_pps\": %.2f}",
+                 msg.payload.encoder_speed);
+        break;
+      case LOG_EVENT_SPEED_WARNING:
+        printf("WARNING: Speed deviation (expected: %.2f um/s, actual: %.2f "
+               "um/s)\n",
+               msg.payload.speed_warning.expected_ums,
+               msg.payload.speed_warning.actual_ums);
+        snprintf(buf, sizeof(buf),
+                 "{\"warning\": \"Speed Deviation\", \"expected_ums\": %.2f, "
+                 "\"actual_ums\": %.2f}",
+                 msg.payload.speed_warning.expected_ums,
+                 msg.payload.speed_warning.actual_ums);
+        break;
+      case LOG_EVENT_CORRECTION_APPLIED:
+        printf("INFO: Semi-Closed Loop correction applied (missing: %.2f um)\n",
+               msg.payload.correction_um);
+        snprintf(buf, sizeof(buf), "{\"correction_applied_um\": %.2f}",
+                 msg.payload.correction_um);
+        break;
+      case LOG_EVENT_MOTOR_PROGRESS:
+        // No imprimimos por printf para no saturar la consola
+        snprintf(buf, sizeof(buf), "{\"progress_pct\": %.1f}",
+                 msg.payload.progress_pct);
+        break;
       default:
         printf("Unknown crosscore logger event: %d\n", msg.id);
         snprintf(buf, sizeof(buf), "Unknown crosscore logger event: %d",
@@ -268,6 +297,16 @@ static void task_logger(void *params) {
       case LOG_EVENT_ENCODER_INDEP_UPDATE:
         topic = "syringe_pump/log/encoder_indep";
         break;
+      case LOG_EVENT_ENCODER_SPEED:
+        topic = "syringe_pump/log/encoder_speed";
+        break;
+      case LOG_EVENT_SPEED_WARNING:
+      case LOG_EVENT_CORRECTION_APPLIED:
+        topic = "syringe_pump/log/system";
+        break;
+      case LOG_EVENT_MOTOR_PROGRESS:
+        topic = "syringe_pump/log/progress";
+        break;
       default:
         topic = "syringe_pump/log/system";
         break;
@@ -290,11 +329,13 @@ static void task_example_internal_cmd(void *params) {
   vTaskDelay(pdMS_TO_TICKS(5000));
   // safe_printf("Iniciando bomba jeringa a 50 mL/h en Modo Continuo...\n");
   // Pump_Mode_Continuous(10.0f);
-  Pump_Mode_Bolus(2.0f, 60.0f);
+  // Pump_Mode_Bolus(2.0f, 60.0f);
 
-  // float turns = 0;
+  // float turns = 3;
   // cmd_send_move_2part_profile(20.0f, 200, 400.0f, 200, 700.0f,
   //                             2400 + turns * 3200, 200, 400.0f, 200, 20.0f);
+
+  cmd_send_move_linear_um(2000.0f, 400.0f);
 
   while (1) {
     vTaskDelay(pdMS_TO_TICKS(60000));
@@ -318,9 +359,44 @@ static void task_pump_telemetry(void *params) {
   }
 }
 
+/**
+ * @brief Tarea para procesar comandos via Serial (CLI)
+ */
+static void task_cli(void *params) {
+  char cli_buf[64];
+  int cli_idx = 0;
+
+  safe_printf("\nPico CLI Ready. Waiting for commands...\n");
+
+  while (1) {
+    int c = getchar_timeout_us(0);
+    if (c != PICO_ERROR_TIMEOUT) {
+      if (c == '\r' || c == '\n') {
+        if (cli_idx > 0) {
+          cli_buf[cli_idx] = '\0';
+          printf("\n"); // Echo newline
+          cmd_parse_and_execute(cli_buf);
+          cli_idx = 0;
+        }
+      } else if (c == '\b' || c == 127) { // backspace
+        if (cli_idx > 0) {
+          cli_idx--;
+          printf("\b \b");
+        }
+      } else if (cli_idx < sizeof(cli_buf) - 1) {
+        cli_buf[cli_idx++] = (char)c;
+        putchar(c); // Echo character
+      }
+    } else {
+      vTaskDelay(pdMS_TO_TICKS(20)); // Delay to allow other tasks to run
+    }
+  }
+}
+
 #ifdef ENABLE_SYS_HEALTH_MONITOR
 /**
- * @brief Tarea para monitorear la salud del sistema (Temp, RAM, Stack de tareas)
+ * @brief Tarea para monitorear la salud del sistema (Temp, RAM, Stack de
+ * tareas)
  */
 static void task_system_monitor(void *params) {
   // Inicializar ADC y lectura de sensor de temperatura
@@ -329,7 +405,7 @@ static void task_system_monitor(void *params) {
   adc_select_input(4);
 
   char json_buf[128];
-  
+
   while (1) {
     // 1. Lectura de temperatura del procesador RP2040
     uint16_t result = adc_read();
@@ -338,7 +414,7 @@ static void task_system_monitor(void *params) {
     float temp_c = 27.0f - (voltage - 0.706f) / 0.001721f;
 
     // 2. Lectura de Heap Global FreeRTOS
-    // Al usar heap_3.c, FreeRTOS usa el malloc estandar de stdlib y no tiene 
+    // Al usar heap_3.c, FreeRTOS usa el malloc estandar de stdlib y no tiene
     // metricas de xPortGetFreeHeapSize activas de forma nativa sin mallinfo.
     uint32_t free_heap = 0;
     uint32_t min_free_heap = 0;
@@ -346,20 +422,24 @@ static void task_system_monitor(void *params) {
     // 3. Imprimir marcas de agua del stack por tarea en UART
     safe_printf("\n--- System Health ---\n");
     safe_printf("CPU Temp : %.2f C\n", temp_c);
-    // safe_printf("Free Heap: %u bytes (Min: %u bytes)\n", free_heap, min_free_heap);
-    
-    // Obtener y mostrar el High Water Mark de cada tarea (stack restante minimo historico en words)
+    // safe_printf("Free Heap: %u bytes (Min: %u bytes)\n", free_heap,
+    // min_free_heap);
+
+    // Obtener y mostrar el High Water Mark de cada tarea (stack restante minimo
+    // historico en words)
     UBaseType_t num_tasks = uxTaskGetNumberOfTasks();
-    TaskStatus_t *pxTaskStatusArray = pvPortMalloc(num_tasks * sizeof(TaskStatus_t));
+    TaskStatus_t *pxTaskStatusArray =
+        pvPortMalloc(num_tasks * sizeof(TaskStatus_t));
     if (pxTaskStatusArray != NULL) {
       uint32_t total_run_time;
-      // Obtener el estado del array. Nota: Como configGENERATE_RUN_TIME_STATS es 0, el run time puede ser omitido.
-      num_tasks = uxTaskGetSystemState(pxTaskStatusArray, num_tasks, &total_run_time);
+      // Obtener el estado del array. Nota: Como configGENERATE_RUN_TIME_STATS
+      // es 0, el run time puede ser omitido.
+      num_tasks =
+          uxTaskGetSystemState(pxTaskStatusArray, num_tasks, &total_run_time);
       safe_printf("\n[Task Name]      [Least Free Stack] (Words)\n");
-      for(UBaseType_t i = 0; i < num_tasks; i++) {
-         safe_printf("%-16s %u\n", 
-                     pxTaskStatusArray[i].pcTaskName, 
-                     pxTaskStatusArray[i].usStackHighWaterMark);
+      for (UBaseType_t i = 0; i < num_tasks; i++) {
+        safe_printf("%-16s %u\n", pxTaskStatusArray[i].pcTaskName,
+                    pxTaskStatusArray[i].usStackHighWaterMark);
       }
       vPortFree(pxTaskStatusArray);
     } else {
@@ -368,8 +448,9 @@ static void task_system_monitor(void *params) {
     safe_printf("---------------------\n\n");
 
     // 4. Enviar JSON resumido por MQTT
-    snprintf(json_buf, sizeof(json_buf), 
-             "{\"cpu_temp_c\": %.2f, \"free_heap_bytes\": %u, \"min_free_heap_bytes\": %u}", 
+    snprintf(json_buf, sizeof(json_buf),
+             "{\"cpu_temp_c\": %.2f, \"free_heap_bytes\": %u, "
+             "\"min_free_heap_bytes\": %u}",
              temp_c, free_heap, min_free_heap);
     mqtt_client_publish("syringe_pump/telemetry/system_health", json_buf);
 
@@ -395,9 +476,11 @@ void core0_main_setup(void) {
               NULL);
   xTaskCreate(task_pump_telemetry, "Telemetry", configMINIMAL_STACK_SIZE * 2,
               NULL, 1, NULL);
-#ifdef ENABLE_SYS_HEALTH_MONITOR
-  xTaskCreate(task_system_monitor, "SysMon", configMINIMAL_STACK_SIZE * 3,
+  xTaskCreate(task_cli, "CLI", configMINIMAL_STACK_SIZE * 2,
               NULL, 1, NULL);
+#ifdef ENABLE_SYS_HEALTH_MONITOR
+  xTaskCreate(task_system_monitor, "SysMon", configMINIMAL_STACK_SIZE * 3, NULL,
+              1, NULL);
 #endif
   xTaskCreate(task_example_internal_cmd, "CmdExample", configMINIMAL_STACK_SIZE,
               NULL, 1, NULL);

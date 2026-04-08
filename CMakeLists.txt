@@ -50,6 +50,7 @@ add_executable(pico2w_syringe_pump
     src/test_modes.c
     src/mqtt_client.c
     src/syringe_pump_api.c
+    src/config_manager.c
 )
 
 pico_generate_pio_header(pico2w_syringe_pump ${CMAKE_CURRENT_LIST_DIR}/src/quadrature_encoder.pio)
@@ -72,6 +73,7 @@ target_link_libraries(pico2w_syringe_pump
     freertos
     hardware_pio
     hardware_adc
+    hardware_flash
 )
 
 # Provide include directories for lwIP and others

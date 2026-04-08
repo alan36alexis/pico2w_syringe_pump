@@ -139,3 +139,33 @@ void logger_send_encoder_indep_counts(int32_t count_a, int32_t count_b) {
     msg.payload.encoder_indep_count.count_b = count_b;
     _try_send(&msg);
 }
+
+void logger_send_encoder_speed(float pps) {
+    LogMessage_t msg;
+    msg.id = LOG_EVENT_ENCODER_SPEED;
+    msg.payload.encoder_speed = pps;
+    _try_send(&msg);
+}
+
+void logger_send_speed_warning(float expected_ums, float actual_ums) {
+    LogMessage_t msg;
+    msg.id = LOG_EVENT_SPEED_WARNING;
+    msg.payload.speed_warning.expected_ums = expected_ums;
+    msg.payload.speed_warning.actual_ums = actual_ums;
+    _try_send(&msg);
+}
+
+void logger_send_correction_applied(float correction_um) {
+    LogMessage_t msg;
+    msg.id = LOG_EVENT_CORRECTION_APPLIED;
+    msg.payload.correction_um = correction_um;
+    _try_send(&msg);
+}
+
+void logger_send_motor_progress(float pct) {
+    LogMessage_t msg;
+    msg.id = LOG_EVENT_MOTOR_PROGRESS;
+    msg.payload.progress_pct = pct;
+    _try_send(&msg);
+}
+

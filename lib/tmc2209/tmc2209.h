@@ -9,7 +9,7 @@
 #include <stdint.h>
 
 #ifndef TMC2209_DMA_MAX_STEPS
-#define TMC2209_DMA_MAX_STEPS 256u
+#define TMC2209_DMA_MAX_STEPS 8u
 #endif
 
 // Tamaño del buffer Ping-Pong DMA
@@ -25,7 +25,8 @@ typedef enum {
   // RETROCESO
   TMC2209_MODE_RUN_CW = 2,  // Motor en movimiento sentido horario
   TMC2209_MODE_RUN_CCW = 3, // Motor en movimiento sentido antihorario
-  TMC2209_MODE_NSTEPS = 4, // Motor en movimiento por un número específico de pasos
+  TMC2209_MODE_NSTEPS =
+      4, // Motor en movimiento por un número específico de pasos
   TMC2209_MODE_ALARM = 5 // Modo de alarma, motor detenido
 } TMC2209_Mode_t;
 
@@ -57,6 +58,10 @@ typedef struct {
   // Estado interno
   TMC2209_Mode_t mode; // Modo actual del driver
   bool direction;      // true: adelante, false: atrás
+
+  // Estado de los finales de carrera
+  bool limit_switch_start_active;
+  bool limit_switch_end_active;
 
   // PIO State
   PIO pio;
@@ -93,7 +98,9 @@ typedef struct {
 
   // Fases del perfil de movimiento completo
   TMC2209_ProfilePhase_t current_phase;
+  uint32_t accel_total_steps;
   uint32_t steady_total_steps;
+  uint32_t profile_total_steps;
 
   // Parámetros cacheados para la fase de frenado (DECEL)
   uint32_t decel_total_steps;
@@ -106,6 +113,7 @@ typedef struct {
   uint32_t steady_buf[2] __attribute__((aligned(8)));
 
   // Legacy S-Curve Buffers
+  // TODO: Eliminar estos buffers, solo usar el ping-pong
   uint32_t ramp_buf[2u * TMC2209_DMA_MAX_STEPS] __attribute__((aligned(8)));
   uint32_t stop_buf[2u * TMC2209_DMA_MAX_STEPS] __attribute__((aligned(8)));
 } TMC2209_t;
@@ -253,8 +261,20 @@ void tmc2209_set_microstepping_uart(TMC2209_t *motor,
  */
 uint16_t tmc2209_get_microsteps(TMC2209_t *motor);
 
+/**
+ * @brief Verifica si el motor está en movimiento.
+ *
+ * @param motor Puntero a la estructura del motor.
+ * @return true si el motor está en movimiento, false en caso contrario.
+ */
 bool tmc2209_is_moving(TMC2209_t *motor);
 
+/**
+ * @brief Obtiene el modo actual del driver.
+ *
+ * @param motor Puntero a la estructura del motor.
+ * @return TMC2209_Mode_t Modo actual del driver.
+ */
 TMC2209_Mode_t tmc2209_get_mode(TMC2209_t *motor);
 
 /**
@@ -437,35 +457,54 @@ int32_t tmc2209_compute_vactual(TMC2209_t *motor, float rpm);
 
 // --- Funciones DMA / Curva S (Portadas de stepgen) ---
 
+/**
+ * @brief Inicia un movimiento con aceleración y desaceleración suaves (Curva
+ * S).
+ *
+ * @param motor Puntero a la estructura del motor.
+ * @param freq_start_hz Frecuencia inicial en Hz.
+ * @param freq_target_hz Frecuencia objetivo en Hz.
+ * @param duty_cycle Ciclo de trabajo (0.0 a 1.0).
+ * @param ramp_steps Número de pasos para la rampa.
+ * @param aggressiveness Agresividad de la curva (1-10).
+ */
 void tmc2209_start_s_curve_dma(TMC2209_t *motor, float freq_start_hz,
                                float freq_target_hz, float duty_cycle,
                                uint ramp_steps, int aggressiveness);
+
+/**
+ * @brief Detiene el movimiento con desaceleración suave (Curva S).
+ *
+ * @param motor Puntero a la estructura del motor.
+ * @param freq_end_hz Frecuencia final en Hz.
+ * @param ramp_steps Número de pasos para la rampa.
+ */
 void tmc2209_stop_s_curve_dma(TMC2209_t *motor, float freq_end_hz,
                               uint ramp_steps);
 void tmc2209_change_frequency_dma(TMC2209_t *motor, float freq_new_hz,
                                   uint ramp_steps);
 
 /**
- * @brief Obtiene la frecuencia instantánea (Hz) a la que se está moviendo el motor.
- * Basado en la lectura en tiempo real del DMA.
- * 
+ * @brief Obtiene la frecuencia instantánea (Hz) a la que se está moviendo el
+ * motor. Basado en la lectura en tiempo real del DMA.
+ *
  * @param motor Puntero a la estructura del motor.
  * @return float Frecuencia instantánea en Hz. Devuelve 0.0f si está detenido.
  */
 float tmc2209_get_current_freq_hz(TMC2209_t *motor);
 
 /**
- * @brief Inicia un frenado dinámico comenzando desde la frecuencia instantánea real.
- * Reutiliza la lógica de curva de 2 partes.
- * 
+ * @brief Inicia un frenado dinámico comenzando desde la frecuencia instantánea
+ * real. Reutiliza la lógica de curva de 2 partes.
+ *
  * @param motor Puntero a la estructura del motor.
  * @param pulses_seg1 Cantidad de pulsos del segmento 1 de frenado.
  * @param freq_mid Frecuencia intermedia en Hz.
  * @param pulses_seg2 Cantidad de pulsos del segmento 2 de frenado.
  * @param freq_target Frecuencia final en Hz (generalmente 0.1f para detenerse).
  */
-void tmc2209_stop_from_current_freq_dma(TMC2209_t *motor, uint32_t pulses_seg1, 
-                                        float freq_mid, uint32_t pulses_seg2, 
+void tmc2209_stop_from_current_freq_dma(TMC2209_t *motor, uint32_t pulses_seg1,
+                                        float freq_mid, uint32_t pulses_seg2,
                                         float freq_target);
 
 /**
@@ -520,6 +559,11 @@ void tmc2209_move_2part_profile_dma(
     float accel_freq_mid, uint32_t accel_pulses_2, float freq_target,
     uint32_t steady_pulses, uint32_t decel_pulses_1, float decel_freq_mid,
     uint32_t decel_pulses_2, float freq_end);
+
+/**
+ * @brief Obtiene el porcentaje de progreso del movimiento actual (0.0f a 100.0f)
+ */
+float tmc2209_get_move_progress_pct(TMC2209_t *motor);
 
 /**
  * @brief Inicia un movimiento de avance (CW) con perfil de velocidad en Curva

@@ -1252,6 +1252,7 @@ void tmc2209_move_2part_profile_dma(
 
   // Y pisamos las fases internas para cachear el resto del perfil dinámico
   motor->current_phase = TMC2209_PHASE_ACCEL;
+  motor->accel_total_steps = accel_pulses_1 + accel_pulses_2;
   motor->steady_total_steps = steady_pulses;
 
   uint32_t d_total = decel_pulses_1 + decel_pulses_2;
@@ -1261,6 +1262,8 @@ void tmc2209_move_2part_profile_dma(
   motor->decel_transition_step_idx = decel_pulses_1;
   motor->decel_freq_mid = decel_freq_mid;
   motor->decel_freq_target_hz = freq_end;
+
+  motor->profile_total_steps = motor->accel_total_steps + motor->steady_total_steps + motor->decel_total_steps;
 
   motor->decel_slope1 = 0.0f;
   if (decel_pulses_1 > 0) {
@@ -1346,4 +1349,28 @@ void tmc2209_move_backward_s_curve(TMC2209_t *motor, float freq_start,
                                    float freq_end, uint ramp_steps) {
   tmc2209_set_direction(motor, false); // Configurar dirección de avance
   tmc2209_start_s_curve_dma(motor, freq_start, freq_end, 0.5f, ramp_steps, 2);
+}
+
+float tmc2209_get_move_progress_pct(TMC2209_t *motor) {
+  if (!tmc2209_is_moving(motor)) {
+    return 100.0f;
+  }
+  if (motor->profile_total_steps == 0) {
+    return 0.0f;
+  }
+
+  uint32_t steps_executed = 0;
+  if (motor->current_phase == TMC2209_PHASE_ACCEL) {
+    steps_executed = motor->current_step_idx;
+  } else if (motor->current_phase == TMC2209_PHASE_STEADY) {
+    steps_executed = motor->accel_total_steps + motor->current_step_idx;
+  } else if (motor->current_phase == TMC2209_PHASE_DECEL) {
+    steps_executed = motor->accel_total_steps + motor->steady_total_steps + motor->current_step_idx;
+  } else {
+    return 100.0f;
+  }
+
+  float pct = ((float)steps_executed / (float)motor->profile_total_steps) * 100.0f;
+  if (pct > 100.0f) pct = 100.0f;
+  return pct;
 }

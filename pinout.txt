@@ -1,0 +1,27 @@
+Mapeo completo de los pines
+
+### Driver de Motor (TMC2209)
+* **GP2:** `MOTOR_DIR_PIN` (Controla la dirección de giro del motor).
+* **GP3:** `MOTOR_STEP_PIN` (Emite los pulsos/pasos para mover el motor).
+* **GP4:** `UART_TX_PIN` (Transmisión UART1 para configurar registros y leer diagnósticos del TMC2209).
+* **GP5:** `UART_RX_PIN` (Recepción UART1 desde el TMC2209).
+* **GP6:** `MOTOR_MS2_PIN` (Configurado dualmente: Bit 1 para la dirección esclava de UART (`ADDR`), o selección de microstepping por pines).
+* **GP7:** `MOTOR_MS1_PIN` (Configurado dualmente: Bit 0 para la dirección esclava de UART (`ADDR`), o selección de microstepping por pines).
+* **GP8:** `MOTOR_ENA_PIN` (Habilita o deshabilita la potencia enviada a las bobinas del motor).
+
+### Finales de Carrera (Limit Switches)
+* **GP26:** `LIMIT_SW_START_PIN` (Señal de entrada para el final de carrera del extremo de "Inicio / Retracción". Opera con un pull-up interno). 
+* **GP27:** `LIMIT_SW_END_PIN` (Señal de entrada para el final de carrera del extremo "Final / Avance". Opera también con un pull-up interno).
+
+### Sensor de Presión (Honeywell HSC) - `SPI0`
+* **GP16:** `PIN_MISO` (CABLE RX SPI - Recibe los datos empacados de presión del sensor).
+* **GP17:** `PIN_CS` (Chip Select lógico).
+* **GP18:** `PIN_SCK` (Reloj del bus SPI).
+* **GP19:** `PIN_MOSI` (Transmisión, aunque para este sensor generalmente no se envían datos, pero el bus lo reserva).
+
+### Encoder Óptico/Magnético (Lectura por PIO)
+* **GP20:** `ENCODER_PIN_A` (Fase A de cuadratura, o Canal A de un contador de pulsos independiente).
+* **GP21:** `ENCODER_PIN_B` (Fase B de cuadratura, o Canal B de contador independiente).
+
+### Pines Internos / Sistema (Raspberry Pi Pico W)
+* **`PIN LED (CYW43 WL_GPIO0):`** En tu `core0_main.c` hay una tarea llamada `task_blinky` que parpadea este LED cada 500ms para confirmar que el sistema FreeRTOS está corriendo saludablemente (Hearbeat visual).

@@ -28,7 +28,11 @@ typedef enum {
     LOG_EVENT_GENERAL_DEBUG,
     LOG_EVENT_STRING_MSG,
     LOG_EVENT_ENCODER_UPDATE,
-    LOG_EVENT_ENCODER_INDEP_UPDATE
+    LOG_EVENT_ENCODER_INDEP_UPDATE,
+    LOG_EVENT_ENCODER_SPEED,
+    LOG_EVENT_SPEED_WARNING,
+    LOG_EVENT_CORRECTION_APPLIED,
+    LOG_EVENT_MOTOR_PROGRESS
 } LogEventID_t;
 
 // Payload Struct (Union to save space)
@@ -55,6 +59,13 @@ typedef struct {
             int32_t count_a;
             int32_t count_b;
         } encoder_indep_count;
+        float encoder_speed;       // For encoder speed
+        struct {
+            float expected_ums;
+            float actual_ums;
+        } speed_warning;
+        float correction_um;
+        float progress_pct;        // For motor progress
         uint32_t raw_data;         // For arbitrary data
         const char *msg_str;       // For string messages (pointers)
     } payload;
@@ -82,5 +93,9 @@ void logger_send_pins_init_mode(void);
 void logger_send_string(const char *str);
 void logger_send_encoder_count(int32_t count);
 void logger_send_encoder_indep_counts(int32_t count_a, int32_t count_b);
+void logger_send_encoder_speed(float pps);
+void logger_send_speed_warning(float expected_ums, float actual_ums);
+void logger_send_correction_applied(float correction_um);
+void logger_send_motor_progress(float pct);
 
 #endif // CROSSCORE_LOGGER_H

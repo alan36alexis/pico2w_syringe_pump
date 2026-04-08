@@ -36,3 +36,50 @@ El proyecto mitiga por completo este problema valiéndose de la librería están
 1. **`LogMessage_t` (Payload optimizado):** Una estructura `union` optimizada permite empacar en la memoria RAM el identificador numérico de qué evento ocurrió (ej: `LOG_EVENT_PRESSURE_ALERT`) adjunto de una porción pura de solo 4 bytes del valor en el momento del evento (ej: `float pressure_psi`).
 2. **Transferencia No-Bloqueante (`queue_try_add()`):** Cuando ocurre una falla crítica o una lectura correcta en el *Baremetal* (Core 1), invoca rápidamente funciones como `logger_send_pressure_update(float psi)`. Internamente sólo intentan insertarse asíncronamente en la cola RAM inter-núcleo en nanosegundos y regresan inmediatamente a mover el motor, incluso si la cola se saturó de mensajes y los datos se pierden.
 3. **Impresión Asíncrona (FreeRTOS `task_logger`):** En el Core 0, el FreeRTOS ejecuta un ciclo cada `10ms` que explora la cola. Extrae (*pop*) todos los eventos acumulados y se hace cargo del retardo bloqueante de utilizar `printf()`, convirtiendo los crudos `floats` y `uint_32` transmitidos por el Core 1 a extensos renglones entendibles para el operador de diagnóstico en el monitor serie, sin obstaculizar la maquinaria.
+
+---
+
+## Interfaz de Comandos y Telemetría (MQTT / CLI)
+
+El sistema soporta el envío de comandos de movimiento y la configuración dinámica de credenciales mediante *dos interfaces unificadas*:
+1. **MQTT**: Mediante la subscripción al tópico de comandos definido y publicando payloads de texto.
+2. **CLI (Puerto Serial)**: Abriendo la consola UART/USB de la Pico y tecleando los comandos directamente.
+
+### Comandos de Operación Disponibles (Vía CLI o MQTT payload)
+
+| Comando Payload | Descripción | Notas |
+|---|---|---|
+| `stop_imm` o `STOP_IMM` | Parada inmediata (Hard Stop) | Frena el motor deteniendo su generador abruptamente. |
+| `stop` o `STOP` | Parada suave (Soft Stop) | Desacelera respetando la rampa configurada hasta llegar a 0. |
+| `home_start,<velocidad>` | Busca el inicio / Homing (Atrás) | Motor se mueve negativo a velocidad constante hasta hallar el tope. Ej: `home_start,1200` |
+| `home_end,<velocidad>` | Busca el fin / Homing (Adelante)| Motor se mueve positivo a velocidad constante hasta hallar el tope. Ej: `home_end,1200` |
+| `nsteps,<pasos>,<freq_hz>`| Movimiento por Pasos puros | Inyecta N pasos fijos a cierta frecuencia. Ej: `nsteps,3200,500.0` |
+| `<velocidad>,<posicion>` | Movimiento Lineal | Mueve a una posición dada (um) a cierta velocidad (um/s). Falla si el payload no es reconocido como ningún otro comando previo. Ej: `500.0,15000.0` |
+
+### Comandos de Configuración Exclusivos de CLI
+
+Actualmente, estos comandos son accesibles mediante la consola serial y se utilizan para guardar datos persistentes en la memoria **Flash** del microcontrolador (Thread-Safe mediante *multicore lockout*).
+
+| Comando CLI | Descripción |
+|---|---|
+| `config_wifi,<SSID>,<PASS>`| Guarda temporalmente en RAM y usa las nuevas credenciales de Wi-Fi. |
+| `config_mqtt,<IP>,<PORT>` | Guarda temporalmente en RAM y usa la nueva IP/Puerto del Broker. |
+| `config_save` | Escribe los valores de RAM en la Memoria Flash profunda de forma definitiva. (Solo funcionará si el motor no se está moviendo). |
+| `config_info` | Muestra un resumen de variables actuales cargadas en el gestor. |
+| `reconnect` | Efectúa un reseteo *suave* (Soft Reset) del hardware Wi-Fi desasociándolo de su actual red (LwIP leave) obligándolo a re-engancharse y conectar MQTT con la nueva configuración sin reiniciar el procesador. |
+
+### Tópicos MQTT 
+
+* **Comandos entrantes hacia la Pico**:
+  * `syringe_pump/cmd` - (Espera los Payloads descritos más arriba).
+
+* **Telemetría y Logging (Publicados por la Pico)**:
+  * `syringe_pump/telemetry` - JSON global con estado general enviado cada X segundos.
+  * `syringe_pump/telemetry/system_health` - JSON con datos de memoria/temperatura del procesador.
+  * `syringe_pump/log/system` - Advertencias, correcciones y eventos genéricos del logger centralizado.
+  * `syringe_pump/log/motor_state` - Eventos de parada, retroceso, movimiento y límites de carrera.
+  * `syringe_pump/log/motor_regs` - Diagnóstico UART con sus registros StallGuard, DRV_STATUS, inicialización cruzada, etc.
+  * `syringe_pump/log/pressure` - Eventos sobre alertas de sobre-presión o retornos de protección (desde el sensor de presión SPI).
+  * `syringe_pump/log/encoder` y `.../encoder_indep` - Valores crudos o en cuadratura del Encoder si está habilitado.
+  * `syringe_pump/log/encoder_speed` - PPS (Pulsos Por Segundo).
+  * `syringe_pump/log/progress` - Telemetría pura del porcentaje completado (`progress_pct`) durante el movimiento.
