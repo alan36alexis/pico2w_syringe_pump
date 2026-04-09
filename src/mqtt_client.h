@@ -25,7 +25,9 @@ extern "C" {
 
 #define MQTT_BROKER_PORT 1883
 
+void mqtt_client_queue_init(void);
 void mqtt_client_task(void *params);
+void mqtt_rx_task(void *params);
 bool mqtt_client_publish(const char *topic, const char *payload);
 void mqtt_client_force_reconnect(void);
 

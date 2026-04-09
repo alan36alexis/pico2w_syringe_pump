@@ -472,6 +472,7 @@ void core0_main_setup(void) {
   print_q = xQueueCreate(PRINT_QUEUE_LENGTH, PRINT_MSG_MAX_LEN);
   crosscore_logger_init();
   crosscore_cmd_init();
+  mqtt_client_queue_init();
 
   // Creación de las tareas de FreeRTOS
   xTaskCreate(task_init, "Init", 1024, NULL, 2, NULL);
@@ -481,6 +482,7 @@ void core0_main_setup(void) {
   xTaskCreate(task_pump_telemetry, "Telemetry", configMINIMAL_STACK_SIZE * 2,
               NULL, 1, NULL);
   xTaskCreate(task_cli, "CLI", configMINIMAL_STACK_SIZE * 2, NULL, 1, NULL);
+  xTaskCreate(mqtt_rx_task, "MQTT_Rx", configMINIMAL_STACK_SIZE * 2, NULL, 2, NULL);
 #ifdef ENABLE_SYS_HEALTH_MONITOR
   xTaskCreate(task_system_monitor, "SysMon", configMINIMAL_STACK_SIZE * 3, NULL,
               1, NULL);
