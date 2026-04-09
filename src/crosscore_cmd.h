@@ -44,7 +44,7 @@ typedef struct {
             float target_velocity_ums;
         } move_home;
         struct {
-            uint32_t nsteps;
+            int32_t nsteps;
             float freq_hz;
         } move_nsteps;
         uint32_t raw_data; // For arbitrary data
@@ -63,7 +63,7 @@ bool cmd_send_move_2part_profile(float start_freq, uint32_t a_p1, float f_mid_ac
                                  float f_end);
 bool cmd_send_home_start(float target_velocity_ums);
 bool cmd_send_home_end(float target_velocity_ums);
-bool cmd_send_move_nsteps(uint32_t nsteps, float freq_hz);
+bool cmd_send_move_nsteps(int32_t nsteps, float freq_hz);
 bool cmd_send_stop_immediate(void);
 
 // Parse and execute a string command (used by MQTT and CLI)

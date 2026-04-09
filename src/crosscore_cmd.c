@@ -68,7 +68,7 @@ bool cmd_send_home_end(float target_velocity_ums) {
     return queue_try_add(&crosscore_cmd_queue, &msg);
 }
 
-bool cmd_send_move_nsteps(uint32_t nsteps, float freq_hz) {
+bool cmd_send_move_nsteps(int32_t nsteps, float freq_hz) {
     Core1CmdMessage_t msg;
     msg.id = CMD_MOVE_NSTEPS;
     msg.payload.move_nsteps.nsteps = nsteps;
@@ -124,9 +124,9 @@ void cmd_parse_and_execute(const char *payload_str) {
         char *comma = strchr(cmd_str + 7, ',');
         if (comma != NULL) {
             *comma = '\0';
-            uint32_t nsteps = (uint32_t)atoi(cmd_str + 7);
+            int32_t nsteps = (int32_t)atoi(cmd_str + 7);
             float freq_hz = (float)atof(comma + 1);
-            printf("Executing NSTEPS command: steps=%u, freq=%.2f Hz\n", nsteps, freq_hz);
+            printf("Executing NSTEPS command: steps=%d, freq=%.2f Hz\n", nsteps, freq_hz);
             cmd_send_move_nsteps(nsteps, freq_hz);
         } else {
             printf("Failed to parse NSTEPS command format\n");

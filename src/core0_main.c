@@ -5,13 +5,14 @@
 // #define ENABLE_SYS_HEALTH_MONITOR
 
 #include "FreeRTOS.h"
+#include "config_manager.h"
 #include "crosscore_cmd.h"
 #include "crosscore_logger.h"
 #include "mqtt_client.h"
 #include "pico/cyw43_arch.h"
 #include "pico/multicore.h"
 #include "pico/stdlib.h"
-#include "config_manager.h"
+
 #ifdef ENABLE_SYS_HEALTH_MONITOR
 #include "hardware/adc.h"
 #endif
@@ -57,7 +58,8 @@ static void task_init(void *params) {
 
   cyw43_arch_enable_sta_mode();
   safe_printf("Connecting to Wi-Fi (%s)...\n", g_sys_config.wifi_ssid);
-  if (cyw43_arch_wifi_connect_timeout_ms(g_sys_config.wifi_ssid, g_sys_config.wifi_pass,
+  if (cyw43_arch_wifi_connect_timeout_ms(g_sys_config.wifi_ssid,
+                                         g_sys_config.wifi_pass,
                                          CYW43_AUTH_WPA2_AES_PSK, 30000)) {
     safe_printf("Failed to connect to Wi-Fi.\n");
     vTaskDelete(NULL);
@@ -86,7 +88,8 @@ static void wifi_keepalive_task(void *params) {
     if (link_status != CYW43_LINK_UP) {
       safe_printf("Wi-Fi disconnected (status: %d). Reconnecting to %s...\n",
                   link_status, g_sys_config.wifi_ssid);
-      if (cyw43_arch_wifi_connect_timeout_ms(g_sys_config.wifi_ssid, g_sys_config.wifi_pass,
+      if (cyw43_arch_wifi_connect_timeout_ms(g_sys_config.wifi_ssid,
+                                             g_sys_config.wifi_pass,
                                              CYW43_AUTH_WPA2_AES_PSK, 30000)) {
         safe_printf("Failed to reconnect to Wi-Fi.\n");
       } else {
@@ -335,7 +338,8 @@ static void task_example_internal_cmd(void *params) {
   // cmd_send_move_2part_profile(20.0f, 200, 400.0f, 200, 700.0f,
   //                             2400 + turns * 3200, 200, 400.0f, 200, 20.0f);
 
-  cmd_send_move_linear_um(2000.0f, 400.0f);
+  // cmd_send_move_linear_um(2000.0f, 400.0f);
+  cmd_send_move_nsteps(3200 * 27, 1600);
 
   while (1) {
     vTaskDelay(pdMS_TO_TICKS(60000));
@@ -476,8 +480,7 @@ void core0_main_setup(void) {
               NULL);
   xTaskCreate(task_pump_telemetry, "Telemetry", configMINIMAL_STACK_SIZE * 2,
               NULL, 1, NULL);
-  xTaskCreate(task_cli, "CLI", configMINIMAL_STACK_SIZE * 2,
-              NULL, 1, NULL);
+  xTaskCreate(task_cli, "CLI", configMINIMAL_STACK_SIZE * 2, NULL, 1, NULL);
 #ifdef ENABLE_SYS_HEALTH_MONITOR
   xTaskCreate(task_system_monitor, "SysMon", configMINIMAL_STACK_SIZE * 3, NULL,
               1, NULL);

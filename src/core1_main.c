@@ -3,8 +3,8 @@
 #include <stdio.h>
 
 #include "hardware/spi.h"
-#include "pico/stdlib.h"
 #include "pico/multicore.h"
+#include "pico/stdlib.h"
 
 // Componentes del proyecto
 #include "core1_main.h"
@@ -18,10 +18,10 @@
 
 // Opción para habilitar/deshabilitar el Encoder (false = sin encoder ni
 // correcciones)
-#define ENABLE_ENCODER false
+#define ENABLE_ENCODER true
 
 // Opción para alternar entre Cuadratura y Conteo Independiente
-#define USE_QUADRATURE_ENCODER false
+#define USE_QUADRATURE_ENCODER true
 
 // --- Semi-Closed Loop Settings ---
 #define ENCODER_LINES_PER_REV 900
@@ -461,6 +461,23 @@ void core1_main(void) {
   // tmc2209_send_nsteps_at_freq(&motor1, 3200, 500.0f);
 
   while (true) {
+#define RESET_ENCODER_COUNTS()                                                 \
+  do {                                                                         \
+    if (ENABLE_ENCODER) {                                                      \
+      if (USE_QUADRATURE_ENCODER) {                                            \
+        pio_sm_exec(pio1, sm_enc_q, 0xe040); /* set y, 0 */                    \
+      } else {                                                                 \
+        pio_sm_exec(pio1, sm_enc_a, 0xa02b); /* mov x, ~null */                \
+        pio_sm_exec(pio1, sm_enc_b, 0xa02b); /* mov x, ~null */                \
+      }                                                                        \
+      last_encoder_count = 0;                                                  \
+      last_encoder_a = 0;                                                      \
+      last_encoder_b = 0;                                                      \
+      last_speed_encoder_count = 0;                                            \
+      start_encoder_count_cl = 0;                                              \
+    }                                                                          \
+  } while (0)
+
     Core1CmdMessage_t cmd;
 
     // Check for commands from Core 0
@@ -471,6 +488,8 @@ void core1_main(void) {
                   cmd.payload.move_linear.target_um,
                   cmd.payload.move_linear.target_velocity_ums);
 
+        RESET_ENCODER_COUNTS();
+
         // --- SEC Closed-loop Init ---
         expected_target_velocity_ums =
             cmd.payload.move_linear.target_velocity_ums;
@@ -478,12 +497,6 @@ void core1_main(void) {
             cmd.payload.move_linear.target_um; // Conserva signo
 
         if (ENABLE_ENCODER) {
-          if (USE_QUADRATURE_ENCODER) {
-            start_encoder_count_cl =
-                quadrature_encoder_get_count(pio1, sm_enc_q);
-          } else {
-            start_encoder_count_cl = pulse_counter_get_count(pio1, sm_enc_a);
-          }
           waiting_for_correction = true;
         } else {
           waiting_for_correction = false;
@@ -510,6 +523,7 @@ void core1_main(void) {
 
       case CMD_MOVE_2PART_PROFILE:
         LOG_DEBUG("CMD received: move_2part_profile\n");
+        RESET_ENCODER_COUNTS();
         logger_send_motor_moving();
         tmc2209_move_2part_profile_dma(
             global_motor, cmd.payload.move_2part.start_freq,
@@ -523,6 +537,7 @@ void core1_main(void) {
       case CMD_HOME_START: {
         float speed = 1200.0f; // Velocidad fija solicitada de 1200 um/s
         LOG_DEBUG("CMD received: home_start (%.1f um/s)\n", speed);
+        RESET_ENCODER_COUNTS();
         waiting_for_correction = false;
         logger_send_motor_moving();
         // Distancia negativa larga para asegurar que llegue al sensor (Longitud
@@ -534,6 +549,7 @@ void core1_main(void) {
       case CMD_HOME_END: {
         float speed = 1200.0f; // Velocidad fija solicitada de 1200 um/s
         LOG_DEBUG("CMD received: home_end (%.1f um/s)\n", speed);
+        RESET_ENCODER_COUNTS();
         waiting_for_correction = false;
         logger_send_motor_moving();
         // Distancia positiva larga para asegurar que llegue al sensor
@@ -541,16 +557,25 @@ void core1_main(void) {
         break;
       }
 
-      case CMD_MOVE_NSTEPS:
-        LOG_DEBUG("CMD received: move_nsteps (%u steps, %.1f Hz)\n",
-                  cmd.payload.move_nsteps.nsteps,
+      case CMD_MOVE_NSTEPS: {
+        int32_t steps = cmd.payload.move_nsteps.nsteps;
+        LOG_DEBUG("CMD received: move_nsteps (%d steps, %.1f Hz)\n", steps,
                   cmd.payload.move_nsteps.freq_hz);
+        RESET_ENCODER_COUNTS();
         waiting_for_correction = false;
         logger_send_motor_moving();
-        tmc2209_send_nsteps_at_freq(global_motor,
-                                    cmd.payload.move_nsteps.nsteps,
+
+        if (steps < 0) {
+          tmc2209_set_direction(global_motor, false);
+          steps = -steps;
+        } else {
+          tmc2209_set_direction(global_motor, true);
+        }
+
+        tmc2209_send_nsteps_at_freq(global_motor, steps,
                                     cmd.payload.move_nsteps.freq_hz);
         break;
+      }
 
       case CMD_STOP_IMMEDIATE:
         LOG_DEBUG("CMD received: stop_immediate\n");
@@ -765,7 +790,8 @@ void core1_main(void) {
         if (counter % 10 == 0) {
           float pps = measure_encoder_speed(
               current_count, &last_speed_encoder_count, &last_speed_calc_time);
-          logger_send_encoder_speed(pps);
+          if (was_moving)
+            logger_send_encoder_speed(pps);
         }
 
         if (current_count != last_encoder_count) {
@@ -779,7 +805,8 @@ void core1_main(void) {
         if (counter % 10 == 0) {
           float pps_a = measure_encoder_speed(a, &last_speed_encoder_count,
                                               &last_speed_calc_time);
-          logger_send_encoder_speed(pps_a);
+          if (was_moving)
+            logger_send_encoder_speed(pps_a);
         }
 
         if (a != last_encoder_a || b != last_encoder_b) {
