@@ -83,3 +83,16 @@ Actualmente, estos comandos son accesibles mediante la consola serial y se utili
   * `syringe_pump/log/encoder` y `.../encoder_indep` - Valores crudos o en cuadratura del Encoder si está habilitado.
   * `syringe_pump/log/encoder_speed` - PPS (Pulsos Por Segundo).
   * `syringe_pump/log/progress` - Telemetría pura del porcentaje completado (`progress_pct`) durante el movimiento.
+
+### TODO
+- [ ] Implementar libreria de control de TFT+Touch y lógica de menues. **WIP**
+- [ ] Implementar control lazo cerrado (driver+motor PAP , encoder). **WIP**
+- [ ] Implementar CLI para control del sistema. **WIP**
+- [ ] Implementar el uso del watchdog multi-thread(event group o challenge-response).
+- [ ] Implementar libreria para manejo de memoria no volatil. Actualmente se usa funciones de flash nativas del SDK, analizar uso de littlefs.
+- [ ] Implementar mini database para guardar datos de uso, estado del sistema y logs..
+- [ ] Implementar sincronización con hora actual + RTC.
+- [ ] Implementar lectura de sensor de fuerza y lógica de seguridad asociada.
+- [ ] Implementar control de modo bajo consumo(modo sleep).
+- [ ] Implementar sistema de alarma (buzzer, led, logs) en base a salud y estado de sistema. **WIP**
+- [ ] Implementar monitoreo y actuación sobre estado de energía (modo batería, nivel de carga, etc)
