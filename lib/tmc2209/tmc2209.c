@@ -112,7 +112,7 @@ static void build_s_curve_cycles(uint32_t *out_words, uint steps, float f0_hz,
 
 // Tiempo fijo del pulso en Alto por recomendación del TMC2209 en nanosegundos
 // (típicamente >100ns)
-#define TMC2209_FIXED_HIGH_TIME_US 2.0f
+#define TMC2209_FIXED_HIGH_TIME_US 4.0f
 
 static void build_constant_cycles_pair(uint32_t out_pair[2], float freq_hz) {
   const uint32_t sys_hz = clock_get_hz(clk_sys);
@@ -1263,7 +1263,9 @@ void tmc2209_move_2part_profile_dma(
   motor->decel_freq_mid = decel_freq_mid;
   motor->decel_freq_target_hz = freq_end;
 
-  motor->profile_total_steps = motor->accel_total_steps + motor->steady_total_steps + motor->decel_total_steps;
+  motor->profile_total_steps = motor->accel_total_steps +
+                               motor->steady_total_steps +
+                               motor->decel_total_steps;
 
   motor->decel_slope1 = 0.0f;
   if (decel_pulses_1 > 0) {
@@ -1365,12 +1367,15 @@ float tmc2209_get_move_progress_pct(TMC2209_t *motor) {
   } else if (motor->current_phase == TMC2209_PHASE_STEADY) {
     steps_executed = motor->accel_total_steps + motor->current_step_idx;
   } else if (motor->current_phase == TMC2209_PHASE_DECEL) {
-    steps_executed = motor->accel_total_steps + motor->steady_total_steps + motor->current_step_idx;
+    steps_executed = motor->accel_total_steps + motor->steady_total_steps +
+                     motor->current_step_idx;
   } else {
     return 100.0f;
   }
 
-  float pct = ((float)steps_executed / (float)motor->profile_total_steps) * 100.0f;
-  if (pct > 100.0f) pct = 100.0f;
+  float pct =
+      ((float)steps_executed / (float)motor->profile_total_steps) * 100.0f;
+  if (pct > 100.0f)
+    pct = 100.0f;
   return pct;
 }

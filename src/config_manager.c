@@ -6,6 +6,8 @@
 #include "hardware/sync.h"
 #include "pico/multicore.h"
 #include "tmc2209.h"
+#include "FreeRTOS.h"
+#include "semphr.h"
 
 // Reference to global motor on Core 1 if needed to check if it's moving
 extern TMC2209_t *global_motor;
@@ -20,6 +22,20 @@ extern TMC2209_t *global_motor;
 #define CONFIG_MAGIC_WORD 0xA1B2C3D4
 
 SystemConfig_t g_sys_config;
+static SemaphoreHandle_t g_config_mutex = NULL;
+
+static void config_lock(void) {
+    if (g_config_mutex == NULL) {
+        g_config_mutex = xSemaphoreCreateMutex();
+    }
+    xSemaphoreTake(g_config_mutex, portMAX_DELAY);
+}
+
+static void config_unlock(void) {
+    if (g_config_mutex != NULL) {
+        xSemaphoreGive(g_config_mutex);
+    }
+}
 
 static uint32_t calculate_checksum(SystemConfig_t *cfg) {
     uint32_t sum = 0;
@@ -33,6 +49,11 @@ static uint32_t calculate_checksum(SystemConfig_t *cfg) {
 }
 
 void config_manager_init(void) {
+    // Initializing the mutex early
+    if (g_config_mutex == NULL) {
+        g_config_mutex = xSemaphoreCreateMutex();
+    }
+
     // Read from flash. XIP_BASE is starting address of execute-in-place flash.
     const SystemConfig_t *flash_cfg = (const SystemConfig_t *) (XIP_BASE + CONFIG_FLASH_OFFSET);
 
@@ -69,10 +90,13 @@ void config_manager_init(void) {
 }
 
 bool config_manager_save(bool override_motor_check) {
+    config_lock();
+
     // Check motor status first
     if (!override_motor_check && global_motor != NULL) {
         if (tmc2209_is_moving(global_motor)) {
             printf("CONFIG: Guardado abortado! El motor esta en movimiento.\n");
+            config_unlock();
             return false;
         }
     }
@@ -104,24 +128,60 @@ bool config_manager_save(bool override_motor_check) {
     // Resume Core 1
     multicore_lockout_end_blocking();
 
+    config_unlock();
     printf("CONFIG: Flash write complete. Sistema reanudado.\n");
     return true;
 }
 
 void config_set_wifi(const char* ssid, const char* pass) {
+    config_lock();
     strncpy(g_sys_config.wifi_ssid, ssid, MAX_SSID_LEN);
     g_sys_config.wifi_ssid[MAX_SSID_LEN - 1] = '\0';
     
     strncpy(g_sys_config.wifi_pass, pass, MAX_PASS_LEN);
     g_sys_config.wifi_pass[MAX_PASS_LEN - 1] = '\0';
-    
-    printf("CONFIG: WiFi en RAM actualizado a '%s'\n", g_sys_config.wifi_ssid);
+    config_unlock();
+
+    printf("CONFIG: WiFi en RAM actualizado (SSID y Pass)\n");
+}
+
+void config_set_wifi_ssid(const char* ssid) {
+    config_lock();
+    strncpy(g_sys_config.wifi_ssid, ssid, MAX_SSID_LEN);
+    g_sys_config.wifi_ssid[MAX_SSID_LEN - 1] = '\0';
+    config_unlock();
+    printf("CONFIG: WiFi SSID actualizado a '%s'\n", ssid);
+}
+
+void config_set_wifi_pass(const char* pass) {
+    config_lock();
+    strncpy(g_sys_config.wifi_pass, pass, MAX_PASS_LEN);
+    g_sys_config.wifi_pass[MAX_PASS_LEN - 1] = '\0';
+    config_unlock();
+    printf("CONFIG: WiFi Password actualizado.\n");
 }
 
 void config_set_mqtt(const char* ip, uint16_t port) {
+    config_lock();
     strncpy(g_sys_config.mqtt_ip, ip, MAX_IP_LEN);
     g_sys_config.mqtt_ip[MAX_IP_LEN - 1] = '\0';
     g_sys_config.mqtt_port = port;
+    config_unlock();
     
     printf("CONFIG: MQTT en RAM actualizado a '%s:%d'\n", g_sys_config.mqtt_ip, g_sys_config.mqtt_port);
+}
+
+void config_set_mqtt_ip(const char* ip) {
+    config_lock();
+    strncpy(g_sys_config.mqtt_ip, ip, MAX_IP_LEN);
+    g_sys_config.mqtt_ip[MAX_IP_LEN - 1] = '\0';
+    config_unlock();
+    printf("CONFIG: MQTT IP actualizado a '%s'\n", ip);
+}
+
+void config_set_mqtt_port(uint16_t port) {
+    config_lock();
+    g_sys_config.mqtt_port = port;
+    config_unlock();
+    printf("CONFIG: MQTT Port actualizado a %d\n", port);
 }

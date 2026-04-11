@@ -339,7 +339,7 @@ static void task_example_internal_cmd(void *params) {
   //                             2400 + turns * 3200, 200, 400.0f, 200, 20.0f);
 
   // cmd_send_move_linear_um(2000.0f, 400.0f);
-  cmd_send_move_nsteps(3200 * 27, 1600);
+  // cmd_send_move_nsteps(3200 * 27, 1600);
 
   while (1) {
     vTaskDelay(pdMS_TO_TICKS(60000));
@@ -367,7 +367,7 @@ static void task_pump_telemetry(void *params) {
  * @brief Tarea para procesar comandos via Serial (CLI)
  */
 static void task_cli(void *params) {
-  char cli_buf[64];
+  char cli_buf[128];
   int cli_idx = 0;
 
   safe_printf("\nPico CLI Ready. Waiting for commands...\n");
@@ -481,8 +481,9 @@ void core0_main_setup(void) {
               NULL);
   xTaskCreate(task_pump_telemetry, "Telemetry", configMINIMAL_STACK_SIZE * 2,
               NULL, 1, NULL);
-  xTaskCreate(task_cli, "CLI", configMINIMAL_STACK_SIZE * 2, NULL, 1, NULL);
-  xTaskCreate(mqtt_rx_task, "MQTT_Rx", configMINIMAL_STACK_SIZE * 2, NULL, 2, NULL);
+  xTaskCreate(task_cli, "CLI", configMINIMAL_STACK_SIZE * 3, NULL, 3, NULL);
+  xTaskCreate(mqtt_rx_task, "MQTT_Rx", configMINIMAL_STACK_SIZE * 2, NULL, 2,
+              NULL);
 #ifdef ENABLE_SYS_HEALTH_MONITOR
   xTaskCreate(task_system_monitor, "SysMon", configMINIMAL_STACK_SIZE * 3, NULL,
               1, NULL);

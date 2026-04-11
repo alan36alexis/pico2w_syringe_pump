@@ -12,15 +12,15 @@ extern "C" {
 
 // Placeholder for user credentials
 #ifndef WIFI_SSID
-#define WIFI_SSID "UTN_2022" //"Telecentro-c220"
+#define WIFI_SSID "Telecentro-c220" //"UTN_2022"
 #endif
 
 #ifndef WIFI_PASSWORD
-#define WIFI_PASSWORD "utn.2022" //"QCW6G53HNLYG"
+#define WIFI_PASSWORD "QCW6G53HNLYG" //"utn.2022"
 #endif
 
 #ifndef MQTT_BROKER_IP
-#define MQTT_BROKER_IP "172.20.109.29" //"192.168.0.15" // MQTT broker IP
+#define MQTT_BROKER_IP "192.168.0.21" // MQTT broker IP
 #endif
 
 #define MQTT_BROKER_PORT 1883

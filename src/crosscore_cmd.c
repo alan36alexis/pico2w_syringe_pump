@@ -85,7 +85,7 @@ bool cmd_send_stop_immediate(void) {
 
 void cmd_parse_and_execute(const char *payload_str) {
     // We expect a string like "10000.0,450.0" or "stop_imm" etc.
-    char cmd_str[64];
+    char cmd_str[128];
     strncpy(cmd_str, payload_str, sizeof(cmd_str) - 1);
     cmd_str[sizeof(cmd_str) - 1] = '\0';
 
@@ -160,6 +160,24 @@ void cmd_parse_and_execute(const char *payload_str) {
         } else {
             printf("Error formating config_mqtt. Use: config_mqtt,IP,PORT\n");
         }
+        return;
+    }
+
+    // Granular setters
+    if (strncmp(cmd_str, "set_ssid,", 9) == 0) {
+        config_set_wifi_ssid(cmd_str + 9);
+        return;
+    }
+    if (strncmp(cmd_str, "set_wpass,", 10) == 0) {
+        config_set_wifi_pass(cmd_str + 10);
+        return;
+    }
+    if (strncmp(cmd_str, "set_mqtt_ip,", 12) == 0) {
+        config_set_mqtt_ip(cmd_str + 12);
+        return;
+    }
+    if (strncmp(cmd_str, "set_mqtt_port,", 14) == 0) {
+        config_set_mqtt_port((uint16_t)atoi(cmd_str + 14));
         return;
     }
 

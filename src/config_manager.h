@@ -34,7 +34,11 @@ bool config_manager_save(bool override_motor_check);
 
 // Dynamic setters
 void config_set_wifi(const char* ssid, const char* pass);
+void config_set_wifi_ssid(const char* ssid);
+void config_set_wifi_pass(const char* pass);
 void config_set_mqtt(const char* ip, uint16_t port);
+void config_set_mqtt_ip(const char* ip);
+void config_set_mqtt_port(uint16_t port);
 
 #ifdef __cplusplus
 }

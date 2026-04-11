@@ -45,6 +45,7 @@ add_executable(pico2w_syringe_pump
     src/main.c
     src/core0_main.c
     src/core1_main.c
+    src/closed_loop.c
     src/crosscore_logger.c
     src/crosscore_cmd.c
     src/test_modes.c

@@ -7,6 +7,7 @@
 #include "pico/stdlib.h"
 
 // Componentes del proyecto
+#include "closed_loop.h"
 #include "core1_main.h"
 #include "crosscore_cmd.h"
 #include "crosscore_logger.h"
@@ -14,21 +15,8 @@
 #include "honeywell_spi.h"
 #include "pulse_counter.pio.h"
 #include "quadrature_encoder.pio.h"
+#include "system_config.h"
 #include "tmc2209.h"
-
-// Opción para habilitar/deshabilitar el Encoder (false = sin encoder ni
-// correcciones)
-#define ENABLE_ENCODER true
-
-// Opción para alternar entre Cuadratura y Conteo Independiente
-#define USE_QUADRATURE_ENCODER true
-
-// --- Semi-Closed Loop Settings ---
-#define ENCODER_LINES_PER_REV 900
-#define SPEED_TOLERANCE_PCT 15.0f
-#define CORRECTION_DEADBAND_UM 10.0f
-#define MAX_CORRECTION_ATTEMPTS 1
-#define CRUISE_CHECK_DELAY_US 500000 // 500ms ignorando aceleracion
 
 // --- DEBUG MODE ---
 // 1 = Activado (printf habilitado), 0 = Desactivado (printf mudo)
@@ -57,23 +45,6 @@
 // Alias para modo UART (Mismos pines físicos)
 #define MOTOR_ADDR_PIN_1 MOTOR_MS2_PIN // Bit 1 de dirección
 #define MOTOR_ADDR_PIN_0 MOTOR_MS1_PIN // Bit 0 de dirección
-
-// Parámetros de resolucion
-#define MOTOR_STEPS_PER_REV 200
-#define MOTOR_MICROSTEPS_VAL 16
-#define MOTOR_MICROSTEPS                                                       \
-  TMC2209_MICROSTEPS_16 // 1-> 1600, 2-> 6400, 4-> 12800, 16-> 3200
-#define STEPS_PER_REV MOTOR_MICROSTEPS_VAL *MOTOR_STEPS_PER_REV
-#define NSTEPS STEPS_PER_REV * 1000
-#define STEP_FREQ 6400 * 2   // Frecuencia de pasos en Hz
-#define GEARBOX_RATIO 27.00f // Relación de reducción (1.0 = Directo)
-#define GEARBOX_STEPS_PER_REV STEPS_PER_REV *GEARBOX_RATIO
-#define GEARBOX_NSTEPS GEARBOX_STEPS_PER_REV * 1000
-#define GEARBOX_STEP_FREQ 7000
-
-// --- Cinematica y Reducción ---
-#define REAL_GEARBOX_RATIO 26.85f
-#define LEAD_SCREW_PITCH_UM 2000.0f // TR8x2 (2mm por revolución)
 
 // Selección de Modo: true = Modo UART (Pines fijan dirección), false = Modo
 // Pines (Pines fijan pasos)
@@ -348,13 +319,9 @@ void core1_main(void) {
   int32_t last_speed_encoder_count = 0;
   uint32_t last_speed_calc_time = time_us_32();
 
-  // Variables para el lazo semi-cerrado
-  float expected_target_velocity_ums = 0.0f;
-  float closed_loop_target_um = 0.0f;
-  int32_t start_encoder_count_cl = 0;
-  bool waiting_for_correction = false;
-  uint8_t correction_attempts = 0;
-  uint32_t move_start_time_us = 0;
+  // Instancia del controlador de lazo cerrado
+  ClosedLoopState_t scl;
+  closed_loop_init(&scl);
 
   // Configurar pines SPI1 para Honeywell
   spi_init(SPI_PORT, 1000 * 1000);
@@ -474,7 +441,7 @@ void core1_main(void) {
       last_encoder_a = 0;                                                      \
       last_encoder_b = 0;                                                      \
       last_speed_encoder_count = 0;                                            \
-      start_encoder_count_cl = 0;                                              \
+      scl.start_encoder_count_cl = 0;                                          \
     }                                                                          \
   } while (0)
 
@@ -490,18 +457,15 @@ void core1_main(void) {
 
         RESET_ENCODER_COUNTS();
 
-        // --- SEC Closed-loop Init ---
-        expected_target_velocity_ums =
-            cmd.payload.move_linear.target_velocity_ums;
-        closed_loop_target_um =
-            cmd.payload.move_linear.target_um; // Conserva signo
-
         if (ENABLE_ENCODER) {
-          waiting_for_correction = true;
-        } else {
-          waiting_for_correction = false;
+          int32_t current_count =
+              USE_QUADRATURE_ENCODER
+                  ? quadrature_encoder_get_count(pio1, sm_enc_q)
+                  : pulse_counter_get_count(pio1, sm_enc_a);
+          closed_loop_init_move(&scl, cmd.payload.move_linear.target_um,
+                                cmd.payload.move_linear.target_velocity_ums,
+                                current_count);
         }
-        move_start_time_us = time_us_32();
 
         logger_send_motor_moving();
         tmc2209_move_linear_um_dma(global_motor,
@@ -511,7 +475,7 @@ void core1_main(void) {
 
       case CMD_STOP_MOTOR:
         LOG_DEBUG("CMD received: stop_motor\n");
-        waiting_for_correction = false;
+        scl.waiting_for_correction = false;
         if (tmc2209_is_moving(global_motor)) {
           float current_freq = tmc2209_get_current_freq_hz(global_motor);
           tmc2209_stop_from_current_freq_dma(global_motor, 200,
@@ -538,7 +502,7 @@ void core1_main(void) {
         float speed = 1200.0f; // Velocidad fija solicitada de 1200 um/s
         LOG_DEBUG("CMD received: home_start (%.1f um/s)\n", speed);
         RESET_ENCODER_COUNTS();
-        waiting_for_correction = false;
+        scl.waiting_for_correction = false;
         logger_send_motor_moving();
         // Distancia negativa larga para asegurar que llegue al sensor (Longitud
         // del eje: 100mm = 100000um)
@@ -550,7 +514,7 @@ void core1_main(void) {
         float speed = 1200.0f; // Velocidad fija solicitada de 1200 um/s
         LOG_DEBUG("CMD received: home_end (%.1f um/s)\n", speed);
         RESET_ENCODER_COUNTS();
-        waiting_for_correction = false;
+        scl.waiting_for_correction = false;
         logger_send_motor_moving();
         // Distancia positiva larga para asegurar que llegue al sensor
         tmc2209_move_linear_um_dma(global_motor, 105000.0f, speed);
@@ -562,7 +526,7 @@ void core1_main(void) {
         LOG_DEBUG("CMD received: move_nsteps (%d steps, %.1f Hz)\n", steps,
                   cmd.payload.move_nsteps.freq_hz);
         RESET_ENCODER_COUNTS();
-        waiting_for_correction = false;
+        scl.waiting_for_correction = false;
         logger_send_motor_moving();
 
         if (steps < 0) {
@@ -579,7 +543,7 @@ void core1_main(void) {
 
       case CMD_STOP_IMMEDIATE:
         LOG_DEBUG("CMD received: stop_immediate\n");
-        waiting_for_correction = false;
+        scl.waiting_for_correction = false;
         tmc2209_stop(global_motor);
         break;
 
@@ -600,7 +564,7 @@ void core1_main(void) {
       if (queue_try_remove(&crosscore_cmd_queue, &cmd)) {
         if (cmd.id == CMD_STOP_IMMEDIATE) {
           LOG_DEBUG("CMD received while moving, aborting immediately.\n");
-          waiting_for_correction = false;
+          scl.waiting_for_correction = false;
           tmc2209_stop(global_motor);
           is_braking = true;
         } else if (cmd.id == CMD_STOP_MOTOR || cmd.id == CMD_MOVE_LINEAR_UM ||
@@ -608,7 +572,7 @@ void core1_main(void) {
                    cmd.id == CMD_HOME_START || cmd.id == CMD_HOME_END ||
                    cmd.id == CMD_MOVE_NSTEPS) {
           LOG_DEBUG("CMD received while moving, aborting current move.\n");
-          waiting_for_correction = false;
+          scl.waiting_for_correction = false;
 
           if (!is_braking) {
             float current_freq = tmc2209_get_current_freq_hz(global_motor);
@@ -642,7 +606,7 @@ void core1_main(void) {
              end_sw_debounce >= DEBOUNCE_THRESHOLD)) {
 
           LOG_DEBUG("Limit switch alcanzado y debounced. Frenado agresivo!\n");
-          waiting_for_correction = false;
+          scl.waiting_for_correction = false;
           is_braking = true; // Activar flag para evitar reentradas continuas al
                              // flete de frenado
 
@@ -706,23 +670,8 @@ void core1_main(void) {
         }
 
         // --- Speed Deviation Warning ---
-        if (waiting_for_correction && expected_target_velocity_ums > 0.0f) {
-          uint32_t elapsed_us = time_us_32() - move_start_time_us;
-          if (elapsed_us > CRUISE_CHECK_DELAY_US) {
-            float pulses_per_rev = USE_QUADRATURE_ENCODER
-                                       ? (ENCODER_LINES_PER_REV * 4.0f)
-                                       : (float)ENCODER_LINES_PER_REV;
-            // El encoder está a la salida de la reductora (acoplado al
-            // tornillo)
-            float um_per_pulse = LEAD_SCREW_PITCH_UM / pulses_per_rev;
-            float speed_ums = fabsf(pps_actual) * um_per_pulse;
-
-            if (fabsf(speed_ums - expected_target_velocity_ums) >
-                (expected_target_velocity_ums * SPEED_TOLERANCE_PCT / 100.0f)) {
-              logger_send_speed_warning(expected_target_velocity_ums,
-                                        speed_ums);
-            }
-          }
+        if (scl.waiting_for_correction) {
+          closed_loop_check_speed(&scl, pps_actual, USE_QUADRATURE_ENCODER);
         }
       }
       counter++;
@@ -731,53 +680,28 @@ void core1_main(void) {
     }
 
     if (was_moving && emergency_state == EMERGENCY_NORMAL) {
-      if (waiting_for_correction) {
-        int32_t current_count =
-            USE_QUADRATURE_ENCODER
-                ? quadrature_encoder_get_count(pio1, sm_enc_q)
-                : pulse_counter_get_count(pio1, sm_enc_a);
-        int32_t delta_counts = current_count - start_encoder_count_cl;
+      float missing_um = 0.0f;
+      int32_t current_count =
+          USE_QUADRATURE_ENCODER
+              ? quadrature_encoder_get_count(pio1, sm_enc_q)
+              : pulse_counter_get_count(pio1, sm_enc_a);
 
-        float pulses_per_rev = USE_QUADRATURE_ENCODER
-                                   ? (ENCODER_LINES_PER_REV * 4.0f)
-                                   : (float)ENCODER_LINES_PER_REV;
-        float um_per_pulse = LEAD_SCREW_PITCH_UM / pulses_per_rev;
-        float actual_um_moved = (float)delta_counts * um_per_pulse;
+      // if (closed_loop_calculate_correction(&scl, current_count,
+      //                                      USE_QUADRATURE_ENCODER,
+      //                                      &missing_um)) {
+      //   logger_send_correction_applied(missing_um);
+      //   sleep_ms(150); // Mínima pausa antes de corregir
+      //   tmc2209_move_linear_um_dma(global_motor, missing_um,
+      //                              scl.expected_target_velocity_ums * 0.5f);
+      //   continue;
+      // } else {
+      //   if (!scl.waiting_for_correction) {
+      //     logger_send_motor_stopped();
+      //   }
+      // }
+      logger_send_motor_stopped();
 
-        // Hacemos que si target era negativo, el avance actual medido en pulsos
-        // se vuelva positivo para la resta absoluta TODO CHECKEAR ESTO SIEMPRE
-        // Pero la user request: si target es negativo, encoder cuenta negativo.
-        // error = target - actual.
-        float error_um = closed_loop_target_um - actual_um_moved;
-        float missing_um = 0.0f;
 
-        // Solo corregir si faltan pasos en la direccion del target (no revertir
-        // overshoots)
-        if (closed_loop_target_um > 0.0f && error_um > CORRECTION_DEADBAND_UM) {
-          missing_um = error_um;
-        } else if (closed_loop_target_um < 0.0f &&
-                   error_um < -CORRECTION_DEADBAND_UM) {
-          missing_um =
-              error_um; // missing_um sera negativo para mantener direccion
-        }
-
-        if (missing_um != 0.0f &&
-            correction_attempts < MAX_CORRECTION_ATTEMPTS) {
-          correction_attempts++;
-          logger_send_correction_applied(missing_um);
-
-          sleep_ms(150); // Mínima pausa antes de corregir
-          tmc2209_move_linear_um_dma(global_motor, missing_um,
-                                     expected_target_velocity_ums * 0.5f);
-          continue; // Re-ingresamos al outer loop principal para que el motor
-                    // reingrese en el while_is_moving
-        } else {
-          waiting_for_correction = false;
-          logger_send_motor_stopped();
-        }
-      } else {
-        logger_send_motor_stopped();
-      }
     }
 
     // Reportar encoder en idle si cambió
