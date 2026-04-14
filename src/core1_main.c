@@ -1,4 +1,5 @@
 #include <math.h>
+#include <pico/time.h>
 #include <stdbool.h>
 #include <stdio.h>
 
@@ -585,8 +586,9 @@ void core1_main(void) {
 
       // Check Limit Switches for emergency braking
       if (global_motor->limit_switches_enabled && !is_braking) {
-        bool start_sw_active = !gpio_get(global_motor->limit_switch_start_pin);
-        bool end_sw_active = !gpio_get(global_motor->limit_switch_end_pin);
+        // Lógica activa alta para los horquillas ópticos
+        bool start_sw_active = gpio_get(global_motor->limit_switch_start_pin);
+        bool end_sw_active = gpio_get(global_motor->limit_switch_end_pin);
 
         // Simple debounce counter (se asume un sleep_ms(10) al final del while)
         if (start_sw_active)
@@ -607,8 +609,7 @@ void core1_main(void) {
 
           LOG_DEBUG("Limit switch alcanzado y debounced. Frenado agresivo!\n");
           scl.waiting_for_correction = false;
-          is_braking = true; // Activar flag para evitar reentradas continuas al
-                             // flete de frenado
+          is_braking = true; // Activar flag para evitar reentradas continuas
 
           float current_freq = tmc2209_get_current_freq_hz(global_motor);
           tmc2209_stop_from_current_freq_dma(global_motor, 500,
@@ -633,12 +634,14 @@ void core1_main(void) {
       }
 
       // Enviar progreso calculado desde el TMC2209 (aproximadamente cada 100ms)
+      // TODO: Revisar conteo de progreso y para qué funciones se aplica.
       if (counter % 10 == 0) {
         float pct = tmc2209_get_move_progress_pct(&motor1);
         logger_send_motor_progress(pct);
       }
 
       // Enviar progreso del encoder cada 100ms aprox (10 * 10ms)
+
       if (ENABLE_ENCODER && counter % 10 == 0) {
         float pps_actual = 0.0f;
         if (USE_QUADRATURE_ENCODER) {
@@ -681,10 +684,9 @@ void core1_main(void) {
 
     if (was_moving && emergency_state == EMERGENCY_NORMAL) {
       float missing_um = 0.0f;
-      int32_t current_count =
-          USE_QUADRATURE_ENCODER
-              ? quadrature_encoder_get_count(pio1, sm_enc_q)
-              : pulse_counter_get_count(pio1, sm_enc_a);
+      int32_t current_count = USE_QUADRATURE_ENCODER
+                                  ? quadrature_encoder_get_count(pio1, sm_enc_q)
+                                  : pulse_counter_get_count(pio1, sm_enc_a);
 
       // if (closed_loop_calculate_correction(&scl, current_count,
       //                                      USE_QUADRATURE_ENCODER,
@@ -700,8 +702,6 @@ void core1_main(void) {
       //   }
       // }
       logger_send_motor_stopped();
-
-
     }
 
     // Reportar encoder en idle si cambió

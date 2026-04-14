@@ -481,7 +481,7 @@ void core0_main_setup(void) {
               NULL);
   xTaskCreate(task_pump_telemetry, "Telemetry", configMINIMAL_STACK_SIZE * 2,
               NULL, 1, NULL);
-  xTaskCreate(task_cli, "CLI", configMINIMAL_STACK_SIZE * 3, NULL, 3, NULL);
+  xTaskCreate(task_cli, "CLI", configMINIMAL_STACK_SIZE * 3, NULL, 1, NULL);
   xTaskCreate(mqtt_rx_task, "MQTT_Rx", configMINIMAL_STACK_SIZE * 2, NULL, 2,
               NULL);
 #ifdef ENABLE_SYS_HEALTH_MONITOR
