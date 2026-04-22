@@ -56,6 +56,9 @@
 #define LIMIT_SW_START_PIN 17 // 27
 #define LIMIT_SW_END_PIN 16   // 26
 
+// Pines de ADC
+#define ADC_PIN 28
+
 // Pines de Encoder
 #define ENCODER_PIN_A 20
 #define ENCODER_PIN_B 21
@@ -426,7 +429,7 @@ void core1_main(void) {
 
   // --- INICIALIZACION ADC (Placeholder Presión / Contacto) ---
   adc_init();
-  adc_gpio_init(28); // Usaremos GPIO 28 (ADC 2) para el Trimpot
+  adc_gpio_init(ADC_PIN); // Usaremos GPIO 28 (ADC 2) para el Trimpot
 
   // --- VARIABLES DE LA MAQUINA DE ESTADOS (FSM) ---
   Core1State_t current_state = ST_UNHOMED;
@@ -578,13 +581,23 @@ void core1_main(void) {
         active_event = iEV_LSW_END_HIT;
     }
 
-    uint16_t adc_val = adc_read();
-    float voltage = adc_val * 3.3f / (1 << 12);
-    // Sensibilidad Simulada
-    if (voltage > 2.0f && current_state == ST_SEARCHING_SYRINGE) {
-      active_event = iEV_CONTACT_DETECTED;
-    } else if (voltage > 3.0f && current_state == ST_DISPENSING) {
-      active_event = iEV_OCCLUSION_DETECTED;
+    if (current_state == ST_SEARCHING_SYRINGE || current_state == ST_DISPENSING || 
+        current_state == ST_OCCLUSION_RELEASE) {
+      uint16_t adc_val = adc_read();
+      float voltage = adc_val * 3.3f / (1 << 12);
+
+      // Imprimir el voltaje cada ~500ms basado en el `counter` global.
+      // Dado que el loop tiene un sleep_ms(10), 50 iteraciones son aprox 500ms.
+      if (counter % 50 == 0) {
+        LOG_DEBUG("ADC Voltage (State %d): %.2f V\n", current_state, voltage);
+      }
+
+      // Sensibilidad Simulada
+      if (voltage > 2.0f && current_state == ST_SEARCHING_SYRINGE) {
+        active_event = iEV_CONTACT_DETECTED;
+      } else if (voltage > 3.0f && current_state == ST_DISPENSING) {
+        active_event = iEV_OCCLUSION_DETECTED;
+      }
     }
 
     static bool was_moving = false;
