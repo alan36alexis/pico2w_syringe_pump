@@ -3,6 +3,7 @@
 #include <stdbool.h>
 #include <stdio.h>
 
+#include "hardware/adc.h"
 #include "hardware/spi.h"
 #include "pico/multicore.h"
 #include "pico/stdlib.h"
@@ -52,8 +53,8 @@
 #define USE_UART_MODE true
 
 // Pines de Finales de Carrera
-#define LIMIT_SW_START_PIN 27
-#define LIMIT_SW_END_PIN 26
+#define LIMIT_SW_START_PIN 17 // 27
+#define LIMIT_SW_END_PIN 16   // 26
 
 // Pines de Encoder
 #define ENCODER_PIN_A 20
@@ -423,6 +424,14 @@ void core1_main(void) {
     }
   }
 
+  // --- INICIALIZACION ADC (Placeholder Presión / Contacto) ---
+  adc_init();
+  adc_gpio_init(28); // Usaremos GPIO 28 (ADC 2) para el Trimpot
+
+  // --- VARIABLES DE LA MAQUINA DE ESTADOS (FSM) ---
+  Core1State_t current_state = ST_UNHOMED;
+  Core1Event_t active_event = EV_NONE;
+
   // --- EJECUCION DE MOVIMIENTO LINEAL ---
   // tmc2209_move_linear_um_dma(&motor1, -15000.0f, 450.0f);
   // tmc2209_set_direction(&motor1, false);
@@ -447,36 +456,47 @@ void core1_main(void) {
   } while (0)
 
     Core1CmdMessage_t cmd;
+    active_event = EV_NONE;
 
-    // Check for commands from Core 0
+    // 1. Gather Events from IPC
     if (queue_try_remove(&crosscore_cmd_queue, &cmd)) {
       switch (cmd.id) {
+      case CMD_HOME:
+        active_event = EV_CMD_HOME;
+        break;
+      case CMD_SEARCH_SYRINGE:
+        active_event = EV_CMD_SEARCH_SYRINGE;
+        break;
+      case CMD_START_DISPENSE:
+        active_event = EV_CMD_START_DISPENSE;
+        break;
+      case CMD_SEARCH_EOT:
+        active_event = EV_CMD_SEARCH_EOT;
+        break;
+      case CMD_RESET:
+        active_event = EV_CMD_RESET;
+        break;
+      case CMD_CONTINUE_DISPENSE:
+        active_event = EV_CMD_CONTINUE_DISPENSE;
+        break;
+      case CMD_OCC_RELEASE:
+        active_event = EV_CMD_OCC_RELEASE;
+        break;
+      case CMD_RESUME_DISPENSE:
+        active_event = EV_CMD_RESUME_DISPENSE;
+        break;
+
+      // Handle raw config/debug commands manually, override FSM
       case CMD_MOVE_LINEAR_UM:
-        LOG_DEBUG("CMD received: move_linear_um (%.1f, %.1f)\n",
-                  cmd.payload.move_linear.target_um,
-                  cmd.payload.move_linear.target_velocity_ums);
-
+        current_state = ST_MANUAL_OVERRIDE;
         RESET_ENCODER_COUNTS();
-
-        if (ENABLE_ENCODER) {
-          int32_t current_count =
-              USE_QUADRATURE_ENCODER
-                  ? quadrature_encoder_get_count(pio1, sm_enc_q)
-                  : pulse_counter_get_count(pio1, sm_enc_a);
-          closed_loop_init_move(&scl, cmd.payload.move_linear.target_um,
-                                cmd.payload.move_linear.target_velocity_ums,
-                                current_count);
-        }
-
         logger_send_motor_moving();
         tmc2209_move_linear_um_dma(global_motor,
                                    cmd.payload.move_linear.target_um,
                                    cmd.payload.move_linear.target_velocity_ums);
         break;
-
       case CMD_STOP_MOTOR:
-        LOG_DEBUG("CMD received: stop_motor\n");
-        scl.waiting_for_correction = false;
+        current_state = ST_UNHOMED;
         if (tmc2209_is_moving(global_motor)) {
           float current_freq = tmc2209_get_current_freq_hz(global_motor);
           tmc2209_stop_from_current_freq_dma(global_motor, 200,
@@ -485,9 +505,8 @@ void core1_main(void) {
           tmc2209_stop(global_motor);
         }
         break;
-
       case CMD_MOVE_2PART_PROFILE:
-        LOG_DEBUG("CMD received: move_2part_profile\n");
+        current_state = ST_MANUAL_OVERRIDE;
         RESET_ENCODER_COUNTS();
         logger_send_motor_moving();
         tmc2209_move_2part_profile_dma(
@@ -498,228 +517,256 @@ void core1_main(void) {
             cmd.payload.move_2part.f_mid_decel, cmd.payload.move_2part.d_p2,
             cmd.payload.move_2part.f_end);
         break;
-
-      case CMD_HOME_START: {
-        float speed = 1200.0f; // Velocidad fija solicitada de 1200 um/s
-        LOG_DEBUG("CMD received: home_start (%.1f um/s)\n", speed);
+      case CMD_HOME_START:
+        current_state = ST_MANUAL_OVERRIDE;
         RESET_ENCODER_COUNTS();
-        scl.waiting_for_correction = false;
         logger_send_motor_moving();
-        // Distancia negativa larga para asegurar que llegue al sensor (Longitud
-        // del eje: 100mm = 100000um)
-        tmc2209_move_linear_um_dma(global_motor, -105000.0f, speed);
+        tmc2209_move_linear_um_dma(global_motor, -105000.0f, 1200.0f);
         break;
-      }
-
-      case CMD_HOME_END: {
-        float speed = 1200.0f; // Velocidad fija solicitada de 1200 um/s
-        LOG_DEBUG("CMD received: home_end (%.1f um/s)\n", speed);
+      case CMD_HOME_END:
+        current_state = ST_MANUAL_OVERRIDE;
         RESET_ENCODER_COUNTS();
-        scl.waiting_for_correction = false;
         logger_send_motor_moving();
-        // Distancia positiva larga para asegurar que llegue al sensor
-        tmc2209_move_linear_um_dma(global_motor, 105000.0f, speed);
+        tmc2209_move_linear_um_dma(global_motor, 105000.0f, 1200.0f);
         break;
-      }
-
-      case CMD_MOVE_NSTEPS: {
-        int32_t steps = cmd.payload.move_nsteps.nsteps;
-        LOG_DEBUG("CMD received: move_nsteps (%d steps, %.1f Hz)\n", steps,
-                  cmd.payload.move_nsteps.freq_hz);
+      case CMD_MOVE_NSTEPS:
+        current_state = ST_MANUAL_OVERRIDE;
         RESET_ENCODER_COUNTS();
-        scl.waiting_for_correction = false;
         logger_send_motor_moving();
-
-        if (steps < 0) {
+        if (cmd.payload.move_nsteps.nsteps < 0) {
           tmc2209_set_direction(global_motor, false);
-          steps = -steps;
+          tmc2209_send_nsteps_at_freq(global_motor,
+                                      -cmd.payload.move_nsteps.nsteps,
+                                      cmd.payload.move_nsteps.freq_hz);
         } else {
           tmc2209_set_direction(global_motor, true);
+          tmc2209_send_nsteps_at_freq(global_motor,
+                                      cmd.payload.move_nsteps.nsteps,
+                                      cmd.payload.move_nsteps.freq_hz);
         }
-
-        tmc2209_send_nsteps_at_freq(global_motor, steps,
-                                    cmd.payload.move_nsteps.freq_hz);
         break;
-      }
-
       case CMD_STOP_IMMEDIATE:
-        LOG_DEBUG("CMD received: stop_immediate\n");
-        scl.waiting_for_correction = false;
+        current_state = ST_UNHOMED;
         tmc2209_stop(global_motor);
         break;
-
       default:
         break;
       }
     }
 
-    bool was_moving = tmc2209_is_moving(&motor1);
+    // 2. Gather Events from Hardware / Motor
+    static uint8_t start_sw_debounce = 0;
+    static uint8_t end_sw_debounce = 0;
+    const uint8_t DEBOUNCE_THRESHOLD = 3;
 
-    bool is_braking = false;
-    uint8_t start_sw_debounce = 0;
-    uint8_t end_sw_debounce = 0;
-    const uint8_t DEBOUNCE_THRESHOLD = 3; // 3 iteraciones de ~10ms = 30ms
+    if (global_motor->limit_switches_enabled) {
+      bool start_sw_active = gpio_get(global_motor->limit_switch_start_pin);
+      bool end_sw_active = gpio_get(global_motor->limit_switch_end_pin);
 
-    while (tmc2209_is_moving(&motor1)) {
-      // Check for incoming commands while moving
-      if (queue_try_remove(&crosscore_cmd_queue, &cmd)) {
-        if (cmd.id == CMD_STOP_IMMEDIATE) {
-          LOG_DEBUG("CMD received while moving, aborting immediately.\n");
-          scl.waiting_for_correction = false;
-          tmc2209_stop(global_motor);
-          is_braking = true;
-        } else if (cmd.id == CMD_STOP_MOTOR || cmd.id == CMD_MOVE_LINEAR_UM ||
-                   cmd.id == CMD_MOVE_2PART_PROFILE ||
-                   cmd.id == CMD_HOME_START || cmd.id == CMD_HOME_END ||
-                   cmd.id == CMD_MOVE_NSTEPS) {
-          LOG_DEBUG("CMD received while moving, aborting current move.\n");
-          scl.waiting_for_correction = false;
+      if (start_sw_active)
+        start_sw_debounce++;
+      else
+        start_sw_debounce = 0;
+      if (end_sw_active)
+        end_sw_debounce++;
+      else
+        end_sw_debounce = 0;
 
-          if (!is_braking) {
-            float current_freq = tmc2209_get_current_freq_hz(global_motor);
-            tmc2209_stop_from_current_freq_dma(global_motor, 200,
-                                               current_freq * 0.5f, 200, 50.0f);
-            is_braking = true;
-          }
-        }
-      }
-
-      // Check Limit Switches for emergency braking
-      if (global_motor->limit_switches_enabled && !is_braking) {
-        // Lógica activa alta para los horquillas ópticos
-        bool start_sw_active = gpio_get(global_motor->limit_switch_start_pin);
-        bool end_sw_active = gpio_get(global_motor->limit_switch_end_pin);
-
-        // Simple debounce counter (se asume un sleep_ms(10) al final del while)
-        if (start_sw_active)
-          start_sw_debounce++;
-        else
-          start_sw_debounce = 0;
-        if (end_sw_active)
-          end_sw_debounce++;
-        else
-          end_sw_debounce = 0;
-
-        // Si estamos yendo hacia el limit switch activo (false =
-        // Start/Backward, true = End/Forward)
-        if ((!global_motor->direction &&
-             start_sw_debounce >= DEBOUNCE_THRESHOLD) ||
-            (global_motor->direction &&
-             end_sw_debounce >= DEBOUNCE_THRESHOLD)) {
-
-          LOG_DEBUG("Limit switch alcanzado y debounced. Frenado agresivo!\n");
-          scl.waiting_for_correction = false;
-          is_braking = true; // Activar flag para evitar reentradas continuas
-
-          float current_freq = tmc2209_get_current_freq_hz(global_motor);
-          tmc2209_stop_from_current_freq_dma(global_motor, 500,
-                                             current_freq * 0.5f, 500, 50.0f);
-        }
-      }
-
-      uint32_t drv_status = tmc2209_read_drv_status(&motor1);
-      uint32_t gstat = tmc2209_read_gstat(&motor1);
-      uint16_t stall = tmc2209_read_sg_result(&motor1);
-
-      // Detectar y reportar errores
-      if (gstat & 0x01)
-        tmc2209_clear_gstat(&motor1, 1);
-      if (gstat & 0x02)
-        tmc2209_clear_gstat(&motor1, 2);
-      if (gstat & 0x04)
-        tmc2209_clear_gstat(&motor1, 4);
-
-      if (gstat || drv_status || stall) {
-        logger_send_drv_status_error(stall, drv_status, gstat);
-      }
-
-      // Enviar progreso calculado desde el TMC2209 (aproximadamente cada 100ms)
-      // TODO: Revisar conteo de progreso y para qué funciones se aplica.
-      if (counter % 10 == 0) {
-        float pct = tmc2209_get_move_progress_pct(&motor1);
-        logger_send_motor_progress(pct);
-      }
-
-      // Enviar progreso del encoder cada 100ms aprox (10 * 10ms)
-
-      if (ENABLE_ENCODER && counter % 10 == 0) {
-        float pps_actual = 0.0f;
-        if (USE_QUADRATURE_ENCODER) {
-          int32_t current_count = quadrature_encoder_get_count(pio1, sm_enc_q);
-
-          float pps = measure_encoder_speed(
-              current_count, &last_speed_encoder_count, &last_speed_calc_time);
-          logger_send_encoder_speed(pps);
-          pps_actual = pps;
-
-          if (current_count != last_encoder_count) {
-            logger_send_encoder_count(current_count);
-            last_encoder_count = current_count;
-          }
-        } else {
-          int32_t a = pulse_counter_get_count(pio1, sm_enc_a);
-          int32_t b = pulse_counter_get_count(pio1, sm_enc_b);
-
-          float pps_a = measure_encoder_speed(a, &last_speed_encoder_count,
-                                              &last_speed_calc_time);
-          logger_send_encoder_speed(pps_a);
-          pps_actual = pps_a;
-
-          if (a != last_encoder_a || b != last_encoder_b) {
-            logger_send_encoder_indep_counts(a, b);
-            last_encoder_a = a;
-            last_encoder_b = b;
-          }
-        }
-
-        // --- Speed Deviation Warning ---
-        if (scl.waiting_for_correction) {
-          closed_loop_check_speed(&scl, pps_actual, USE_QUADRATURE_ENCODER);
-        }
-      }
-      counter++;
-
-      sleep_ms(10);
+      if (start_sw_debounce >= DEBOUNCE_THRESHOLD && !global_motor->direction)
+        active_event = iEV_LSW_START_HIT;
+      else if (end_sw_debounce >= DEBOUNCE_THRESHOLD && global_motor->direction)
+        active_event = iEV_LSW_END_HIT;
     }
 
-    if (was_moving && emergency_state == EMERGENCY_NORMAL) {
-      float missing_um = 0.0f;
-      int32_t current_count = USE_QUADRATURE_ENCODER
-                                  ? quadrature_encoder_get_count(pio1, sm_enc_q)
-                                  : pulse_counter_get_count(pio1, sm_enc_a);
+    uint16_t adc_val = adc_read();
+    float voltage = adc_val * 3.3f / (1 << 12);
+    // Sensibilidad Simulada
+    if (voltage > 2.0f && current_state == ST_SEARCHING_SYRINGE) {
+      active_event = iEV_CONTACT_DETECTED;
+    } else if (voltage > 3.0f && current_state == ST_DISPENSING) {
+      active_event = iEV_OCCLUSION_DETECTED;
+    }
 
-      // if (closed_loop_calculate_correction(&scl, current_count,
-      //                                      USE_QUADRATURE_ENCODER,
-      //                                      &missing_um)) {
-      //   logger_send_correction_applied(missing_um);
-      //   sleep_ms(150); // Mínima pausa antes de corregir
-      //   tmc2209_move_linear_um_dma(global_motor, missing_um,
-      //                              scl.expected_target_velocity_ums * 0.5f);
-      //   continue;
-      // } else {
-      //   if (!scl.waiting_for_correction) {
-      //     logger_send_motor_stopped();
-      //   }
-      // }
+    static bool was_moving = false;
+    bool is_moving = tmc2209_is_moving(global_motor);
+    if (was_moving && !is_moving) {
+      if (active_event != iEV_LSW_START_HIT &&
+          active_event != iEV_LSW_END_HIT) {
+        active_event = iEV_TARGET_REACHED;
+      }
       logger_send_motor_stopped();
     }
+    was_moving = is_moving;
 
-    // Reportar encoder en idle si cambió
+    // 3. Evaluate FSM (State transitions based on events)
+    switch (current_state) {
+    case ST_UNHOMED:
+      if (active_event == EV_CMD_HOME) {
+        RESET_ENCODER_COUNTS();
+        tmc2209_move_linear_um_dma(global_motor, -105000.0f,
+                                   800.0f); // TODO: Aumentar velocidad a >1000
+        current_state = ST_HOMING;
+      }
+      break;
+
+    case ST_HOMING:
+      if (active_event == iEV_LSW_START_HIT) {
+        tmc2209_stop(global_motor); // TODO: Implementar stop_decel
+        tmc2209_move_linear_um_dma(global_motor, 100.0f, 50.0f);
+        current_state = ST_READY_AT_HOME;
+      }
+      break;
+
+    case ST_READY_AT_HOME:
+      if (active_event == EV_CMD_SEARCH_SYRINGE) {
+        // Avanzar buscando contacto
+        tmc2209_move_linear_um_dma(global_motor, 105000.0f, 500.0f);
+        current_state = ST_SEARCHING_SYRINGE;
+      }
+      break;
+
+    case ST_SEARCHING_SYRINGE:
+      if (active_event == iEV_CONTACT_DETECTED) {
+        tmc2209_stop(global_motor);
+        current_state = ST_SYRINGE_ENGAGED;
+      } else if (active_event == iEV_LSW_END_HIT) {
+        tmc2209_stop(global_motor);
+        current_state = ST_END_OF_TRAVEL;
+      }
+      break;
+
+    case ST_SYRINGE_ENGAGED:
+      if (active_event == EV_CMD_START_DISPENSE) {
+        RESET_ENCODER_COUNTS();
+        tmc2209_move_linear_um_dma(
+            global_motor, cmd.payload.start_dispense.target_um,
+            cmd.payload.start_dispense.target_velocity_ums);
+        current_state = ST_DISPENSING;
+      }
+      break;
+
+    case ST_DISPENSING:
+      if (active_event == iEV_TARGET_REACHED) {
+        current_state = ST_DISPENSE_COMPLETED;
+      } else if (active_event == iEV_LSW_END_HIT) {
+        tmc2209_stop(global_motor);
+        current_state = ST_END_OF_TRAVEL;
+      } else if (active_event == iEV_OCCLUSION_DETECTED) {
+        tmc2209_stop(global_motor);
+        current_state = ST_OCCLUSION_STOPPING;
+      }
+      break;
+
+    case ST_DISPENSE_COMPLETED:
+      if (active_event == EV_CMD_RESET) {
+        current_state = ST_UNHOMED;
+      } else if (active_event == EV_CMD_CONTINUE_DISPENSE) {
+        current_state = ST_SET_NEW_DISPENSE;
+      } else if (active_event == EV_CMD_SEARCH_EOT) {
+        tmc2209_move_linear_um_dma(global_motor, 105000.0f, 1200.0f);
+        current_state = ST_SEARCHING_EOT;
+      }
+      break;
+
+    case ST_SET_NEW_DISPENSE:
+      if (active_event == EV_CMD_START_DISPENSE) {
+        RESET_ENCODER_COUNTS();
+        tmc2209_move_linear_um_dma(
+            global_motor, cmd.payload.start_dispense.target_um,
+            cmd.payload.start_dispense.target_velocity_ums);
+        current_state = ST_DISPENSING;
+      }
+      break;
+
+    case ST_SEARCHING_EOT:
+      if (active_event == iEV_LSW_END_HIT) {
+        tmc2209_stop(global_motor);
+        current_state = ST_END_OF_TRAVEL;
+      }
+      break;
+
+    case ST_END_OF_TRAVEL:
+      if (active_event == EV_CMD_RESET) {
+        current_state = ST_UNHOMED;
+      }
+      break;
+
+    case ST_OCCLUSION_STOPPING:
+      if (active_event == EV_CMD_OCC_RELEASE) {
+        // Mover hacia atrás para liberar presión
+        tmc2209_move_linear_um_dma(global_motor, -2000.0f, 1000.0f);
+        current_state = ST_OCCLUSION_RELEASE;
+      }
+      break;
+
+    case ST_OCCLUSION_RELEASE:
+      if (active_event == iEV_TARGET_REACHED) {
+        current_state = ST_OCCLUSION_PAUSED;
+      } else if (active_event == iEV_LSW_START_HIT) {
+        tmc2209_stop(global_motor);
+        current_state = ST_UNHOMED;
+      }
+      break;
+
+    case ST_OCCLUSION_PAUSED:
+      if (active_event == EV_CMD_RESUME_DISPENSE) {
+        current_state = ST_DISPENSING;
+      }
+      break;
+
+    case ST_MANUAL_OVERRIDE:
+      if (active_event == EV_CMD_RESET) {
+        tmc2209_stop(global_motor);
+        current_state = ST_UNHOMED;
+      } else if (active_event == iEV_LSW_START_HIT ||
+                 active_event == iEV_LSW_END_HIT) {
+        // Safety catch for manual debug mode
+        LOG_DEBUG("Limit switch alcanzado en OVERRIDE. Frenado instantáneo!\n");
+        tmc2209_stop(global_motor);
+      }
+      break;
+
+    default:
+      break;
+    }
+
+    // Fallbacks globales removidos en favor de la FSM y logica nativa de
+    // ST_MANUAL_OVERRIDE
+
+    uint32_t drv_status = tmc2209_read_drv_status(global_motor);
+    uint32_t gstat = tmc2209_read_gstat(global_motor);
+    uint16_t stall = tmc2209_read_sg_result(global_motor);
+
+    if (gstat & 0x01)
+      tmc2209_clear_gstat(global_motor, 1);
+    if (gstat & 0x02)
+      tmc2209_clear_gstat(global_motor, 2);
+    if (gstat & 0x04)
+      tmc2209_clear_gstat(global_motor, 4);
+
+    if (gstat || drv_status || stall) {
+      logger_send_drv_status_error(stall, drv_status, gstat);
+    }
+
+    if (counter % 10 == 0) {
+      float pct = tmc2209_get_move_progress_pct(global_motor);
+      logger_send_motor_progress(pct);
+    }
+
     if (ENABLE_ENCODER) {
       if (USE_QUADRATURE_ENCODER) {
         int32_t current_count = quadrature_encoder_get_count(pio1, sm_enc_q);
 
-        // Medir velocidad en idle también (probablemente sea cercana a 0, útil
-        // para test)
         if (counter % 10 == 0) {
           float pps = measure_encoder_speed(
               current_count, &last_speed_encoder_count, &last_speed_calc_time);
-          if (was_moving)
+          if (is_moving)
             logger_send_encoder_speed(pps);
         }
 
         if (current_count != last_encoder_count) {
-          logger_send_encoder_count(current_count);
+          if (is_moving)
+            logger_send_encoder_count(current_count);
           last_encoder_count = current_count;
         }
       } else {
@@ -729,12 +776,13 @@ void core1_main(void) {
         if (counter % 10 == 0) {
           float pps_a = measure_encoder_speed(a, &last_speed_encoder_count,
                                               &last_speed_calc_time);
-          if (was_moving)
+          if (is_moving)
             logger_send_encoder_speed(pps_a);
         }
 
         if (a != last_encoder_a || b != last_encoder_b) {
-          logger_send_encoder_indep_counts(a, b);
+          if (is_moving)
+            logger_send_encoder_indep_counts(a, b);
           last_encoder_a = a;
           last_encoder_b = b;
         }
@@ -742,7 +790,6 @@ void core1_main(void) {
     }
     counter++;
 
-    sleep_ms(
-        10); // Changed from 100 on idle to 10 so we poll properly for timing
+    sleep_ms(10);
   }
 }

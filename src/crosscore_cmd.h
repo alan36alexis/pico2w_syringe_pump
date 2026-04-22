@@ -17,6 +17,14 @@ typedef enum {
     CMD_HOME_END,
     CMD_MOVE_NSTEPS,
     CMD_STOP_IMMEDIATE,
+    CMD_HOME,
+    CMD_SEARCH_SYRINGE,
+    CMD_START_DISPENSE,
+    CMD_SEARCH_EOT,
+    CMD_RESET,
+    CMD_CONTINUE_DISPENSE,
+    CMD_OCC_RELEASE,
+    CMD_RESUME_DISPENSE,
     // Add more commands here as needed
 } Core1CmdID_t;
 
@@ -47,6 +55,10 @@ typedef struct {
             int32_t nsteps;
             float freq_hz;
         } move_nsteps;
+        struct {
+            float target_um;
+            float target_velocity_ums;
+        } start_dispense;
         uint32_t raw_data; // For arbitrary data
     } payload;
 } Core1CmdMessage_t;
@@ -65,6 +77,16 @@ bool cmd_send_home_start(float target_velocity_ums);
 bool cmd_send_home_end(float target_velocity_ums);
 bool cmd_send_move_nsteps(int32_t nsteps, float freq_hz);
 bool cmd_send_stop_immediate(void);
+
+// FSM Commands
+bool cmd_send_home(void);
+bool cmd_send_search_syringe(void);
+bool cmd_send_start_dispense(float target_um, float target_velocity_ums);
+bool cmd_send_search_eot(void);
+bool cmd_send_reset(void);
+bool cmd_send_continue_dispense(void);
+bool cmd_send_occ_release(void);
+bool cmd_send_resume_dispense(void);
 
 // Parse and execute a string command (used by MQTT and CLI)
 void cmd_parse_and_execute(const char *payload_str);

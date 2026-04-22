@@ -1,6 +1,46 @@
 #ifndef CORE1_MAIN_H
 #define CORE1_MAIN_H
 
+typedef enum {
+    ST_UNHOMED = 0,
+    ST_HOMING,
+    ST_READY_AT_HOME,
+    ST_SEARCHING_SYRINGE,
+    ST_SYRINGE_ENGAGED,
+    ST_DISPENSING,
+    ST_DISPENSE_COMPLETED,
+    ST_SET_NEW_DISPENSE,
+    ST_SEARCHING_EOT,
+    ST_END_OF_TRAVEL,
+    ST_FAULT,
+    ST_OCCLUSION_STOPPING,
+    ST_OCCLUSION_RELEASE,
+    ST_OCCLUSION_PAUSED,
+    ST_MANUAL_OVERRIDE
+} Core1State_t;
+
+typedef enum {
+    EV_NONE = 0,
+    // External Commands (Core 0 -> Core 1)
+    EV_CMD_HOME,
+    EV_CMD_SEARCH_SYRINGE,
+    EV_CMD_START_DISPENSE,
+    EV_CMD_SEARCH_EOT,
+    EV_CMD_RESET,
+    EV_CMD_CONTINUE_DISPENSE,
+    EV_CMD_OCC_RELEASE,
+    EV_CMD_RESUME_DISPENSE,
+    
+    // Internal Events (Generated in Core 1)
+    iEV_LSW_START_HIT,
+    iEV_LSW_END_HIT,
+    iEV_CONTACT_DETECTED,
+    iEV_TARGET_REACHED,
+    iEV_ENCODER_FAULT,
+    iEV_OCCLUSION_DETECTED,
+    iEV_OCC_RELEASED
+} Core1Event_t;
+
 /**
  * @brief Entry point function for Core 1 (Baremetal)
  */

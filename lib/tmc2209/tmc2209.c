@@ -199,6 +199,11 @@ static void tmc2209_dma_irq_handler(void) {
       // Limpiamos bandera de IRQ
       dma_hw->ints0 = 1u << ch;
 
+      // Si el motor fue forzado a detenerse, ignoramos cualquier IRQ residual
+      if (ctx->mode == TMC2209_MODE_STANDBY_HOLD) {
+          continue;
+      }
+
       // Ping-Pong Rampa (Canales A o B dependientes)
       // Aquí usamos dma_ramp_ch como el canal dinámico en general.
       // Necesitamos verificar si acabamos de terminar el canal de rampa...
@@ -574,11 +579,16 @@ void tmc2209_set_rpm(TMC2209_t *motor, float rpm) {
 }
 
 void tmc2209_stop(TMC2209_t *motor) {
+  // Abort external DMAs entirely first
+  dma_channel_abort(motor->dma_ramp_ch);
+  dma_channel_abort(motor->dma_steady_ch);
+  dma_channel_abort(motor->dma_stop_ch);
+
   // Detener la SM y limpiar FIFOs
   pio_sm_set_enabled(motor->pio, motor->sm, false);
   pio_sm_clear_fifos(motor->pio, motor->sm);
 
-  // Cambiar el modo a STANDBY_HOLD
+  // Cambiar el modo a STANDBY_HOLD de manera estricta
   motor->mode = TMC2209_MODE_STANDBY_HOLD;
 }
 

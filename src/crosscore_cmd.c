@@ -83,6 +83,65 @@ bool cmd_send_stop_immediate(void) {
     return queue_try_add(&crosscore_cmd_queue, &msg);
 }
 
+// --- FSM Commands ---
+
+bool cmd_send_home(void) {
+    Core1CmdMessage_t msg;
+    msg.id = CMD_HOME;
+    msg.payload.raw_data = 0;
+    return queue_try_add(&crosscore_cmd_queue, &msg);
+}
+
+bool cmd_send_search_syringe(void) {
+    Core1CmdMessage_t msg;
+    msg.id = CMD_SEARCH_SYRINGE;
+    msg.payload.raw_data = 0;
+    return queue_try_add(&crosscore_cmd_queue, &msg);
+}
+
+bool cmd_send_start_dispense(float target_um, float target_velocity_ums) {
+    Core1CmdMessage_t msg;
+    msg.id = CMD_START_DISPENSE;
+    msg.payload.start_dispense.target_um = target_um;
+    msg.payload.start_dispense.target_velocity_ums = target_velocity_ums;
+    return queue_try_add(&crosscore_cmd_queue, &msg);
+}
+
+bool cmd_send_search_eot(void) {
+    Core1CmdMessage_t msg;
+    msg.id = CMD_SEARCH_EOT;
+    msg.payload.raw_data = 0;
+    return queue_try_add(&crosscore_cmd_queue, &msg);
+}
+
+bool cmd_send_reset(void) {
+    Core1CmdMessage_t msg;
+    msg.id = CMD_RESET;
+    msg.payload.raw_data = 0;
+    return queue_try_add(&crosscore_cmd_queue, &msg);
+}
+
+bool cmd_send_continue_dispense(void) {
+    Core1CmdMessage_t msg;
+    msg.id = CMD_CONTINUE_DISPENSE;
+    msg.payload.raw_data = 0;
+    return queue_try_add(&crosscore_cmd_queue, &msg);
+}
+
+bool cmd_send_occ_release(void) {
+    Core1CmdMessage_t msg;
+    msg.id = CMD_OCC_RELEASE;
+    msg.payload.raw_data = 0;
+    return queue_try_add(&crosscore_cmd_queue, &msg);
+}
+
+bool cmd_send_resume_dispense(void) {
+    Core1CmdMessage_t msg;
+    msg.id = CMD_RESUME_DISPENSE;
+    msg.payload.raw_data = 0;
+    return queue_try_add(&crosscore_cmd_queue, &msg);
+}
+
 void cmd_parse_and_execute(const char *payload_str) {
     // We expect a string like "10000.0,450.0" or "stop_imm" etc.
     char cmd_str[128];
@@ -102,6 +161,57 @@ void cmd_parse_and_execute(const char *payload_str) {
         cmd_send_stop_motor();
         return;
     }
+
+    // --- FSM Commands ---
+    if (strncmp(cmd_str, "fsm_home", 8) == 0) {
+        printf("FSM: Sending CMD_HOME\n");
+        cmd_send_home();
+        return;
+    }
+    if (strncmp(cmd_str, "fsm_search", 10) == 0) {
+        printf("FSM: Sending CMD_SEARCH_SYRINGE\n");
+        cmd_send_search_syringe();
+        return;
+    }
+    if (strncmp(cmd_str, "fsm_dispense,", 13) == 0) {
+        char *comma = strchr(cmd_str + 13, ',');
+        if (comma != NULL) {
+            *comma = '\0';
+            float target = (float)atof(cmd_str + 13);
+            float vel = (float)atof(comma + 1);
+            printf("FSM: Sending CMD_START_DISPENSE (%.1f um @ %.1f um/s)\n", target, vel);
+            cmd_send_start_dispense(target, vel);
+        } else {
+            printf("Error formating fsm_dispense. Use: fsm_dispense,TARGET,VELOCITY\n");
+        }
+        return;
+    }
+    if (strncmp(cmd_str, "fsm_search_eot", 14) == 0) {
+        printf("FSM: Sending CMD_SEARCH_EOT\n");
+        cmd_send_search_eot();
+        return;
+    }
+    if (strncmp(cmd_str, "fsm_reset", 9) == 0) {
+        printf("FSM: Sending CMD_RESET\n");
+        cmd_send_reset();
+        return;
+    }
+    if (strncmp(cmd_str, "fsm_cont", 8) == 0) {
+        printf("FSM: Sending CMD_CONTINUE_DISPENSE\n");
+        cmd_send_continue_dispense();
+        return;
+    }
+    if (strncmp(cmd_str, "fsm_occ_rel", 11) == 0) {
+        printf("FSM: Sending CMD_OCC_RELEASE\n");
+        cmd_send_occ_release();
+        return;
+    }
+    if (strncmp(cmd_str, "fsm_resume", 10) == 0) {
+        printf("FSM: Sending CMD_RESUME_DISPENSE\n");
+        cmd_send_resume_dispense();
+        return;
+    }
+    // --------------------
 
     // Check for Home Start
     if (strncmp(cmd_str, "home_start,", 11) == 0) {
