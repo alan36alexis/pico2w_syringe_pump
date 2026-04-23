@@ -22,7 +22,7 @@
 
 // --- DEBUG MODE ---
 // 1 = Activado (printf habilitado), 0 = Desactivado (printf mudo)
-#define DEBUG_MODE 0
+#define DEBUG_MODE 1
 
 #if DEBUG_MODE
 #define LOG_DEBUG(...) printf(__VA_ARGS__)
@@ -430,6 +430,14 @@ void core1_main(void) {
   // --- INICIALIZACION ADC (Placeholder Presión / Contacto) ---
   adc_init();
   adc_gpio_init(ADC_PIN); // Usaremos GPIO 28 (ADC 2) para el Trimpot
+  // --- ADC TEST BLOCKING LOOP ---
+  adc_select_input(2);
+  // while (true) {
+  //   uint16_t raw_val = adc_read();
+  //   float voltage = raw_val * 3.3f / 4096.0f;
+  //   printf("ADC Test [GPIO 28] - Raw: %u, Volts: %.2f V\n", raw_val,
+  //   voltage); sleep_ms(250);
+  // }
 
   // --- VARIABLES DE LA MAQUINA DE ESTADOS (FSM) ---
   Core1State_t current_state = ST_UNHOMED;
@@ -581,7 +589,8 @@ void core1_main(void) {
         active_event = iEV_LSW_END_HIT;
     }
 
-    if (current_state == ST_SEARCHING_SYRINGE || current_state == ST_DISPENSING || 
+    if (current_state == ST_SEARCHING_SYRINGE ||
+        current_state == ST_DISPENSING ||
         current_state == ST_OCCLUSION_RELEASE) {
       uint16_t adc_val = adc_read();
       float voltage = adc_val * 3.3f / (1 << 12);
@@ -597,6 +606,8 @@ void core1_main(void) {
         active_event = iEV_CONTACT_DETECTED;
       } else if (voltage > 3.0f && current_state == ST_DISPENSING) {
         active_event = iEV_OCCLUSION_DETECTED;
+      } else if (voltage < 2.0f && current_state == ST_OCCLUSION_RELEASE) {
+        active_event = iEV_OCC_RELEASED;
       }
     }
 
@@ -617,7 +628,7 @@ void core1_main(void) {
       if (active_event == EV_CMD_HOME) {
         RESET_ENCODER_COUNTS();
         tmc2209_move_linear_um_dma(global_motor, -105000.0f,
-                                   800.0f); // TODO: Aumentar velocidad a >1000
+                                   200.0f); // TODO: Aumentar velocidad a >1000
         current_state = ST_HOMING;
       }
       break;
@@ -633,7 +644,7 @@ void core1_main(void) {
     case ST_READY_AT_HOME:
       if (active_event == EV_CMD_SEARCH_SYRINGE) {
         // Avanzar buscando contacto
-        tmc2209_move_linear_um_dma(global_motor, 105000.0f, 500.0f);
+        tmc2209_move_linear_um_dma(global_motor, 105000.0f, 200.0f);
         current_state = ST_SEARCHING_SYRINGE;
       }
       break;
@@ -706,14 +717,15 @@ void core1_main(void) {
 
     case ST_OCCLUSION_STOPPING:
       if (active_event == EV_CMD_OCC_RELEASE) {
-        // Mover hacia atrás para liberar presión
-        tmc2209_move_linear_um_dma(global_motor, -2000.0f, 1000.0f);
+        // Mover hacia atrás continuamente para liberar presión (hasta caer debajo de 2.0V)
+        tmc2209_move_linear_um_dma(global_motor, -105000.0f, 200.0f);
         current_state = ST_OCCLUSION_RELEASE;
       }
       break;
 
     case ST_OCCLUSION_RELEASE:
-      if (active_event == iEV_TARGET_REACHED) {
+      if (active_event == iEV_OCC_RELEASED) {
+        tmc2209_stop(global_motor);
         current_state = ST_OCCLUSION_PAUSED;
       } else if (active_event == iEV_LSW_START_HIT) {
         tmc2209_stop(global_motor);
@@ -778,8 +790,10 @@ void core1_main(void) {
         }
 
         if (current_count != last_encoder_count) {
-          if (is_moving)
-            logger_send_encoder_count(current_count);
+          if (counter % 50 == 0) {
+            if (is_moving)
+              logger_send_encoder_count(current_count);
+          }
           last_encoder_count = current_count;
         }
       } else {
@@ -794,8 +808,10 @@ void core1_main(void) {
         }
 
         if (a != last_encoder_a || b != last_encoder_b) {
-          if (is_moving)
-            logger_send_encoder_indep_counts(a, b);
+          if (counter % 50 == 0) {
+            if (is_moving)
+              logger_send_encoder_indep_counts(a, b);
+          }
           last_encoder_a = a;
           last_encoder_b = b;
         }
