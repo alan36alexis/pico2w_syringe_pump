@@ -505,6 +505,7 @@ void core1_main(void) {
         tmc2209_move_linear_um_dma(global_motor,
                                    cmd.payload.move_linear.target_um,
                                    cmd.payload.move_linear.target_velocity_ums);
+        closed_loop_init_move(&scl, cmd.payload.move_linear.target_um, cmd.payload.move_linear.target_velocity_ums, 0);
         break;
       case CMD_STOP_MOTOR:
         current_state = ST_UNHOMED;
@@ -527,6 +528,11 @@ void core1_main(void) {
             cmd.payload.move_2part.c_steps, cmd.payload.move_2part.d_p1,
             cmd.payload.move_2part.f_mid_decel, cmd.payload.move_2part.d_p2,
             cmd.payload.move_2part.f_end);
+        {
+          float um_per_microstep = LEAD_SCREW_PITCH_UM / (MOTOR_STEPS_PER_REV * REAL_GEARBOX_RATIO * MOTOR_MICROSTEPS_VAL);
+          float vel_ums = cmd.payload.move_2part.f_target * um_per_microstep;
+          closed_loop_init_move(&scl, 0.0f, vel_ums, 0);
+        }
         break;
       case CMD_HOME_START:
         current_state = ST_MANUAL_OVERRIDE;
@@ -665,13 +671,21 @@ void core1_main(void) {
         tmc2209_move_linear_um_dma(
             global_motor, cmd.payload.start_dispense.target_um,
             cmd.payload.start_dispense.target_velocity_ums);
+        closed_loop_init_move(&scl, cmd.payload.start_dispense.target_um, cmd.payload.start_dispense.target_velocity_ums, 0);
         current_state = ST_DISPENSING;
       }
       break;
 
     case ST_DISPENSING:
       if (active_event == iEV_TARGET_REACHED) {
-        current_state = ST_DISPENSE_COMPLETED;
+        float missing_um = 0.0f;
+        int32_t current_enc = USE_QUADRATURE_ENCODER ? quadrature_encoder_get_count(pio1, sm_enc_q) : pulse_counter_get_count(pio1, sm_enc_a);
+        if (closed_loop_calculate_correction(&scl, current_enc, USE_QUADRATURE_ENCODER, &missing_um)) {
+          LOG_DEBUG("Closed loop: Faltan %.1f um. Aplicando correccion...\n", missing_um);
+          tmc2209_move_linear_um_dma(global_motor, missing_um, scl.expected_target_velocity_ums);
+        } else {
+          current_state = ST_DISPENSE_COMPLETED;
+        }
       } else if (active_event == iEV_LSW_END_HIT) {
         tmc2209_stop(global_motor);
         current_state = ST_END_OF_TRAVEL;
@@ -698,6 +712,7 @@ void core1_main(void) {
         tmc2209_move_linear_um_dma(
             global_motor, cmd.payload.start_dispense.target_um,
             cmd.payload.start_dispense.target_velocity_ums);
+        closed_loop_init_move(&scl, cmd.payload.start_dispense.target_um, cmd.payload.start_dispense.target_velocity_ums, 0);
         current_state = ST_DISPENSING;
       }
       break;
@@ -743,6 +758,13 @@ void core1_main(void) {
       if (active_event == EV_CMD_RESET) {
         tmc2209_stop(global_motor);
         current_state = ST_UNHOMED;
+      } else if (active_event == iEV_TARGET_REACHED) {
+        float missing_um = 0.0f;
+        int32_t current_enc = USE_QUADRATURE_ENCODER ? quadrature_encoder_get_count(pio1, sm_enc_q) : pulse_counter_get_count(pio1, sm_enc_a);
+        if (closed_loop_calculate_correction(&scl, current_enc, USE_QUADRATURE_ENCODER, &missing_um)) {
+          LOG_DEBUG("Closed loop manual: Faltan %.1f um. Aplicando correccion...\n", missing_um);
+          tmc2209_move_linear_um_dma(global_motor, missing_um, scl.expected_target_velocity_ums);
+        }
       } else if (active_event == iEV_LSW_START_HIT ||
                  active_event == iEV_LSW_END_HIT) {
         // Safety catch for manual debug mode
@@ -785,8 +807,10 @@ void core1_main(void) {
         if (counter % 10 == 0) {
           float pps = measure_encoder_speed(
               current_count, &last_speed_encoder_count, &last_speed_calc_time);
-          if (is_moving)
+          if (is_moving) {
             logger_send_encoder_speed(pps);
+            closed_loop_check_speed(&scl, pps, USE_QUADRATURE_ENCODER);
+          }
         }
 
         if (current_count != last_encoder_count) {
@@ -803,8 +827,10 @@ void core1_main(void) {
         if (counter % 10 == 0) {
           float pps_a = measure_encoder_speed(a, &last_speed_encoder_count,
                                               &last_speed_calc_time);
-          if (is_moving)
+          if (is_moving) {
             logger_send_encoder_speed(pps_a);
+            closed_loop_check_speed(&scl, pps_a, USE_QUADRATURE_ENCODER);
+          }
         }
 
         if (a != last_encoder_a || b != last_encoder_b) {

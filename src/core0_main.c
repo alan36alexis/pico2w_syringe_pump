@@ -101,15 +101,20 @@ static void wifi_keepalive_task(void *params) {
 }
 
 /**
- * @brief Tarea de blinky de LED
+ * @brief Tarea de blinky de LED indicadora de salud de conexión
  */
 static void task_blinky(void *params) {
   while (1) {
+    // Verificar estado de conexión Wi-Fi
+    int link_status = cyw43_tcpip_link_status(&cyw43_state, CYW43_ITF_STA);
+    uint32_t delay_ms = (link_status == CYW43_LINK_UP) ? 100 : 1000;
+
     // Toggle del LED de la placa Pico W
     cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN,
                         !cyw43_arch_gpio_get(CYW43_WL_GPIO_LED_PIN));
-    // Demora de ticks equivalentes a 500 ms
-    vTaskDelay(pdMS_TO_TICKS(500));
+    
+    // Demora según estado
+    vTaskDelay(pdMS_TO_TICKS(delay_ms));
   }
 }
 

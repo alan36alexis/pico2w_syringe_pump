@@ -481,6 +481,14 @@ void tmc2209_start_s_curve_dma(TMC2209_t *motor, float freq_start_hz,
  */
 void tmc2209_stop_s_curve_dma(TMC2209_t *motor, float freq_end_hz,
                               uint ramp_steps);
+
+/**
+ * @brief Cambia la frecuencia de un movimiento que ya se está ejecutando.
+ * 
+ * @param motor Puntero a la estructura del motor.
+ * @param freq_new_hz Frecuencia objetivo en Hz.
+ * @param ramp_steps Número de pasos para la rampa.
+ */
 void tmc2209_change_frequency_dma(TMC2209_t *motor, float freq_new_hz,
                                   uint ramp_steps);
 
