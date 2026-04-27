@@ -86,6 +86,7 @@ void config_manager_init(void) {
         g_sys_config.mqtt_ip[MAX_IP_LEN - 1] = '\0';
         
         g_sys_config.mqtt_port = MQTT_BROKER_PORT;
+        g_sys_config.wifi_enabled = 1;
     }
 }
 
@@ -184,4 +185,11 @@ void config_set_mqtt_port(uint16_t port) {
     g_sys_config.mqtt_port = port;
     config_unlock();
     printf("CONFIG: MQTT Port actualizado a %d\n", port);
+}
+
+void config_set_wifi_enabled(bool enabled) {
+    config_lock();
+    g_sys_config.wifi_enabled = enabled ? 1 : 0;
+    config_unlock();
+    printf("CONFIG: WiFi Enabled status actualizado a %d\n", enabled ? 1 : 0);
 }

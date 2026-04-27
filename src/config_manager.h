@@ -18,7 +18,8 @@ typedef struct {
     char wifi_pass[MAX_PASS_LEN];
     char mqtt_ip[MAX_IP_LEN];
     uint16_t mqtt_port;
-    uint8_t _padding[2];
+    uint8_t wifi_enabled;
+    uint8_t _padding1;
     uint32_t crc;
 } SystemConfig_t;
 
@@ -39,6 +40,7 @@ void config_set_wifi_pass(const char* pass);
 void config_set_mqtt(const char* ip, uint16_t port);
 void config_set_mqtt_ip(const char* ip);
 void config_set_mqtt_port(uint16_t port);
+void config_set_wifi_enabled(bool enabled);
 
 #ifdef __cplusplus
 }

@@ -322,6 +322,23 @@ void cmd_parse_and_execute(const char *payload_str) {
         return;
     }
 
+    // Check for net_disable
+    if (strncmp(cmd_str, "net_disable", 11) == 0) {
+        printf("Disabling Wi-Fi/MQTT (Battery Save Mode)...\n");
+        config_set_wifi_enabled(false);
+        mqtt_client_force_reconnect();
+        cyw43_arch_disable_sta_mode();
+        return;
+    }
+
+    // Check for net_enable
+    if (strncmp(cmd_str, "net_enable", 10) == 0) {
+        printf("Enabling Wi-Fi/MQTT...\n");
+        config_set_wifi_enabled(true);
+        cyw43_arch_enable_sta_mode();
+        return;
+    }
+
     // Fallback: assume it's cmd_send_move_linear_um (speed,position)
     float speed = 0.0f, pos = 0.0f;
     char *comma = strchr(cmd_str, ',');

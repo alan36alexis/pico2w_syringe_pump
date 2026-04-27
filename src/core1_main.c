@@ -505,7 +505,8 @@ void core1_main(void) {
         tmc2209_move_linear_um_dma(global_motor,
                                    cmd.payload.move_linear.target_um,
                                    cmd.payload.move_linear.target_velocity_ums);
-        closed_loop_init_move(&scl, cmd.payload.move_linear.target_um, cmd.payload.move_linear.target_velocity_ums, 0);
+        closed_loop_init_move(&scl, cmd.payload.move_linear.target_um,
+                              cmd.payload.move_linear.target_velocity_ums, 0);
         break;
       case CMD_STOP_MOTOR:
         current_state = ST_UNHOMED;
@@ -529,7 +530,9 @@ void core1_main(void) {
             cmd.payload.move_2part.f_mid_decel, cmd.payload.move_2part.d_p2,
             cmd.payload.move_2part.f_end);
         {
-          float um_per_microstep = LEAD_SCREW_PITCH_UM / (MOTOR_STEPS_PER_REV * REAL_GEARBOX_RATIO * MOTOR_MICROSTEPS_VAL);
+          float um_per_microstep =
+              LEAD_SCREW_PITCH_UM /
+              (MOTOR_STEPS_PER_REV * REAL_GEARBOX_RATIO * MOTOR_MICROSTEPS_VAL);
           float vel_ums = cmd.payload.move_2part.f_target * um_per_microstep;
           closed_loop_init_move(&scl, 0.0f, vel_ums, 0);
         }
@@ -671,7 +674,9 @@ void core1_main(void) {
         tmc2209_move_linear_um_dma(
             global_motor, cmd.payload.start_dispense.target_um,
             cmd.payload.start_dispense.target_velocity_ums);
-        closed_loop_init_move(&scl, cmd.payload.start_dispense.target_um, cmd.payload.start_dispense.target_velocity_ums, 0);
+        closed_loop_init_move(&scl, cmd.payload.start_dispense.target_um,
+                              cmd.payload.start_dispense.target_velocity_ums,
+                              0);
         current_state = ST_DISPENSING;
       }
       break;
@@ -679,10 +684,15 @@ void core1_main(void) {
     case ST_DISPENSING:
       if (active_event == iEV_TARGET_REACHED) {
         float missing_um = 0.0f;
-        int32_t current_enc = USE_QUADRATURE_ENCODER ? quadrature_encoder_get_count(pio1, sm_enc_q) : pulse_counter_get_count(pio1, sm_enc_a);
-        if (closed_loop_calculate_correction(&scl, current_enc, USE_QUADRATURE_ENCODER, &missing_um)) {
-          LOG_DEBUG("Closed loop: Faltan %.1f um. Aplicando correccion...\n", missing_um);
-          tmc2209_move_linear_um_dma(global_motor, missing_um, scl.expected_target_velocity_ums);
+        int32_t current_enc = USE_QUADRATURE_ENCODER
+                                  ? quadrature_encoder_get_count(pio1, sm_enc_q)
+                                  : pulse_counter_get_count(pio1, sm_enc_a);
+        if (closed_loop_calculate_correction(
+                &scl, current_enc, USE_QUADRATURE_ENCODER, &missing_um)) {
+          LOG_DEBUG("Closed loop: Faltan %.1f um. Aplicando correccion...\n",
+                    missing_um);
+          tmc2209_move_linear_um_dma(global_motor, missing_um,
+                                     scl.expected_target_velocity_ums);
         } else {
           current_state = ST_DISPENSE_COMPLETED;
         }
@@ -712,7 +722,9 @@ void core1_main(void) {
         tmc2209_move_linear_um_dma(
             global_motor, cmd.payload.start_dispense.target_um,
             cmd.payload.start_dispense.target_velocity_ums);
-        closed_loop_init_move(&scl, cmd.payload.start_dispense.target_um, cmd.payload.start_dispense.target_velocity_ums, 0);
+        closed_loop_init_move(&scl, cmd.payload.start_dispense.target_um,
+                              cmd.payload.start_dispense.target_velocity_ums,
+                              0);
         current_state = ST_DISPENSING;
       }
       break;
@@ -732,7 +744,8 @@ void core1_main(void) {
 
     case ST_OCCLUSION_STOPPING:
       if (active_event == EV_CMD_OCC_RELEASE) {
-        // Mover hacia atrás continuamente para liberar presión (hasta caer debajo de 2.0V)
+        // Mover hacia atrás continuamente para liberar presión (hasta caer
+        // debajo de 2.0V)
         tmc2209_move_linear_um_dma(global_motor, -105000.0f, 200.0f);
         current_state = ST_OCCLUSION_RELEASE;
       }
@@ -760,15 +773,22 @@ void core1_main(void) {
         current_state = ST_UNHOMED;
       } else if (active_event == iEV_TARGET_REACHED) {
         float missing_um = 0.0f;
-        int32_t current_enc = USE_QUADRATURE_ENCODER ? quadrature_encoder_get_count(pio1, sm_enc_q) : pulse_counter_get_count(pio1, sm_enc_a);
-        if (closed_loop_calculate_correction(&scl, current_enc, USE_QUADRATURE_ENCODER, &missing_um)) {
-          LOG_DEBUG("Closed loop manual: Faltan %.1f um. Aplicando correccion...\n", missing_um);
-          tmc2209_move_linear_um_dma(global_motor, missing_um, scl.expected_target_velocity_ums);
+        int32_t current_enc = USE_QUADRATURE_ENCODER
+                                  ? quadrature_encoder_get_count(pio1, sm_enc_q)
+                                  : pulse_counter_get_count(pio1, sm_enc_a);
+        if (closed_loop_calculate_correction(
+                &scl, current_enc, USE_QUADRATURE_ENCODER, &missing_um)) {
+          LOG_DEBUG(
+              "Closed loop manual: Faltan %.1f um. Aplicando correccion...\n",
+              missing_um);
+          tmc2209_move_linear_um_dma(global_motor, missing_um,
+                                     scl.expected_target_velocity_ums);
         }
       } else if (active_event == iEV_LSW_START_HIT ||
                  active_event == iEV_LSW_END_HIT) {
         // Safety catch for manual debug mode
-        LOG_DEBUG("Limit switch alcanzado en OVERRIDE. Frenado instantáneo!\n");
+        // LOG_DEBUG("Limit switch alcanzado en OVERRIDE. Frenado
+        // instantáneo!\n");
         tmc2209_stop(global_motor);
       }
       break;

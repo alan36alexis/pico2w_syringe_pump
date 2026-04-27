@@ -51,6 +51,14 @@ El sistema soporta el envío de comandos de movimiento y la configuración diná
 |---|---|---|
 | `stop_imm` o `STOP_IMM` | Parada inmediata (Hard Stop) | Frena el motor deteniendo su generador abruptamente. |
 | `stop` o `STOP` | Parada suave (Soft Stop) | Desacelera respetando la rampa configurada hasta llegar a 0. |
+| `fsm_home` | FSM: Inicio (Homing) | Inicia la secuencia de búsqueda del tope de inicio. |
+| `fsm_search` | FSM: Buscar jeringa | Inicia la búsqueda del émbolo de la jeringa. |
+| `fsm_dispense,<TARGET>,<VEL>` | FSM: Dosificar | Inicia la dosificación a una posición dada (um) y velocidad (um/s). Ej: `fsm_dispense,10000.0,450.0` |
+| `fsm_search_eot` | FSM: Buscar Fin de Carrera | Busca el tope de fin de carrera (End Of Travel). |
+| `fsm_reset` | FSM: Reset | Resetea la máquina de estados. |
+| `fsm_cont` | FSM: Continuar | Continúa la dosificación previamente pausada. |
+| `fsm_occ_rel` | FSM: Liberar Oclusión | Retrocede el motor para liberar presión tras una oclusión. |
+| `fsm_resume` | FSM: Reanudar | Reanuda la operación después de resolver un evento. |
 | `home_start,<velocidad>` | Busca el inicio / Homing (Atrás) | Motor se mueve negativo a velocidad constante hasta hallar el tope. Ej: `home_start,1200` |
 | `home_end,<velocidad>` | Busca el fin / Homing (Adelante)| Motor se mueve positivo a velocidad constante hasta hallar el tope. Ej: `home_end,1200` |
 | `nsteps,<pasos>,<freq_hz>`| Movimiento por Pasos puros | Inyecta N pasos fijos a cierta frecuencia. Ej: `nsteps,3200,500.0` |
@@ -64,9 +72,15 @@ Actualmente, estos comandos son accesibles mediante la consola serial y se utili
 |---|---|
 | `config_wifi,<SSID>,<PASS>`| Guarda temporalmente en RAM y usa las nuevas credenciales de Wi-Fi. |
 | `config_mqtt,<IP>,<PORT>` | Guarda temporalmente en RAM y usa la nueva IP/Puerto del Broker. |
+| `set_ssid,<SSID>` | Cambia únicamente el SSID del Wi-Fi en RAM. |
+| `set_wpass,<PASS>` | Cambia únicamente la contraseña del Wi-Fi en RAM. |
+| `set_mqtt_ip,<IP>` | Cambia únicamente la IP del Broker MQTT en RAM. |
+| `set_mqtt_port,<PORT>`| Cambia únicamente el Puerto del Broker MQTT en RAM. |
 | `config_save` | Escribe los valores de RAM en la Memoria Flash profunda de forma definitiva. (Solo funcionará si el motor no se está moviendo). |
 | `config_info` | Muestra un resumen de variables actuales cargadas en el gestor. |
 | `reconnect` | Efectúa un reseteo *suave* (Soft Reset) del hardware Wi-Fi desasociándolo de su actual red (LwIP leave) obligándolo a re-engancharse y conectar MQTT con la nueva configuración sin reiniciar el procesador. |
+| `net_disable` | Apaga el chip Wi-Fi (desactiva RF y tareas de red) para máximo ahorro de batería. |
+| `net_enable` | Enciende el chip Wi-Fi y restaura la conectividad de red a sus valores guardados. |
 
 ### Tópicos MQTT 
 

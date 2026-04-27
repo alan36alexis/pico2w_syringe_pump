@@ -56,23 +56,28 @@ static void task_init(void *params) {
     return;
   }
 
-  cyw43_arch_enable_sta_mode();
-  safe_printf("Connecting to Wi-Fi (%s)...\n", g_sys_config.wifi_ssid);
-  if (cyw43_arch_wifi_connect_timeout_ms(g_sys_config.wifi_ssid,
-                                         g_sys_config.wifi_pass,
-                                         CYW43_AUTH_WPA2_AES_PSK, 30000)) {
-    safe_printf("Failed to connect to Wi-Fi.\n");
-    vTaskDelete(NULL);
-    return;
+  if (g_sys_config.wifi_enabled) {
+    cyw43_arch_enable_sta_mode();
+    safe_printf("Connecting to Wi-Fi SSID: [%s], PASS: [%s]...\n", g_sys_config.wifi_ssid, g_sys_config.wifi_pass);
+    int err = cyw43_arch_wifi_connect_timeout_ms(g_sys_config.wifi_ssid,
+                                           g_sys_config.wifi_pass,
+                                           CYW43_AUTH_WPA2_MIXED_PSK, 30000);
+    if (err) {
+      safe_printf("Failed to connect to Wi-Fi on boot. Error: %d. Keepalive task will retry.\n", err);
+    } else {
+      safe_printf("Connected to Wi-Fi.\n");
+      cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, 1);
+    }
+  } else {
+    cyw43_arch_disable_sta_mode();
+    safe_printf("Wi-Fi is disabled by configuration (Battery Save Mode).\n");
   }
-  safe_printf("Connected to Wi-Fi.\n");
-  cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, 1);
 
   // Iniciar la tarea cliente MQTT
   xTaskCreate(mqtt_client_task, "MQTT_Task", configMINIMAL_STACK_SIZE * 4, NULL,
               2, NULL);
 
-  xTaskCreate(wifi_keepalive_task, "WiFi_Keepalive", configMINIMAL_STACK_SIZE,
+  xTaskCreate(wifi_keepalive_task, "WiFi_Keepalive", 1024,
               NULL, 1, NULL);
 
   // Elimino la tarea para liberar recursos tras una única ejecución
@@ -84,14 +89,19 @@ static void task_init(void *params) {
  */
 static void wifi_keepalive_task(void *params) {
   while (1) {
+    if (!g_sys_config.wifi_enabled) {
+      vTaskDelay(pdMS_TO_TICKS(10000));
+      continue;
+    }
     int link_status = cyw43_tcpip_link_status(&cyw43_state, CYW43_ITF_STA);
     if (link_status != CYW43_LINK_UP) {
       safe_printf("Wi-Fi disconnected (status: %d). Reconnecting to %s...\n",
                   link_status, g_sys_config.wifi_ssid);
-      if (cyw43_arch_wifi_connect_timeout_ms(g_sys_config.wifi_ssid,
+      int err = cyw43_arch_wifi_connect_timeout_ms(g_sys_config.wifi_ssid,
                                              g_sys_config.wifi_pass,
-                                             CYW43_AUTH_WPA2_AES_PSK, 30000)) {
-        safe_printf("Failed to reconnect to Wi-Fi.\n");
+                                             CYW43_AUTH_WPA2_MIXED_PSK, 30000);
+      if (err) {
+        safe_printf("Failed to reconnect to Wi-Fi. Error: %d\n", err);
       } else {
         safe_printf("Reconnected to Wi-Fi.\n");
       }
@@ -105,16 +115,24 @@ static void wifi_keepalive_task(void *params) {
  */
 static void task_blinky(void *params) {
   while (1) {
-    // Verificar estado de conexión Wi-Fi
-    int link_status = cyw43_tcpip_link_status(&cyw43_state, CYW43_ITF_STA);
-    uint32_t delay_ms = (link_status == CYW43_LINK_UP) ? 100 : 1000;
+    if (!g_sys_config.wifi_enabled) {
+      // Latido muy lento: 30ms encendido, 2970ms apagado (Ahorro de bateria)
+      cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, 1);
+      vTaskDelay(pdMS_TO_TICKS(30));
+      cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, 0);
+      vTaskDelay(pdMS_TO_TICKS(2970));
+    } else {
+      // Verificar estado de conexión Wi-Fi
+      int link_status = cyw43_tcpip_link_status(&cyw43_state, CYW43_ITF_STA);
+      uint32_t delay_ms = (link_status == CYW43_LINK_UP) ? 100 : 1000;
 
-    // Toggle del LED de la placa Pico W
-    cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN,
-                        !cyw43_arch_gpio_get(CYW43_WL_GPIO_LED_PIN));
-    
-    // Demora según estado
-    vTaskDelay(pdMS_TO_TICKS(delay_ms));
+      // Toggle del LED de la placa Pico W
+      cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN,
+                          !cyw43_arch_gpio_get(CYW43_WL_GPIO_LED_PIN));
+
+      // Demora según estado
+      vTaskDelay(pdMS_TO_TICKS(delay_ms));
+    }
   }
 }
 
@@ -372,13 +390,13 @@ static void task_pump_telemetry(void *params) {
  * @brief Tarea para procesar comandos via Serial (CLI)
  */
 static void task_cli(void *params) {
-  char cli_buf[128];
+  char cli_buf[64];
   int cli_idx = 0;
 
   safe_printf("\nPico CLI Ready. Waiting for commands...\n");
 
   while (1) {
-    int c = getchar_timeout_us(0);
+    int c = getchar_timeout_us(20);
     if (c != PICO_ERROR_TIMEOUT) {
       if (c == '\r' || c == '\n') {
         if (cli_idx > 0) {
@@ -397,7 +415,7 @@ static void task_cli(void *params) {
         putchar(c); // Echo character
       }
     } else {
-      vTaskDelay(pdMS_TO_TICKS(20)); // Delay to allow other tasks to run
+      vTaskDelay(pdMS_TO_TICKS(2)); // Delay to allow other tasks to run. Reduced to 2ms to prevent 32-byte UART FIFO overflow at 115200 baud.
     }
   }
 }

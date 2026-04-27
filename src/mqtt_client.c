@@ -123,14 +123,18 @@ void mqtt_client_task(void *params) {
             ipaddr_aton(g_sys_config.mqtt_ip, &broker_ip);
 
             mqtt_connected = false;
-            printf("Attempting MQTT connection to %s:%d...\n", g_sys_config.mqtt_ip, g_sys_config.mqtt_port);
             
-            cyw43_arch_lwip_begin();
-            err_t err = mqtt_client_connect(mqtt_client, &broker_ip, g_sys_config.mqtt_port, mqtt_connection_cb, NULL, &ci);
-            cyw43_arch_lwip_end();
+            int link_status = cyw43_tcpip_link_status(&cyw43_state, CYW43_ITF_STA);
+            if (link_status == CYW43_LINK_UP) {
+                printf("Attempting MQTT connection to %s:%d...\n", g_sys_config.mqtt_ip, g_sys_config.mqtt_port);
+                
+                cyw43_arch_lwip_begin();
+                err_t err = mqtt_client_connect(mqtt_client, &broker_ip, g_sys_config.mqtt_port, mqtt_connection_cb, NULL, &ci);
+                cyw43_arch_lwip_end();
 
-            if (err != ERR_OK) {
-                printf("MQTT connection error: %d\n", err);
+                if (err != ERR_OK) {
+                    printf("MQTT connection error: %d\n", err);
+                }
             }
             vTaskDelay(pdMS_TO_TICKS(5000));
         } else {

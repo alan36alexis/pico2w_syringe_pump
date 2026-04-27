@@ -23,7 +23,8 @@ int main(void) {
   // 3. Arranca el scheduler (a partir de aquí FreeRTOS toma control del Core 0)
   vTaskStartScheduler();
 
-  while (1);
+  while (1)
+    ;
 
   return 0;
 }
