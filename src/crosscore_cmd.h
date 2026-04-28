@@ -25,6 +25,7 @@ typedef enum {
     CMD_CONTINUE_DISPENSE,
     CMD_OCC_RELEASE,
     CMD_RESUME_DISPENSE,
+    CMD_CALIBRATE,
     // Add more commands here as needed
 } Core1CmdID_t;
 
@@ -87,6 +88,7 @@ bool cmd_send_reset(void);
 bool cmd_send_continue_dispense(void);
 bool cmd_send_occ_release(void);
 bool cmd_send_resume_dispense(void);
+bool cmd_send_calibrate(void);
 
 // Parse and execute a string command (used by MQTT and CLI)
 void cmd_parse_and_execute(const char *payload_str);

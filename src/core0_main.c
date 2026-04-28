@@ -262,8 +262,8 @@ static void task_logger(void *params) {
                  msg.payload.encoder_indep_count.count_b);
         break;
       case LOG_EVENT_ENCODER_SPEED:
-        printf("Encoder Speed: %.2f PPS\n", msg.payload.encoder_speed);
-        snprintf(buf, sizeof(buf), "{\"speed_pps\": %.2f}",
+        printf("Encoder Speed: %.2f um/s\n", msg.payload.encoder_speed);
+        snprintf(buf, sizeof(buf), "{\"speed_ums\": %.2f}",
                  msg.payload.encoder_speed);
         break;
       case LOG_EVENT_SPEED_WARNING:

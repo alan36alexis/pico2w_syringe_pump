@@ -142,6 +142,13 @@ bool cmd_send_resume_dispense(void) {
     return queue_try_add(&crosscore_cmd_queue, &msg);
 }
 
+bool cmd_send_calibrate(void) {
+    Core1CmdMessage_t msg;
+    msg.id = CMD_CALIBRATE;
+    msg.payload.raw_data = 0;
+    return queue_try_add(&crosscore_cmd_queue, &msg);
+}
+
 void cmd_parse_and_execute(const char *payload_str) {
     // We expect a string like "10000.0,450.0" or "stop_imm" etc.
     char cmd_str[128];
@@ -209,6 +216,11 @@ void cmd_parse_and_execute(const char *payload_str) {
     if (strncmp(cmd_str, "fsm_resume", 10) == 0) {
         printf("FSM: Sending CMD_RESUME_DISPENSE\n");
         cmd_send_resume_dispense();
+        return;
+    }
+    if (strncmp(cmd_str, "fsm_calibrate", 13) == 0) {
+        printf("FSM: Sending CMD_CALIBRATE\n");
+        cmd_send_calibrate();
         return;
     }
     // --------------------

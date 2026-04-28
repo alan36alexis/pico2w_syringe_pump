@@ -140,10 +140,10 @@ void logger_send_encoder_indep_counts(int32_t count_a, int32_t count_b) {
     _try_send(&msg);
 }
 
-void logger_send_encoder_speed(float pps) {
+void logger_send_encoder_speed(float ums) {
     LogMessage_t msg;
     msg.id = LOG_EVENT_ENCODER_SPEED;
-    msg.payload.encoder_speed = pps;
+    msg.payload.encoder_speed = ums;
     _try_send(&msg);
 }
 

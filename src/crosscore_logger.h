@@ -93,7 +93,7 @@ void logger_send_pins_init_mode(void);
 void logger_send_string(const char *str);
 void logger_send_encoder_count(int32_t count);
 void logger_send_encoder_indep_counts(int32_t count_a, int32_t count_b);
-void logger_send_encoder_speed(float pps);
+void logger_send_encoder_speed(float ums);
 void logger_send_speed_warning(float expected_ums, float actual_ums);
 void logger_send_correction_applied(float correction_um);
 void logger_send_motor_progress(float pct);

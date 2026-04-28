@@ -45,10 +45,10 @@
 #define MOTOR_ENA_PIN 8
 
 // Alias para modo UART (Mismos pines físicos)
-#define MOTOR_ADDR_PIN_1 MOTOR_MS2_PIN // Bit 1 de dirección
-#define MOTOR_ADDR_PIN_0 MOTOR_MS1_PIN // Bit 0 de dirección
+#define MOTOR_ADDR_PIN_1 MOTOR_MS2_PIN // Bit 1 de direccion
+#define MOTOR_ADDR_PIN_0 MOTOR_MS1_PIN // Bit 0 de direccion
 
-// Selección de Modo: true = Modo UART (Pines fijan dirección), false = Modo
+// Seleccion de Modo: true = Modo UART (Pines fijan direccion), false = Modo
 // Pines (Pines fijan pasos)
 #define USE_UART_MODE true
 
@@ -81,6 +81,8 @@ typedef enum {
 } EmergencyState;
 
 static EmergencyState emergency_state = EMERGENCY_NORMAL;
+
+volatile int32_t calibration_max_encoder_count = 0;
 
 bool honeywell_timer_callback(repeating_timer_t *rt) {
   honeywell_hsc_data_t data;
@@ -129,7 +131,7 @@ bool honeywell_timer_callback(repeating_timer_t *rt) {
   return true; // Keep repeating
 }
 
-// --- Helper para conversión de corriente (Amperes -> CS) ---
+// --- Helper para conversion de corriente (Amperes -> CS) ---
 uint8_t tmc2209_amps_to_cs(float amps) {
   float cs = (amps * 18.11f) - 1.0f;
 
@@ -151,7 +153,7 @@ void tmc2209_set_current_amps(TMC2209_t *motor, float run_amps,
 
 void tmc2209_move_linear_um_dma(TMC2209_t *motor, float target_um,
                                 float target_velocity_ums) {
-  LOG_DEBUG("--- Abstracción de Movimiento Lineal ---\n");
+  LOG_DEBUG("--- Abstraccion de Movimiento Lineal ---\n");
   LOG_DEBUG("Target: %.1f um a %.1f um/s\n", target_um, target_velocity_ums);
 
   if (target_velocity_ums <= 0.0f || target_um == 0.0f) {
@@ -159,11 +161,11 @@ void tmc2209_move_linear_um_dma(TMC2209_t *motor, float target_um,
     return;
   }
 
-  // 1. Determinar dirección
+  // 1. Determinar direccion
   bool direction = (target_um > 0.0f);
   target_um = fabsf(target_um); // Trabajar con magnitud absoluta
 
-  // 2. Lookup Table para Configuración del Motor según Velocidad (um/s)
+  // 2. Lookup Table para Configuracion del Motor según Velocidad (um/s)
   TMC2209_Microsteps_t msteps;
   TMC2209_ChopperMode_t chop_mode;
   float run_amps;
@@ -202,26 +204,26 @@ void tmc2209_move_linear_um_dma(TMC2209_t *motor, float target_um,
 
   uint16_t current_msteps_val = tmc2209_get_microsteps(motor);
 
-  LOG_DEBUG(">> Configuración OK: Microsteps=1/%d, Chopper=%s, IRUN=%.1fA\n",
+  LOG_DEBUG(">> Configuracion OK: Microsteps=1/%d, Chopper=%s, IRUN=%.1fA\n",
             current_msteps_val,
             (chop_mode == TMC2209_CHOPPER_STEALTHCHOP) ? "StealthChop"
                                                        : "SpreadCycle",
             run_amps);
 
   // 3. Conversiones Cinemáticas
-  // Cuántos micrómetros se avanza por cada paso completo del motor (sin
+  // Cuántos micrometros se avanza por cada paso completo del motor (sin
   // microstepping) factor = (Avance del Husillo) / (Pasos por rev del motor *
-  // Reducción)
+  // Reduccion)
   float um_per_full_step =
       LEAD_SCREW_PITCH_UM / (MOTOR_STEPS_PER_REV * REAL_GEARBOX_RATIO);
 
-  // Cuántos micrómetros se avanza por micropaso
+  // Cuántos micrometros se avanza por micropaso
   float um_per_microstep = um_per_full_step / (float)current_msteps_val;
 
   // Total de micropasos necesarios para alcanzar target_um
   uint32_t total_microsteps = (uint32_t)(target_um / um_per_microstep);
 
-  // Consideraciones para perfiles de aceleración cortos
+  // Consideraciones para perfiles de aceleracion cortos
   if (total_microsteps < 100) {
     LOG_DEBUG("Advertencia: Movimiento solicitado muy corto (%u micropasos). "
               "Se enviará en burst.\n",
@@ -246,7 +248,7 @@ void tmc2209_move_linear_um_dma(TMC2209_t *motor, float target_um,
   // 4. Perfil de Velocidad Trapecial 2-Partes (Curva S)
   // Vamos a usar la heurística clásica: 10% de distancia para acelerar, 80%
   // constante, 10% frenar O en su defecto, que la curva sea suficientemente
-  // suave, limitando la aceleración.
+  // suave, limitando la aceleracion.
 
   // Porcentajes para pasos (debe sumar total_microsteps)
   uint32_t pasos_aceleracion = (uint32_t)(total_microsteps * 0.05f);
@@ -261,7 +263,7 @@ void tmc2209_move_linear_um_dma(TMC2209_t *motor, float target_um,
   uint32_t pasos_constantes =
       total_microsteps - (pasos_aceleracion + pasos_frenado);
 
-  // Si el movimiento es demasiado corto para 15% de aceleración
+  // Si el movimiento es demasiado corto para 15% de aceleracion
   if (pasos_aceleracion * 2 >= total_microsteps) {
     // Perfil triangular
     pasos_aceleracion = total_microsteps / 2;
@@ -288,7 +290,7 @@ void tmc2209_move_linear_um_dma(TMC2209_t *motor, float target_um,
                                  f_mid_decel, d_p2, f_end);
 }
 
-// --- Función para medir la velocidad de giro basada en el encoder ---
+// --- Funcion para medir la velocidad de giro basada en el encoder ---
 // Devuelve la velocidad en Pulsos Por Segundo (PPS)
 float measure_encoder_speed(int32_t current_count, int32_t *last_count_ptr,
                             uint32_t *last_time_us_ptr) {
@@ -309,7 +311,7 @@ float measure_encoder_speed(int32_t current_count, int32_t *last_count_ptr,
 }
 
 /**
- * @brief Funciones y ejecución principal para Core 1 (Baremetal)
+ * @brief Funciones y ejecucion principal para Core 1 (Baremetal)
  */
 void core1_main(void) {
   // Allow Core 0 to pause us during Flash writes
@@ -320,7 +322,7 @@ void core1_main(void) {
   int32_t last_encoder_a = 0;
   int32_t last_encoder_b = 0;
 
-  // Variables para la medición de velocidad
+  // Variables para la medicion de velocidad
   int32_t last_speed_encoder_count = 0;
   uint32_t last_speed_calc_time = time_us_32();
 
@@ -358,14 +360,14 @@ void core1_main(void) {
   tmc2209_setup_limit_switches(&motor1, LIMIT_SW_START_PIN, LIMIT_SW_END_PIN);
 
   if (USE_UART_MODE) {
-    // MODO UART: Configuramos los pines como dirección fija (Addr 0: Ambos LOW)
+    // MODO UART: Configuramos los pines como direccion fija (Addr 0: Ambos LOW)
     LOG_DEBUG(
         "Iniciando en MODO UART (Pines MS usados para direccionamiento 0)\n");
     tmc2209_set_uart_address_pins(&motor1, 0);
     LOG_DEBUG("Direccion configurada: %d\n", motor1.addr);
     // Inicializar UART
     tmc2209_setup_uart(&motor1, uart1, 57600, 0, UART_TX_PIN, UART_RX_PIN);
-    // --- DIAGNÓSTICO UART ---
+    // --- DIAGNoSTICO UART ---
     // Leemos el registro IOIN (0x06) para verificar si el driver responde.
     // Si devuelve 0, hay un problema físico (cableado, resistencia 1k faltante,
     // o falta de VM).
@@ -377,15 +379,15 @@ void core1_main(void) {
     }
 
     // Configurar pdn_disable = 1 en GCONF (Bit 6)
-    // Esto deshabilita la función de apagado en el pin UART, dejándolo solo
-    // para comunicación.
+    // Esto deshabilita la funcion de apagado en el pin UART, dejándolo solo
+    // para comunicacion.
     tmc2209_set_pdn_disable(&motor1, true);
 
     // Configurar StealthChop explícitamente (necesario para lectura válida de
     // SG_RESULT)
     tmc2209_set_chopper_mode(&motor1, TMC2209_CHOPPER_DYNAMIC, 100);
 
-    // Configurar TOFF e Interpolación (CHOPCONF)
+    // Configurar TOFF e Interpolacion (CHOPCONF)
     // TOFF=4 (Activa el driver), intpol=true (Suaviza movimiento interpolando a
     // 256 pasos)
     tmc2209_configure_chopconf(&motor1, 2, true);
@@ -395,11 +397,11 @@ void core1_main(void) {
 
     tmc2209_set_microstepping_uart(&motor1, MOTOR_MICROSTEPS);
 
-    // Configuración de corriente en Amperes
+    // Configuracion de corriente en Amperes
     // IRUN: 1.0A (~CS 14/15), IHOLD: 0.5A (~CS 7)
     tmc2209_set_current_amps(&motor1, 0.6f, 0.3f);
 
-    // Habilitar el driver AL FINAL de la configuración para evitar movimientos
+    // Habilitar el driver AL FINAL de la configuracion para evitar movimientos
     // bruscos
     tmc2209_enable(&motor1, true);
 
@@ -427,7 +429,7 @@ void core1_main(void) {
     }
   }
 
-  // --- INICIALIZACION ADC (Placeholder Presión / Contacto) ---
+  // --- INICIALIZACION ADC (Placeholder Presion / Contacto) ---
   adc_init();
   adc_gpio_init(ADC_PIN); // Usaremos GPIO 28 (ADC 2) para el Trimpot
   // --- ADC TEST BLOCKING LOOP ---
@@ -495,6 +497,9 @@ void core1_main(void) {
         break;
       case CMD_RESUME_DISPENSE:
         active_event = EV_CMD_RESUME_DISPENSE;
+        break;
+      case CMD_CALIBRATE:
+        active_event = EV_CMD_CALIBRATE;
         break;
 
       // Handle raw config/debug commands manually, override FSM
@@ -596,6 +601,12 @@ void core1_main(void) {
         active_event = iEV_LSW_START_HIT;
       else if (end_sw_debounce >= DEBOUNCE_THRESHOLD && global_motor->direction)
         active_event = iEV_LSW_END_HIT;
+      else if (start_sw_debounce == 0 && current_state == ST_TOUCHING_LSW_START)
+        active_event = iEV_LSW_START_RELEASED;
+      else if (end_sw_debounce == 0 && current_state == ST_TOUCHING_LSW_END)
+        active_event = iEV_LSW_END_RELEASED;
+      else if (current_state == ST_CALIBRATION_READY)
+        active_event = iEV_LSW_END_CONTINUE;
     }
 
     if (current_state == ST_SEARCHING_SYRINGE ||
@@ -637,15 +648,56 @@ void core1_main(void) {
       if (active_event == EV_CMD_HOME) {
         RESET_ENCODER_COUNTS();
         tmc2209_move_linear_um_dma(global_motor, -105000.0f,
-                                   200.0f); // TODO: Aumentar velocidad a >1000
+                                   600.0f); // TODO: Aumentar velocidad a >1000
         current_state = ST_HOMING;
+      } else if (active_event == EV_CMD_CALIBRATE) {
+        tmc2209_move_linear_um_dma(global_motor, -105000.0f, 1200.0f);
+        current_state = ST_CALIB_SEEK_START;
+      }
+      break;
+
+    case ST_CALIB_SEEK_START:
+      if (active_event == iEV_LSW_START_HIT) {
+        tmc2209_stop(global_motor);
+        RESET_ENCODER_COUNTS();
+        tmc2209_move_linear_um_dma(global_motor, 105000.0f, 1200.0f);
+        current_state = ST_CALIB_SEEK_END;
+      }
+      break;
+
+    case ST_CALIB_SEEK_END:
+      if (active_event == iEV_LSW_END_HIT) {
+        tmc2209_stop(global_motor);
+        current_state = ST_CALIBRATION_READY;
+      }
+      break;
+
+    case ST_CALIBRATION_READY:
+      if (active_event == iEV_LSW_END_CONTINUE) {
+        int32_t current_enc = USE_QUADRATURE_ENCODER
+                                  ? quadrature_encoder_get_count(pio1, sm_enc_q)
+                                  : pulse_counter_get_count(pio1, sm_enc_a);
+        calibration_max_encoder_count = current_enc;
+        LOG_DEBUG("Calibration Complete! Max Encoder Count: %d\n", calibration_max_encoder_count);
+        
+        // Mover hacia atras lentamente para liberar el LSW
+        tmc2209_move_linear_um_dma(global_motor, -105000.0f, 50.0f);
+        current_state = ST_TOUCHING_LSW_END;
       }
       break;
 
     case ST_HOMING:
       if (active_event == iEV_LSW_START_HIT) {
-        tmc2209_stop(global_motor); // TODO: Implementar stop_decel
-        tmc2209_move_linear_um_dma(global_motor, 100.0f, 50.0f);
+        tmc2209_stop(global_motor);
+        // Mover lento para salir del limit switch
+        tmc2209_move_linear_um_dma(global_motor, 105000.0f, 50.0f);
+        current_state = ST_TOUCHING_LSW_START;
+      }
+      break;
+
+    case ST_TOUCHING_LSW_START:
+      if (active_event == iEV_LSW_START_RELEASED) {
+        tmc2209_stop(global_motor);
         current_state = ST_READY_AT_HOME;
       }
       break;
@@ -653,7 +705,7 @@ void core1_main(void) {
     case ST_READY_AT_HOME:
       if (active_event == EV_CMD_SEARCH_SYRINGE) {
         // Avanzar buscando contacto
-        tmc2209_move_linear_um_dma(global_motor, 105000.0f, 200.0f);
+        tmc2209_move_linear_um_dma(global_motor, 105000.0f, 1200.0f);
         current_state = ST_SEARCHING_SYRINGE;
       }
       break;
@@ -664,7 +716,9 @@ void core1_main(void) {
         current_state = ST_SYRINGE_ENGAGED;
       } else if (active_event == iEV_LSW_END_HIT) {
         tmc2209_stop(global_motor);
-        current_state = ST_END_OF_TRAVEL;
+        // Retroceder lento para salir del switch
+        tmc2209_move_linear_um_dma(global_motor, -105000.0f, 50.0f);
+        current_state = ST_TOUCHING_LSW_END;
       }
       break;
 
@@ -698,7 +752,8 @@ void core1_main(void) {
         }
       } else if (active_event == iEV_LSW_END_HIT) {
         tmc2209_stop(global_motor);
-        current_state = ST_END_OF_TRAVEL;
+        tmc2209_move_linear_um_dma(global_motor, -105000.0f, 50.0f);
+        current_state = ST_TOUCHING_LSW_END;
       } else if (active_event == iEV_OCCLUSION_DETECTED) {
         tmc2209_stop(global_motor);
         current_state = ST_OCCLUSION_STOPPING;
@@ -732,6 +787,14 @@ void core1_main(void) {
     case ST_SEARCHING_EOT:
       if (active_event == iEV_LSW_END_HIT) {
         tmc2209_stop(global_motor);
+        tmc2209_move_linear_um_dma(global_motor, -105000.0f, 50.0f);
+        current_state = ST_TOUCHING_LSW_END;
+      }
+      break;
+
+    case ST_TOUCHING_LSW_END:
+      if (active_event == iEV_LSW_END_RELEASED) {
+        tmc2209_stop(global_motor);
         current_state = ST_END_OF_TRAVEL;
       }
       break;
@@ -744,7 +807,7 @@ void core1_main(void) {
 
     case ST_OCCLUSION_STOPPING:
       if (active_event == EV_CMD_OCC_RELEASE) {
-        // Mover hacia atrás continuamente para liberar presión (hasta caer
+        // Mover hacia atrás continuamente para liberar presion (hasta caer
         // debajo de 2.0V)
         tmc2209_move_linear_um_dma(global_motor, -105000.0f, 200.0f);
         current_state = ST_OCCLUSION_RELEASE;
@@ -828,7 +891,11 @@ void core1_main(void) {
           float pps = measure_encoder_speed(
               current_count, &last_speed_encoder_count, &last_speed_calc_time);
           if (is_moving) {
-            logger_send_encoder_speed(pps);
+            if (counter % 50 == 0) {
+              float pulses_per_rev = (ENCODER_LINES_PER_REV * 4.0f);
+              float um_per_pulse = LEAD_SCREW_PITCH_UM / pulses_per_rev;
+              logger_send_encoder_speed(fabsf(pps) * um_per_pulse);
+            }
             closed_loop_check_speed(&scl, pps, USE_QUADRATURE_ENCODER);
           }
         }
@@ -848,7 +915,11 @@ void core1_main(void) {
           float pps_a = measure_encoder_speed(a, &last_speed_encoder_count,
                                               &last_speed_calc_time);
           if (is_moving) {
-            logger_send_encoder_speed(pps_a);
+            if (counter % 50 == 0) {
+              float pulses_per_rev = (float)ENCODER_LINES_PER_REV;
+              float um_per_pulse = LEAD_SCREW_PITCH_UM / pulses_per_rev;
+              logger_send_encoder_speed(fabsf(pps_a) * um_per_pulse);
+            }
             closed_loop_check_speed(&scl, pps_a, USE_QUADRATURE_ENCODER);
           }
         }

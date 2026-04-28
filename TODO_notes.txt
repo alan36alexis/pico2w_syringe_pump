@@ -1,0 +1,15 @@
+calibracion: agregar a fsm diagrama y que vaya de punta a punta y guarde el valor del conteo de encoder
+luego ese conteo se use para posicionamiento relativo durante el proceso
+
+posibilidad de activar modo KVO previo a infusion: agregar a fsmdiagrama y 
+posibilidad de setear parametros de desplazamiento de kvo
+
+logica 3 finales de carrera: LSW (limite fisico), final 100um antes de LSW y 10% final
+
+desdoblar en ST_READY_AT_HOME -> _VIRTUAL_READY_AT_HOME
+		ST_END_OF_TRAVEL -> _VIRTUAL_END_OF_TRA
+
+el conteo del encoder no se debe reiniciar en cada ciclo de movimiento, se debe pausar cuando se deteiene el movimiento
+y continuar el conteo cuando se reanuda el movimiento de manera que no se pierda la posicion relativa
+
+
