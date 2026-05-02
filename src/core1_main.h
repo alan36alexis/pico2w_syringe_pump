@@ -21,7 +21,8 @@ typedef enum {
     ST_MANUAL_OVERRIDE,
     ST_CALIB_SEEK_START,
     ST_CALIB_SEEK_END,
-    ST_CALIBRATION_READY
+    ST_BRAKING_LSW_START,
+    ST_BRAKING_LSW_END
 } Core1State_t;
 
 typedef enum {

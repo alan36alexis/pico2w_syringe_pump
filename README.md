@@ -59,6 +59,7 @@ El sistema soporta el envío de comandos de movimiento y la configuración diná
 | `fsm_cont` | FSM: Continuar | Continúa la dosificación previamente pausada. |
 | `fsm_occ_rel` | FSM: Liberar Oclusión | Retrocede el motor para liberar presión tras una oclusión. |
 | `fsm_resume` | FSM: Reanudar | Reanuda la operación después de resolver un evento. |
+| `fsm_calibrate` | FSM: Calibrar Encoder | Secuencia de ida y vuelta a los topes para capturar en RAM el recorrido máximo en encoder. |
 | `home_start,<velocidad>` | Busca el inicio / Homing (Atrás) | Motor se mueve negativo a velocidad constante hasta hallar el tope. Ej: `home_start,1200` |
 | `home_end,<velocidad>` | Busca el fin / Homing (Adelante)| Motor se mueve positivo a velocidad constante hasta hallar el tope. Ej: `home_end,1200` |
 | `nsteps,<pasos>,<freq_hz>`| Movimiento por Pasos puros | Inyecta N pasos fijos a cierta frecuencia. Ej: `nsteps,3200,500.0` |
