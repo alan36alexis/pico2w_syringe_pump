@@ -262,6 +262,7 @@ static void tmc2209_dma_irq_handler(void) {
               // El otro canal ya está transmitiendo el ÚLTIMO segmento del
               // movimiento. Simplemente lo dejamos terminar sin tocarlo. Cuando
               // termine emitirá una IRQ.
+              ctx->mode = TMC2209_MODE_NSTEPS;
             } else {
               // Ningún canal DMA está enviando datos. Terminó todo el bloque de
               // memoria útil. Avisar al PIO que espere a que el FIFO se vacíe
@@ -271,6 +272,14 @@ static void tmc2209_dma_irq_handler(void) {
               // Abortamos ambos por seguridad y limpieza
               dma_channel_abort(ctx->dma_ramp_ch);
               dma_channel_abort(ctx->dma_steady_ch);
+
+              // Cancelar cualquier retardo residual masivo (0x7FFFFFFF) en la SM
+              pio_sm_set_enabled(ctx->pio, ctx->sm, false);
+              pio_sm_clear_fifos(ctx->pio, ctx->sm);
+              pio_sm_exec(ctx->pio, ctx->sm, pio_encode_set(pio_pins, 0));
+              pio_sm_exec(ctx->pio, ctx->sm, pio_encode_jmp(ctx->offset + tmc2209_stepgen_offset_dma_stream));
+              ctx->pio->fdebug = (1u << (PIO_FDEBUG_TXSTALL_LSB + ctx->sm));
+              pio_sm_set_enabled(ctx->pio, ctx->sm, true);
             }
           } else {
             // Dejar en velocidad constante mantenida por el ping-pong residual
@@ -285,7 +294,7 @@ static void tmc2209_dma_irq_handler(void) {
           uint32_t words = fill_ping_pong_buffer(ctx, ctx->bufA);
           if (words == 0) {
             ctx->bufA[0] = 1000;
-            ctx->bufA[1] = 0x7FFFFFFF;
+            ctx->bufA[1] = 1000;
             words = 2;
           }
           dma_channel_set_trans_count(ctx->dma_ramp_ch, words, false);
@@ -294,7 +303,7 @@ static void tmc2209_dma_irq_handler(void) {
           uint32_t words = fill_ping_pong_buffer(ctx, ctx->bufB);
           if (words == 0) {
             ctx->bufB[0] = 1000;
-            ctx->bufB[1] = 0x7FFFFFFF;
+            ctx->bufB[1] = 1000;
             words = 2;
           }
           dma_channel_set_trans_count(ctx->dma_steady_ch, words, false);
@@ -579,17 +588,40 @@ void tmc2209_set_rpm(TMC2209_t *motor, float rpm) {
 }
 
 void tmc2209_stop(TMC2209_t *motor) {
-  // Abort external DMAs entirely first
+  // Cambiar modo PRIMERO para que la IRQ ignore cualquier evento residual
+  motor->mode = TMC2209_MODE_STANDBY_HOLD;
+
+  // Workaround RP2040-E13: deshabilitar IRQs ANTES del abort para evitar
+  // que el abort genere una IRQ espuria de "transfer complete".
+  dma_channel_set_irq0_enabled(motor->dma_ramp_ch, false);
+  dma_channel_set_irq0_enabled(motor->dma_steady_ch, false);
+  dma_channel_set_irq0_enabled(motor->dma_stop_ch, false);
+
+  // Abortar canales DMA (ahora sin riesgo de IRQ espuria no enmascarada)
   dma_channel_abort(motor->dma_ramp_ch);
   dma_channel_abort(motor->dma_steady_ch);
   dma_channel_abort(motor->dma_stop_ch);
+
+  // Limpiar cualquier flag residual generado por el abort
+  dma_hw->ints0 = (1u << motor->dma_ramp_ch) | (1u << motor->dma_steady_ch) | (1u << motor->dma_stop_ch);
 
   // Detener la SM y limpiar FIFOs
   pio_sm_set_enabled(motor->pio, motor->sm, false);
   pio_sm_clear_fifos(motor->pio, motor->sm);
 
-  // Cambiar el modo a STANDBY_HOLD de manera estricta
-  motor->mode = TMC2209_MODE_STANDBY_HOLD;
+  // Forzar pin STEP a LOW y reiniciar PC al entry point
+  pio_sm_exec(motor->pio, motor->sm, pio_encode_set(pio_pins, 0));
+  pio_sm_exec(motor->pio, motor->sm,
+              pio_encode_jmp(motor->offset + tmc2209_stepgen_offset_dma_stream));
+
+  // Limpiar flag de TXSTALL
+  motor->pio->fdebug = (1u << (PIO_FDEBUG_TXSTALL_LSB + motor->sm));
+
+  // Reiniciar estado de las fases del perfil
+  motor->current_phase = TMC2209_PHASE_NONE;
+  motor->current_step_idx = 0;
+  motor->total_ramp_steps = 0;
+  motor->is_braking = false;
 }
 
 void tmc2209_stop_and_disable(TMC2209_t *motor) {
@@ -799,6 +831,25 @@ void tmc2209_set_current(TMC2209_t *motor, uint8_t run_current,
   tmc2209_write_register(motor, TMC2209_REG_TPOWERDOWN, tpowerdown);
 }
 
+uint8_t tmc2209_amps_to_cs(float amps) {
+  float cs = (amps * 18.11f) - 1.0f;
+
+  // Clamping de seguridad
+  if (cs < 0.0f)
+    return 0;
+  if (cs > 31.0f)
+    return 31;
+
+  // Redondeo al entero más cercano
+  return (uint8_t)(cs + 0.5f);
+}
+
+void tmc2209_set_current_amps(TMC2209_t *motor, float run_amps,
+                              float hold_amps) {
+  tmc2209_set_current(motor, tmc2209_amps_to_cs(run_amps),
+                      tmc2209_amps_to_cs(hold_amps), 20);
+}
+
 void tmc2209_set_stallguard_threshold(TMC2209_t *motor, uint8_t threshold) {
   tmc2209_write_register(motor, TMC2209_REG_SGTHRS, threshold);
 }
@@ -968,9 +1019,16 @@ void tmc2209_start_s_curve_dma(TMC2209_t *motor, float freq_start_hz,
   const uint dreq = pio_get_dreq(motor->pio, motor->sm, true);
   volatile void *pio_txf = &motor->pio->txf[motor->sm];
 
+  // Workaround RP2040-E13: deshabilitar IRQs ANTES del abort
+  dma_channel_set_irq0_enabled(motor->dma_ramp_ch, false);
+  dma_channel_set_irq0_enabled(motor->dma_steady_ch, false);
+  dma_channel_set_irq0_enabled(motor->dma_stop_ch, false);
+
   dma_channel_abort(motor->dma_ramp_ch);
   dma_channel_abort(motor->dma_steady_ch);
   dma_channel_abort(motor->dma_stop_ch);
+
+  dma_hw->ints0 = (1u << motor->dma_ramp_ch) | (1u << motor->dma_steady_ch) | (1u << motor->dma_stop_ch);
 
   pio_sm_set_enabled(motor->pio, motor->sm, false);
   pio_sm_clear_fifos(motor->pio, motor->sm);
@@ -1042,12 +1100,12 @@ void tmc2209_start_2part_curve_dma(TMC2209_t *motor, float freq_start,
   // a lo loco. El stop_engine en la IRQ lo va a abortar de todas formas.
   if (words_a == 0) {
     motor->bufA[0] = 1000;
-    motor->bufA[1] = 0x7FFFFFFF;
+    motor->bufA[1] = 1000;
     words_a = 2;
   }
   if (words_b == 0) {
     motor->bufB[0] = 1000;
-    motor->bufB[1] = 0x7FFFFFFF;
+    motor->bufB[1] = 1000;
     words_b = 2;
   }
 
@@ -1060,9 +1118,16 @@ void tmc2209_start_2part_curve_dma(TMC2209_t *motor, float freq_start,
   const uint dreq = pio_get_dreq(motor->pio, motor->sm, true);
   volatile void *pio_txf = &motor->pio->txf[motor->sm];
 
+  // Workaround RP2040-E13: deshabilitar IRQs ANTES del abort
+  dma_channel_set_irq0_enabled(motor->dma_ramp_ch, false);
+  dma_channel_set_irq0_enabled(motor->dma_steady_ch, false);
+  dma_channel_set_irq0_enabled(motor->dma_stop_ch, false);
+
   dma_channel_abort(motor->dma_ramp_ch);
   dma_channel_abort(motor->dma_steady_ch);
   dma_channel_abort(motor->dma_stop_ch);
+
+  dma_hw->ints0 = (1u << motor->dma_ramp_ch) | (1u << motor->dma_steady_ch) | (1u << motor->dma_stop_ch);
 
   pio_sm_set_enabled(motor->pio, motor->sm, false);
   pio_sm_clear_fifos(motor->pio, motor->sm);
@@ -1109,8 +1174,10 @@ void tmc2209_stop_2part_curve_dma(TMC2209_t *motor, float freq_start,
                                   uint32_t pulses_seg1, float freq_mid,
                                   uint32_t pulses_seg2, float freq_target) {
   uint32_t total_steps = pulses_seg1 + pulses_seg2;
-  if (total_steps < 2u)
-    total_steps = 2u;
+  if (total_steps < 2u) {
+    tmc2209_stop(motor);
+    return;
+  }
 
   motor->is_braking = true;
 
@@ -1132,8 +1199,20 @@ void tmc2209_stop_2part_curve_dma(TMC2209_t *motor, float freq_start,
 
   motor->current_phase = TMC2209_PHASE_NONE; // Modo individual
 
-  fill_ping_pong_buffer(motor, motor->bufA);
-  fill_ping_pong_buffer(motor, motor->bufB);
+  uint32_t words_a = fill_ping_pong_buffer(motor, motor->bufA);
+  uint32_t words_b = fill_ping_pong_buffer(motor, motor->bufB);
+
+  if (words_a == 0) {
+    motor->bufA[0] = 1000;
+    motor->bufA[1] = 1000;
+    words_a = 2;
+  }
+  if (words_b == 0) {
+    motor->bufB[0] = 1000;
+    motor->bufB[1] = 1000;
+    words_b = 2;
+  }
+
   motor->active_buffer_is_A = true;
 
   build_constant_cycles_pair(
@@ -1143,12 +1222,31 @@ void tmc2209_stop_2part_curve_dma(TMC2209_t *motor, float freq_start,
   const uint dreq = pio_get_dreq(motor->pio, motor->sm, true);
   volatile void *pio_txf = &motor->pio->txf[motor->sm];
 
+  // Workaround RP2040-E13: dma_channel_abort() puede generar una IRQ espuria
+  // de "transfer complete". La secuencia correcta es:
+  //   1. Deshabilitar la IRQ del canal ANTES del abort.
+  //   2. Llamar abort.
+  //   3. Limpiar el flag residual que pudo haber quedado.
+  // Además ponemos STANDBY_HOLD para que el handler ignore cualquier IRQ
+  // que ya estuviera encolada en el NVIC antes de que pudiéramos deshabilitarla.
+  motor->mode = TMC2209_MODE_STANDBY_HOLD;
+
+  // Paso 1: deshabilitar IRQs de los 3 canales
+  dma_channel_set_irq0_enabled(motor->dma_ramp_ch, false);
+  dma_channel_set_irq0_enabled(motor->dma_steady_ch, false);
+  dma_channel_set_irq0_enabled(motor->dma_stop_ch, false);
+
+  // Paso 2: abortar (ahora sin riesgo de IRQ espuria no enmascarada)
   dma_channel_abort(motor->dma_ramp_ch);
   dma_channel_abort(motor->dma_steady_ch);
   dma_channel_abort(motor->dma_stop_ch);
 
+  // Paso 3: limpiar cualquier flag residual generado por el abort
+  dma_hw->ints0 = (1u << motor->dma_ramp_ch) | (1u << motor->dma_steady_ch) | (1u << motor->dma_stop_ch);
+
   pio_sm_set_enabled(motor->pio, motor->sm, false);
   pio_sm_clear_fifos(motor->pio, motor->sm);
+  pio_sm_exec(motor->pio, motor->sm, pio_encode_set(pio_pins, 0));
   pio_sm_exec(
       motor->pio, motor->sm,
       pio_encode_jmp(motor->offset + tmc2209_stepgen_offset_dma_stream));
@@ -1169,12 +1267,17 @@ void tmc2209_stop_2part_curve_dma(TMC2209_t *motor, float freq_start,
   channel_config_set_chain_to(&c_b, motor->dma_ramp_ch);
 
   dma_channel_configure(motor->dma_steady_ch, &c_b, pio_txf, motor->bufB,
-                        TMC2209_PING_PONG_BUFFER_WORDS, false);
+                        words_b, false);
   dma_channel_configure(motor->dma_ramp_ch, &c_a, pio_txf, motor->bufA,
-                        TMC2209_PING_PONG_BUFFER_WORDS, false);
+                        words_a, false);
 
   dma_channel_set_irq0_enabled(motor->dma_ramp_ch, true);
   dma_channel_set_irq0_enabled(motor->dma_steady_ch, true);
+
+  // Restaurar la dirección real del movimiento que se estaba frenando.
+  // No usamos el modo anterior (ya fue pisado por STANDBY_HOLD arriba),
+  // sino el pin de dirección que nunca cambia durante el frenado.
+  motor->mode = motor->direction ? TMC2209_MODE_RUN_CW : TMC2209_MODE_RUN_CCW;
 
   dma_channel_start(motor->dma_ramp_ch);
 }
@@ -1235,12 +1338,11 @@ float tmc2209_get_current_freq_hz(TMC2209_t *motor) {
                                    : motor->freq_start_hz;
 }
 
-void tmc2209_stop_from_current_freq_dma(TMC2209_t *motor, uint32_t pulses_seg1,
+void tmc2209_stop_from_current_freq_dma(TMC2209_t *motor, float current_freq, uint32_t pulses_seg1,
                                         float freq_mid, uint32_t pulses_seg2,
                                         float freq_target) {
-  // 1. Obtenemos la frecuencia actual leyendo exactamente lo que está haciendo
-  // el motor.
-  float current_freq = tmc2209_get_current_freq_hz(motor);
+  // 1. Obtenemos la frecuencia actual del argumento current_freq
+
 
   if (current_freq < 0.1f) {
     current_freq = 0.1f;
@@ -1289,6 +1391,48 @@ void tmc2209_move_2part_profile_dma(
   }
 }
 
+void tmc2209_abort_profile_dma(TMC2209_t *motor) {
+  if (!tmc2209_is_moving(motor)) {
+    return;
+  }
+
+  // Workaround RP2040-E13: deshabilitar IRQs ANTES de modificar el estado crítico
+  dma_channel_set_irq0_enabled(motor->dma_ramp_ch, false);
+  dma_channel_set_irq0_enabled(motor->dma_steady_ch, false);
+
+  if (motor->current_phase == TMC2209_PHASE_STEADY) {
+    // Si estamos a velocidad constante, forzamos el fin de esta fase para que
+    // el próximo IRQ DMA pase automáticamente a PHASE_DECEL.
+    motor->current_step_idx = motor->steady_total_steps;
+  } else if (motor->current_phase == TMC2209_PHASE_ACCEL) {
+    // Si estamos acelerando, calculamos la posición simétrica en la rampa de frenado
+    if (motor->accel_total_steps > 0) {
+      uint32_t decel_start_idx = motor->decel_total_steps - 
+                                 (motor->current_step_idx * motor->decel_total_steps / motor->accel_total_steps);
+      
+      motor->current_phase = TMC2209_PHASE_DECEL;
+      motor->current_step_idx = decel_start_idx;
+      motor->total_ramp_steps = motor->decel_total_steps;
+      
+      // Restauramos los parámetros de la curva de frenado para que
+      // fill_ping_pong_buffer calcule correctamente las frecuencias.
+      motor->freq_start_hz = motor->freq_target_hz; // freq de crucero
+      motor->current_freq_mid = motor->decel_freq_mid;
+      motor->freq_target_hz = motor->decel_freq_target_hz; // freq final (casi 0)
+      motor->current_slope1 = motor->decel_slope1;
+      motor->current_slope2 = motor->decel_slope2;
+      motor->transition_step_idx = motor->decel_transition_step_idx;
+      motor->is_braking = true;
+    } else {
+      // Fallback si no hay pasos de aceleración
+      motor->current_step_idx = motor->total_ramp_steps;
+    }
+  }
+
+  dma_channel_set_irq0_enabled(motor->dma_ramp_ch, true);
+  dma_channel_set_irq0_enabled(motor->dma_steady_ch, true);
+}
+
 void tmc2209_stop_s_curve_dma(TMC2209_t *motor, float freq_end_hz,
                               uint ramp_steps) {
   if (ramp_steps > TMC2209_DMA_MAX_STEPS)
@@ -1306,9 +1450,16 @@ void tmc2209_stop_s_curve_dma(TMC2209_t *motor, float freq_end_hz,
   const uint dreq = pio_get_dreq(motor->pio, motor->sm, true);
   volatile void *pio_txf = &motor->pio->txf[motor->sm];
 
+  // Workaround RP2040-E13: deshabilitar IRQs ANTES del abort
+  dma_channel_set_irq0_enabled(motor->dma_ramp_ch, false);
+  dma_channel_set_irq0_enabled(motor->dma_steady_ch, false);
+  dma_channel_set_irq0_enabled(motor->dma_stop_ch, false);
+
   dma_channel_abort(motor->dma_ramp_ch);
   dma_channel_abort(motor->dma_steady_ch);
   dma_channel_abort(motor->dma_stop_ch);
+
+  dma_hw->ints0 = (1u << motor->dma_ramp_ch) | (1u << motor->dma_steady_ch) | (1u << motor->dma_stop_ch);
 
   // Reiniciar PIO
   pio_sm_set_enabled(motor->pio, motor->sm, false);

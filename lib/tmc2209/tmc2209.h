@@ -324,6 +324,27 @@ void tmc2209_set_current(TMC2209_t *motor, uint8_t run_current,
                          uint8_t hold_current, uint8_t tpowerdown);
 
 /**
+ * @brief Convierte un valor de corriente en Amperes a la escala CS (0-31)
+ * del TMC2209, usando la resistencia de sensado del hardware.
+ *
+ * @param amps Corriente deseada en Amperes.
+ * @return uint8_t Valor CS (0-31) correspondiente.
+ */
+uint8_t tmc2209_amps_to_cs(float amps);
+
+/**
+ * @brief Configura la corriente de funcionamiento y espera en Amperes.
+ * Wrapper de alto nivel sobre tmc2209_set_current que convierte
+ * Amperes a escala CS automáticamente.
+ *
+ * @param motor Puntero a la estructura del motor.
+ * @param run_amps Corriente de funcionamiento en Amperes.
+ * @param hold_amps Corriente de espera en Amperes.
+ */
+void tmc2209_set_current_amps(TMC2209_t *motor, float run_amps,
+                              float hold_amps);
+
+/**
  * @brief Configura el umbral de sensibilidad para StallGuard4 (Registro
  * SGTHRS). StallGuard4 permite la detección de carga y parada sin sensores.
  *
@@ -511,7 +532,7 @@ float tmc2209_get_current_freq_hz(TMC2209_t *motor);
  * @param pulses_seg2 Cantidad de pulsos del segmento 2 de frenado.
  * @param freq_target Frecuencia final en Hz (generalmente 0.1f para detenerse).
  */
-void tmc2209_stop_from_current_freq_dma(TMC2209_t *motor, uint32_t pulses_seg1,
+void tmc2209_stop_from_current_freq_dma(TMC2209_t *motor, float current_freq, uint32_t pulses_seg1,
                                         float freq_mid, uint32_t pulses_seg2,
                                         float freq_target);
 
@@ -567,6 +588,16 @@ void tmc2209_move_2part_profile_dma(
     float accel_freq_mid, uint32_t accel_pulses_2, float freq_target,
     uint32_t steady_pulses, uint32_t decel_pulses_1, float decel_freq_mid,
     uint32_t decel_pulses_2, float freq_end);
+
+/**
+ * @brief Aborta un perfil de movimiento (2-part curve) de manera controlada.
+ * Si está en velocidad de crucero, salta inmediatamente a la rampa de frenado.
+ * Si está acelerando, salta a la posición simétrica en la rampa de frenado
+ * para detenerse progresivamente desde la velocidad actual.
+ *
+ * @param motor Puntero a la estructura del motor.
+ */
+void tmc2209_abort_profile_dma(TMC2209_t *motor);
 
 /**
  * @brief Obtiene el porcentaje de progreso del movimiento actual (0.0f a 100.0f)

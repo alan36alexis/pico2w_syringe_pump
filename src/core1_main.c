@@ -73,31 +73,53 @@
 honeywell_hsc_t pressure_sensor;
 TMC2209_t *global_motor = NULL;
 
-const char* get_state_name(Core1State_t state) {
-    switch(state) {
-        case ST_UNHOMED: return "ST_UNHOMED";
-        case ST_HOMING: return "ST_HOMING";
-        case ST_TOUCHING_LSW_START: return "ST_TOUCHING_LSW_START";
-        case ST_READY_AT_HOME: return "ST_READY_AT_HOME";
-        case ST_SEARCHING_SYRINGE: return "ST_SEARCHING_SYRINGE";
-        case ST_SYRINGE_ENGAGED: return "ST_SYRINGE_ENGAGED";
-        case ST_DISPENSING: return "ST_DISPENSING";
-        case ST_DISPENSE_COMPLETED: return "ST_DISPENSE_COMPLETED";
-        case ST_SET_NEW_DISPENSE: return "ST_SET_NEW_DISPENSE";
-        case ST_SEARCHING_EOT: return "ST_SEARCHING_EOT";
-        case ST_TOUCHING_LSW_END: return "ST_TOUCHING_LSW_END";
-        case ST_END_OF_TRAVEL: return "ST_END_OF_TRAVEL";
-        case ST_FAULT: return "ST_FAULT";
-        case ST_OCCLUSION_STOPPING: return "ST_OCCLUSION_STOPPING";
-        case ST_OCCLUSION_RELEASE: return "ST_OCCLUSION_RELEASE";
-        case ST_OCCLUSION_PAUSED: return "ST_OCCLUSION_PAUSED";
-        case ST_MANUAL_OVERRIDE: return "ST_MANUAL_OVERRIDE";
-        case ST_CALIB_SEEK_START: return "ST_CALIB_SEEK_START";
-        case ST_CALIB_SEEK_END: return "ST_CALIB_SEEK_END";
-        case ST_BRAKING_LSW_START: return "ST_BRAKING_LSW_START";
-        case ST_BRAKING_LSW_END: return "ST_BRAKING_LSW_END";
-        default: return "UNKNOWN_STATE";
-    }
+const char *get_state_name(Core1State_t state) {
+  switch (state) {
+  case ST_UNHOMED:
+    return "ST_UNHOMED";
+  case ST_HOMING:
+    return "ST_HOMING";
+  case ST_RELEASING_LSW_START:
+    return "ST_RELEASING_LSW_START";
+  case ST_READY_AT_HOME:
+    return "ST_READY_AT_HOME";
+  case ST_SEARCHING_SYRINGE:
+    return "ST_SEARCHING_SYRINGE";
+  case ST_SYRINGE_ENGAGED:
+    return "ST_SYRINGE_ENGAGED";
+  case ST_DISPENSING:
+    return "ST_DISPENSING";
+  case ST_DISPENSE_COMPLETED:
+    return "ST_DISPENSE_COMPLETED";
+  case ST_SET_NEW_DISPENSE:
+    return "ST_SET_NEW_DISPENSE";
+  case ST_SEARCHING_EOT:
+    return "ST_SEARCHING_EOT";
+  case ST_RELEASING_LSW_END:
+    return "ST_RELEASING_LSW_END";
+  case ST_END_OF_TRAVEL:
+    return "ST_END_OF_TRAVEL";
+  case ST_FAULT:
+    return "ST_FAULT";
+  case ST_OCCLUSION_STOPPING:
+    return "ST_OCCLUSION_STOPPING";
+  case ST_OCCLUSION_RELEASE:
+    return "ST_OCCLUSION_RELEASE";
+  case ST_OCCLUSION_PAUSED:
+    return "ST_OCCLUSION_PAUSED";
+  case ST_MANUAL_OVERRIDE:
+    return "ST_MANUAL_OVERRIDE";
+  case ST_CALIB_SEEK_START:
+    return "ST_CALIB_SEEK_START";
+  case ST_CALIB_SEEK_END:
+    return "ST_CALIB_SEEK_END";
+  case ST_BRAKING_LSW_START:
+    return "ST_BRAKING_LSW_START";
+  case ST_BRAKING_LSW_END:
+    return "ST_BRAKING_LSW_END";
+  default:
+    return "UNKNOWN_STATE";
+  }
 }
 
 typedef enum {
@@ -156,26 +178,6 @@ bool honeywell_timer_callback(repeating_timer_t *rt) {
     LOG_DEBUG("SPI read error\n");
   }
   return true; // Keep repeating
-}
-
-// --- Helper para conversion de corriente (Amperes -> CS) ---
-uint8_t tmc2209_amps_to_cs(float amps) {
-  float cs = (amps * 18.11f) - 1.0f;
-
-  // Clamping de seguridad
-  if (cs < 0.0f)
-    return 0;
-  if (cs > 31.0f)
-    return 31;
-
-  // Redondeo al entero más cercano
-  return (uint8_t)(cs + 0.5f);
-}
-
-void tmc2209_set_current_amps(TMC2209_t *motor, float run_amps,
-                              float hold_amps) {
-  tmc2209_set_current(motor, tmc2209_amps_to_cs(run_amps),
-                      tmc2209_amps_to_cs(hold_amps), 20);
 }
 
 void tmc2209_move_linear_um_dma(TMC2209_t *motor, float target_um,
@@ -278,7 +280,7 @@ void tmc2209_move_linear_um_dma(TMC2209_t *motor, float target_um,
   // suave, limitando la aceleracion.
 
   // Porcentajes para pasos (debe sumar total_microsteps)
-  uint32_t pasos_aceleracion = (uint32_t)(total_microsteps * 0.02f);
+  uint32_t pasos_aceleracion = (uint32_t)(total_microsteps * 0.01f);
   uint32_t pasos_frenado = pasos_aceleracion;
 
   // Si nos sobran para hacer 2-part profile
@@ -470,7 +472,6 @@ void core1_main(void) {
 
   // --- VARIABLES DE LA MAQUINA DE ESTADOS (FSM) ---
   Core1State_t current_state = ST_UNHOMED;
-  Core1State_t post_lsw_state = ST_UNHOMED;
   Core1Event_t active_event = EV_NONE;
 
   // --- EJECUCION DE MOVIMIENTO LINEAL ---
@@ -544,11 +545,14 @@ void core1_main(void) {
       case CMD_STOP_MOTOR:
         current_state = ST_UNHOMED;
         if (tmc2209_is_moving(global_motor)) {
-          float current_freq = tmc2209_get_current_freq_hz(global_motor);
-          tmc2209_stop_from_current_freq_dma(global_motor, 200,
-                                             current_freq * 0.5f, 200, 50.0f);
+          // float current_freq = tmc2209_get_current_freq_hz(global_motor);
+          // tmc2209_stop_from_current_freq_dma(global_motor, current_freq,
+          // 8000,
+          //                                    200, 100, 50.0f);
+          tmc2209_abort_profile_dma(global_motor);
         } else {
           tmc2209_stop(global_motor);
+          logger_send_string("Se detiene motor en CMD_STOP_MOTOR\n");
         }
         break;
       case CMD_MOVE_2PART_PROFILE:
@@ -616,24 +620,34 @@ void core1_main(void) {
       bool start_sw_active = gpio_get(global_motor->limit_switch_start_pin);
       bool end_sw_active = gpio_get(global_motor->limit_switch_end_pin);
 
-      if (start_sw_active)
-        start_sw_debounce++;
-      else
-        start_sw_debounce = 0;
-      if (end_sw_active)
-        end_sw_debounce++;
-      else
-        end_sw_debounce = 0;
+      if (start_sw_active) {
+        if (start_sw_debounce < DEBOUNCE_THRESHOLD)
+          start_sw_debounce++;
+      } else {
+        if (start_sw_debounce > 0)
+          start_sw_debounce--;
+      }
+
+      if (end_sw_active) {
+        if (end_sw_debounce < DEBOUNCE_THRESHOLD)
+          end_sw_debounce++;
+      } else {
+        if (end_sw_debounce > 0)
+          end_sw_debounce--;
+      }
 
       if (start_sw_debounce >= DEBOUNCE_THRESHOLD && !global_motor->direction &&
-          current_state != ST_BRAKING_LSW_START && current_state != ST_TOUCHING_LSW_START)
+          current_state != ST_BRAKING_LSW_START &&
+          current_state != ST_RELEASING_LSW_START)
         active_event = iEV_LSW_START_HIT;
-      else if (end_sw_debounce >= DEBOUNCE_THRESHOLD && global_motor->direction &&
-               current_state != ST_BRAKING_LSW_END && current_state != ST_TOUCHING_LSW_END)
+      else if (end_sw_debounce >= DEBOUNCE_THRESHOLD &&
+               global_motor->direction && current_state != ST_BRAKING_LSW_END &&
+               current_state != ST_RELEASING_LSW_END)
         active_event = iEV_LSW_END_HIT;
-      else if (start_sw_debounce == 0 && current_state == ST_TOUCHING_LSW_START)
+      else if (start_sw_debounce == 0 &&
+               current_state == ST_RELEASING_LSW_START)
         active_event = iEV_LSW_START_RELEASED;
-      else if (end_sw_debounce == 0 && current_state == ST_TOUCHING_LSW_END)
+      else if (end_sw_debounce == 0 && current_state == ST_RELEASING_LSW_END)
         active_event = iEV_LSW_END_RELEASED;
     }
 
@@ -670,19 +684,66 @@ void core1_main(void) {
     }
     was_moving = is_moving;
 
+    // --- Handler Global de Limit Switches ---
+    // Siempre que se detecte un LSW, se aplica frenado con rampa de ~2s,
+    // retroceso lento hasta liberar, y parada instantanea al soltar.
+    if (active_event == iEV_LSW_START_HIT) {
+      // Preservar datos de calibracion si aplica
+      if (current_state == ST_CALIB_SEEK_START) {
+        RESET_ENCODER_COUNTS();
+      }
+      if (tmc2209_is_moving(global_motor)) {
+        tmc2209_abort_profile_dma(global_motor);
+        current_state = ST_BRAKING_LSW_START;
+        active_event = EV_NONE; // Consumido
+      } else {
+        tmc2209_stop(global_motor);
+        current_state = ST_RELEASING_LSW_START;
+        active_event = EV_NONE; // Consumido
+      }
+    }
+
+    if (active_event == iEV_LSW_END_HIT) {
+      // Preservar datos de calibracion si aplica
+      if (current_state == ST_CALIB_SEEK_END) {
+        int32_t current_enc = USE_QUADRATURE_ENCODER
+                                  ? quadrature_encoder_get_count(pio1, sm_enc_q)
+                                  : pulse_counter_get_count(pio1, sm_enc_a);
+        calibration_max_encoder_count = current_enc;
+        LOG_DEBUG("Calibration Complete! Max Encoder Count: %d\n",
+                  calibration_max_encoder_count);
+      }
+      if (tmc2209_is_moving(global_motor)) {
+        tmc2209_abort_profile_dma(global_motor);
+        current_state = ST_BRAKING_LSW_END;
+        active_event = EV_NONE; // Consumido
+      } else {
+        tmc2209_stop(global_motor);
+        current_state = ST_RELEASING_LSW_END;
+        active_event = EV_NONE; // Consumido
+      }
+    }
+
     // 3. Evaluate FSM (State transitions based on events)
     static Core1State_t previous_state = ST_UNHOMED;
     if (current_state != previous_state) {
-      LOG_DEBUG("[FSM] State changed: %s -> %s\n", get_state_name(previous_state), get_state_name(current_state));
+      LOG_DEBUG("[FSM] State changed: %s -> %s\n",
+                get_state_name(previous_state), get_state_name(current_state));
       previous_state = current_state;
     }
 
     switch (current_state) {
     case ST_UNHOMED:
-      if (active_event == EV_CMD_HOME) {
+      if (end_sw_debounce >= DEBOUNCE_THRESHOLD) {
+        tmc2209_move_linear_um_dma(global_motor, -5000.0f, 300.0f);
+        current_state = ST_RELEASING_LSW_END;
+      } else if (start_sw_debounce >= DEBOUNCE_THRESHOLD) {
+        tmc2209_move_linear_um_dma(global_motor, 5000.0f, 300.0f);
+        current_state = ST_RELEASING_LSW_START;
+      } else if (active_event == EV_CMD_HOME) {
         RESET_ENCODER_COUNTS();
         tmc2209_move_linear_um_dma(global_motor, -105000.0f,
-                                   600.0f); // TODO: Aumentar velocidad a >1000
+                                   1200.0f); // TODO: Aumentar velocidad a >1000
         current_state = ST_HOMING;
       } else if (active_event == EV_CMD_CALIBRATE) {
         tmc2209_move_linear_um_dma(global_motor, -105000.0f, 1200.0f);
@@ -691,66 +752,37 @@ void core1_main(void) {
       break;
 
     case ST_CALIB_SEEK_START:
-      if (active_event == iEV_LSW_START_HIT) {
-        RESET_ENCODER_COUNTS();
-        float current_freq = tmc2209_get_current_freq_hz(global_motor);
-        uint32_t pulses = (uint32_t)(current_freq * 0.5f);
-        if (pulses < 100) pulses = 100;
-        tmc2209_stop_from_current_freq_dma(global_motor, pulses, current_freq * 0.5f, pulses, 50.0f);
-        post_lsw_state = ST_CALIB_SEEK_END;
-        current_state = ST_BRAKING_LSW_START;
-      }
+      // LSW handling is now global — this state just waits for the hit
       break;
 
     case ST_CALIB_SEEK_END:
-      if (active_event == iEV_LSW_END_HIT) {
-        int32_t current_enc = USE_QUADRATURE_ENCODER
-                                  ? quadrature_encoder_get_count(pio1, sm_enc_q)
-                                  : pulse_counter_get_count(pio1, sm_enc_a);
-        calibration_max_encoder_count = current_enc;
-        LOG_DEBUG("Calibration Complete! Max Encoder Count: %d\n", calibration_max_encoder_count);
-        
-        float current_freq = tmc2209_get_current_freq_hz(global_motor);
-        uint32_t pulses = (uint32_t)(current_freq * 0.5f);
-        if (pulses < 100) pulses = 100;
-        tmc2209_stop_from_current_freq_dma(global_motor, pulses, current_freq * 0.5f, pulses, 50.0f);
-        post_lsw_state = ST_END_OF_TRAVEL;
-        current_state = ST_BRAKING_LSW_END;
-      }
+      // LSW handling is now global — this state just waits for the hit
       break;
 
     case ST_HOMING:
-      if (active_event == iEV_LSW_START_HIT) {
-        float current_freq = tmc2209_get_current_freq_hz(global_motor);
-        uint32_t pulses = (uint32_t)(current_freq * 0.5f);
-        if (pulses < 100) pulses = 100;
-        tmc2209_stop_from_current_freq_dma(global_motor, pulses, current_freq * 0.5f, pulses, 50.0f);
-        post_lsw_state = ST_READY_AT_HOME;
-        current_state = ST_BRAKING_LSW_START;
-      }
+      // LSW handling is now global — this state just waits for the hit
       break;
 
     case ST_BRAKING_LSW_START:
       if (active_event == iEV_TARGET_REACHED) {
-        tmc2209_move_linear_um_dma(global_motor, 105000.0f, 50.0f);
-        current_state = ST_TOUCHING_LSW_START;
+        // tmc2209_move_linear_um_dma(global_motor, 105000.0f, 50.0f);
+        tmc2209_send_nsteps_at_freq(global_motor, 1000000, 2000.0f);
+        current_state = ST_RELEASING_LSW_START;
       }
       break;
 
     case ST_BRAKING_LSW_END:
       if (active_event == iEV_TARGET_REACHED) {
-        tmc2209_move_linear_um_dma(global_motor, -105000.0f, 50.0f);
-        current_state = ST_TOUCHING_LSW_END;
+        // tmc2209_move_linear_um_dma(global_motor, -105000.0f, 50.0f);
+        tmc2209_send_nsteps_at_freq(global_motor, -1000000, 2000.0f);
+        current_state = ST_RELEASING_LSW_END;
       }
       break;
 
-    case ST_TOUCHING_LSW_START:
+    case ST_RELEASING_LSW_START:
       if (active_event == iEV_LSW_START_RELEASED) {
-        tmc2209_stop(global_motor);
-        if (post_lsw_state == ST_CALIB_SEEK_END) {
-            tmc2209_move_linear_um_dma(global_motor, 105000.0f, 1200.0f);
-        }
-        current_state = post_lsw_state;
+        tmc2209_stop(global_motor); // Parada instantanea sin rampa
+        current_state = ST_READY_AT_HOME;
       }
       break;
 
@@ -766,14 +798,8 @@ void core1_main(void) {
       if (active_event == iEV_CONTACT_DETECTED) {
         tmc2209_stop(global_motor);
         current_state = ST_SYRINGE_ENGAGED;
-      } else if (active_event == iEV_LSW_END_HIT) {
-        float current_freq = tmc2209_get_current_freq_hz(global_motor);
-        uint32_t pulses = (uint32_t)(current_freq * 0.5f);
-        if (pulses < 100) pulses = 100;
-        tmc2209_stop_from_current_freq_dma(global_motor, pulses, current_freq * 0.5f, pulses, 50.0f);
-        post_lsw_state = ST_END_OF_TRAVEL;
-        current_state = ST_BRAKING_LSW_END;
       }
+      // LSW_END handling is now global
       break;
 
     case ST_SYRINGE_ENGAGED:
@@ -804,17 +830,11 @@ void core1_main(void) {
         } else {
           current_state = ST_DISPENSE_COMPLETED;
         }
-      } else if (active_event == iEV_LSW_END_HIT) {
-        float current_freq = tmc2209_get_current_freq_hz(global_motor);
-        uint32_t pulses = (uint32_t)(current_freq * 0.5f);
-        if (pulses < 100) pulses = 100;
-        tmc2209_stop_from_current_freq_dma(global_motor, pulses, current_freq * 0.5f, pulses, 50.0f);
-        post_lsw_state = ST_END_OF_TRAVEL;
-        current_state = ST_BRAKING_LSW_END;
       } else if (active_event == iEV_OCCLUSION_DETECTED) {
         tmc2209_stop(global_motor);
         current_state = ST_OCCLUSION_STOPPING;
       }
+      // LSW_END handling is now global
       break;
 
     case ST_DISPENSE_COMPLETED:
@@ -842,17 +862,10 @@ void core1_main(void) {
       break;
 
     case ST_SEARCHING_EOT:
-      if (active_event == iEV_LSW_END_HIT) {
-        float current_freq = tmc2209_get_current_freq_hz(global_motor);
-        uint32_t pulses = (uint32_t)(current_freq * 0.5f);
-        if (pulses < 100) pulses = 100;
-        tmc2209_stop_from_current_freq_dma(global_motor, pulses, current_freq * 0.5f, pulses, 50.0f);
-        post_lsw_state = ST_END_OF_TRAVEL;
-        current_state = ST_BRAKING_LSW_END;
-      }
+      // LSW_END handling is now global — this state just waits for the hit
       break;
 
-    case ST_TOUCHING_LSW_END:
+    case ST_RELEASING_LSW_END:
       if (active_event == iEV_LSW_END_RELEASED) {
         tmc2209_stop(global_motor);
         current_state = ST_END_OF_TRAVEL;
@@ -878,14 +891,8 @@ void core1_main(void) {
       if (active_event == iEV_OCC_RELEASED) {
         tmc2209_stop(global_motor);
         current_state = ST_OCCLUSION_PAUSED;
-      } else if (active_event == iEV_LSW_START_HIT) {
-        float current_freq = tmc2209_get_current_freq_hz(global_motor);
-        uint32_t pulses = (uint32_t)(current_freq * 0.5f);
-        if (pulses < 100) pulses = 100;
-        tmc2209_stop_from_current_freq_dma(global_motor, pulses, current_freq * 0.5f, pulses, 50.0f);
-        post_lsw_state = ST_UNHOMED;
-        current_state = ST_BRAKING_LSW_START;
       }
+      // LSW_START handling is now global
       break;
 
     case ST_OCCLUSION_PAUSED:
@@ -911,21 +918,8 @@ void core1_main(void) {
           tmc2209_move_linear_um_dma(global_motor, missing_um,
                                      scl.expected_target_velocity_ums);
         }
-      } else if (active_event == iEV_LSW_START_HIT) {
-        float current_freq = tmc2209_get_current_freq_hz(global_motor);
-        uint32_t pulses = (uint32_t)(current_freq * 0.5f);
-        if (pulses < 100) pulses = 100;
-        tmc2209_stop_from_current_freq_dma(global_motor, pulses, current_freq * 0.5f, pulses, 50.0f);
-        post_lsw_state = ST_UNHOMED;
-        current_state = ST_BRAKING_LSW_START;
-      } else if (active_event == iEV_LSW_END_HIT) {
-        float current_freq = tmc2209_get_current_freq_hz(global_motor);
-        uint32_t pulses = (uint32_t)(current_freq * 0.5f);
-        if (pulses < 100) pulses = 100;
-        tmc2209_stop_from_current_freq_dma(global_motor, pulses, current_freq * 0.5f, pulses, 50.0f);
-        post_lsw_state = ST_UNHOMED;
-        current_state = ST_BRAKING_LSW_END;
       }
+      // LSW handling is now global
       break;
 
     default:
@@ -968,7 +962,12 @@ void core1_main(void) {
               float um_per_pulse = LEAD_SCREW_PITCH_UM / pulses_per_rev;
               logger_send_encoder_speed(fabsf(pps) * um_per_pulse);
             }
-            closed_loop_check_speed(&scl, pps, USE_QUADRATURE_ENCODER);
+            if (current_state != ST_BRAKING_LSW_START &&
+                current_state != ST_BRAKING_LSW_END &&
+                current_state != ST_RELEASING_LSW_START &&
+                current_state != ST_RELEASING_LSW_END) {
+              closed_loop_check_speed(&scl, pps, USE_QUADRATURE_ENCODER);
+            }
           }
         }
 
@@ -992,7 +991,12 @@ void core1_main(void) {
               float um_per_pulse = LEAD_SCREW_PITCH_UM / pulses_per_rev;
               logger_send_encoder_speed(fabsf(pps_a) * um_per_pulse);
             }
-            closed_loop_check_speed(&scl, pps_a, USE_QUADRATURE_ENCODER);
+            if (current_state != ST_BRAKING_LSW_START &&
+                current_state != ST_BRAKING_LSW_END &&
+                current_state != ST_RELEASING_LSW_START &&
+                current_state != ST_RELEASING_LSW_END) {
+              closed_loop_check_speed(&scl, pps_a, USE_QUADRATURE_ENCODER);
+            }
           }
         }
 

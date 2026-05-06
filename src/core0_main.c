@@ -1,4 +1,5 @@
 #include "core0_main.h"
+#include "system_config.h"
 
 // Descomentar o comentar esta linea para habilitar/deshabilitar el monitoreo de
 // salud del sistema
@@ -248,11 +249,15 @@ static void task_logger(void *params) {
         printf("%s\n", msg.payload.msg_str);
         snprintf(buf, sizeof(buf), "%s", msg.payload.msg_str);
         break;
-      case LOG_EVENT_ENCODER_UPDATE:
-        printf("Encoder Val: %d\n", msg.payload.encoder_count);
-        snprintf(buf, sizeof(buf), "Encoder Val: %d",
-                 msg.payload.encoder_count);
+      case LOG_EVENT_ENCODER_UPDATE: {
+        float pulses_per_rev = USE_QUADRATURE_ENCODER ? (ENCODER_LINES_PER_REV * 4.0f) : (float)ENCODER_LINES_PER_REV;
+        float um_per_pulse = LEAD_SCREW_PITCH_UM / pulses_per_rev;
+        float displacement_um = msg.payload.encoder_count * um_per_pulse;
+        printf("Encoder Val: %d steps, %.2f um\n", msg.payload.encoder_count, displacement_um);
+        snprintf(buf, sizeof(buf), "Encoder Val: %d steps, %.2f um",
+                 msg.payload.encoder_count, displacement_um);
         break;
+      }
       case LOG_EVENT_ENCODER_INDEP_UPDATE:
         printf("Encoder Indep: A=%d B=%d\n",
                msg.payload.encoder_indep_count.count_a,
