@@ -1,4 +1,40 @@
 #include "crosscore_logger.h"
+#include <string.h>
+
+// Global filter config initialized to all true
+LogFilterConfig_t g_log_filter = {
+    .show_tgt = true,
+    .show_cfg = true,
+    .show_kin = true,
+    .show_prf = true,
+    .show_fsm = true,
+    .show_adc = true,
+    .show_prg = true,
+    .show_enc = true,
+    .show_mtr = true
+};
+
+void log_filter_set(const char *hdr, bool state) {
+    if (strcmp(hdr, "ALL") == 0) {
+        g_log_filter.show_tgt = state;
+        g_log_filter.show_cfg = state;
+        g_log_filter.show_kin = state;
+        g_log_filter.show_prf = state;
+        g_log_filter.show_fsm = state;
+        g_log_filter.show_adc = state;
+        g_log_filter.show_prg = state;
+        g_log_filter.show_enc = state;
+        g_log_filter.show_mtr = state;
+    } else if (strcmp(hdr, "TGT") == 0) g_log_filter.show_tgt = state;
+    else if (strcmp(hdr, "CFG") == 0) g_log_filter.show_cfg = state;
+    else if (strcmp(hdr, "KIN") == 0) g_log_filter.show_kin = state;
+    else if (strcmp(hdr, "PRF") == 0) g_log_filter.show_prf = state;
+    else if (strcmp(hdr, "FSM") == 0) g_log_filter.show_fsm = state;
+    else if (strcmp(hdr, "ADC") == 0) g_log_filter.show_adc = state;
+    else if (strcmp(hdr, "PRG") == 0) g_log_filter.show_prg = state;
+    else if (strcmp(hdr, "ENC") == 0) g_log_filter.show_enc = state;
+    else if (strcmp(hdr, "MTR") == 0) g_log_filter.show_mtr = state;
+}
 
 // The queue instance
 queue_t crosscore_log_queue;

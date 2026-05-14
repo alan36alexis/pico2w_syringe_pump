@@ -4,7 +4,10 @@
 #include <string.h>
 #include "config_manager.h"
 #include "pico/cyw43_arch.h"
-#include "mqtt_client.h"// The actual queue instance
+#include "mqtt_client.h"
+#include "crosscore_logger.h"
+
+// The actual queue instance
 queue_t crosscore_cmd_queue;
 
 // Initialize the queue. Must be called before any core tries to use it.
@@ -85,17 +88,17 @@ bool cmd_send_stop_immediate(void) {
 
 // --- FSM Commands ---
 
-bool cmd_send_home(void) {
+bool cmd_send_home(float velocity_ums) {
     Core1CmdMessage_t msg;
     msg.id = CMD_HOME;
-    msg.payload.raw_data = 0;
+    msg.payload.move_home.target_velocity_ums = velocity_ums;
     return queue_try_add(&crosscore_cmd_queue, &msg);
 }
 
-bool cmd_send_search_syringe(void) {
+bool cmd_send_search_syringe(float velocity_ums) {
     Core1CmdMessage_t msg;
     msg.id = CMD_SEARCH_SYRINGE;
-    msg.payload.raw_data = 0;
+    msg.payload.move_home.target_velocity_ums = velocity_ums;
     return queue_try_add(&crosscore_cmd_queue, &msg);
 }
 
@@ -149,6 +152,15 @@ bool cmd_send_calibrate(void) {
     return queue_try_add(&crosscore_cmd_queue, &msg);
 }
 
+bool cmd_send_set_virtual_lsw(bool enabled, int32_t start_count, int32_t end_count) {
+    Core1CmdMessage_t msg;
+    msg.id = CMD_SET_VIRTUAL_LSW;
+    msg.payload.set_virtual_lsw.enabled = enabled;
+    msg.payload.set_virtual_lsw.start_count = start_count;
+    msg.payload.set_virtual_lsw.end_count = end_count;
+    return queue_try_add(&crosscore_cmd_queue, &msg);
+}
+
 void cmd_parse_and_execute(const char *payload_str) {
     // We expect a string like "10000.0,450.0" or "stop_imm" etc.
     char cmd_str[128];
@@ -170,14 +182,16 @@ void cmd_parse_and_execute(const char *payload_str) {
     }
 
     // --- FSM Commands ---
-    if (strncmp(cmd_str, "fsm_home", 8) == 0) {
-        printf("FSM: Sending CMD_HOME\n");
-        cmd_send_home();
+    if (strncmp(cmd_str, "fsm_home,", 9) == 0) {
+        float speed = (float)atof(cmd_str + 9);
+        printf("FSM: Sending CMD_HOME (%.1f um/s)\n", speed);
+        cmd_send_home(speed);
         return;
     }
-    if (strncmp(cmd_str, "fsm_search", 10) == 0) {
-        printf("FSM: Sending CMD_SEARCH_SYRINGE\n");
-        cmd_send_search_syringe();
+    if (strncmp(cmd_str, "fsm_search,", 11) == 0) {
+        float speed = (float)atof(cmd_str + 11);
+        printf("FSM: Sending CMD_SEARCH_SYRINGE (%.1f um/s)\n", speed);
+        cmd_send_search_syringe(speed);
         return;
     }
     if (strncmp(cmd_str, "fsm_dispense,", 13) == 0) {
@@ -223,6 +237,16 @@ void cmd_parse_and_execute(const char *payload_str) {
         cmd_send_calibrate();
         return;
     }
+    if (strncmp(cmd_str, "fsm_virtual_lsw,", 16) == 0) {
+        int enabled, start_c, end_c;
+        if (sscanf(cmd_str + 16, "%d,%d,%d", &enabled, &start_c, &end_c) == 3) {
+            printf("FSM: Sending CMD_SET_VIRTUAL_LSW (ena:%d, %d -> %d)\n", enabled, start_c, end_c);
+            cmd_send_set_virtual_lsw(enabled > 0, start_c, end_c);
+        } else {
+            printf("Error formating fsm_virtual_lsw. Use: fsm_virtual_lsw,ENABLED,START,END\n");
+        }
+        return;
+    }
     // --------------------
 
     // Check for Home Start
@@ -256,6 +280,17 @@ void cmd_parse_and_execute(const char *payload_str) {
         return;
     }
 
+    // Check for log_en,HDR
+    if (strncmp(cmd_str, "log_en,", 7) == 0) {
+        log_filter_set(cmd_str + 7, true);
+        return;
+    }
+
+    // Check for log_dis,HDR
+    if (strncmp(cmd_str, "log_dis,", 8) == 0) {
+        log_filter_set(cmd_str + 8, false);
+        return;
+    }
 
     // Check for config_wifi,SSID,PASS
     if (strncmp(cmd_str, "config_wifi,", 12) == 0) {

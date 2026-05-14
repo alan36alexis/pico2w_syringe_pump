@@ -645,10 +645,18 @@ void tmc2209_set_turns_at_rpm(TMC2209_t *motor, float rpm, float turns) {
 }
 
 void tmc2209_send_nsteps_at_freq(TMC2209_t *motor, int nsteps, float freq) {
-  // Si nsteps es 0 o negativo, el motor se detiene
-  if (nsteps <= 0 || freq <= 0) {
+  // Si nsteps es 0 o la frecuencia es invalida, el motor se detiene
+  if (nsteps == 0 || freq <= 0) {
     tmc2209_stop(motor);
     return;
+  }
+
+  // Establecer direccion segun el signo de nsteps
+  if (nsteps < 0) {
+    tmc2209_set_direction(motor, false); // Sentido retroceso (LSW_START)
+    nsteps = -nsteps;
+  } else {
+    tmc2209_set_direction(motor, true);  // Sentido avance (LSW_END)
   }
 
   // Calcular ciclos de reloj para PIO

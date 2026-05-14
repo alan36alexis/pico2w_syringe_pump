@@ -133,6 +133,10 @@ static EmergencyState emergency_state = EMERGENCY_NORMAL;
 
 volatile int32_t calibration_max_encoder_count = 0;
 
+volatile bool virtual_lsw_enabled = false;
+volatile int32_t virtual_lsw_start_count = 0;
+volatile int32_t virtual_lsw_end_count = 0;
+
 bool honeywell_timer_callback(repeating_timer_t *rt) {
   honeywell_hsc_data_t data;
   if (honeywell_hsc_read(&pressure_sensor, &data)) {
@@ -183,7 +187,10 @@ bool honeywell_timer_callback(repeating_timer_t *rt) {
 void tmc2209_move_linear_um_dma(TMC2209_t *motor, float target_um,
                                 float target_velocity_ums) {
   LOG_DEBUG("--- Abstraccion de Movimiento Lineal ---\n");
-  LOG_DEBUG("Target: %.1f um a %.1f um/s\n", target_um, target_velocity_ums);
+  if (g_log_filter.show_tgt) {
+    LOG_DEBUG("[TGT]: Target: %.1f um a %.1f um/s\n", target_um,
+              target_velocity_ums);
+  }
 
   if (target_velocity_ums <= 0.0f || target_um == 0.0f) {
     LOG_DEBUG("Error: Velocidad cero o distancia cero.\n");
@@ -233,11 +240,14 @@ void tmc2209_move_linear_um_dma(TMC2209_t *motor, float target_um,
 
   uint16_t current_msteps_val = tmc2209_get_microsteps(motor);
 
-  LOG_DEBUG(">> Configuracion OK: Microsteps=1/%d, Chopper=%s, IRUN=%.1fA\n",
-            current_msteps_val,
-            (chop_mode == TMC2209_CHOPPER_STEALTHCHOP) ? "StealthChop"
-                                                       : "SpreadCycle",
-            run_amps);
+  if (g_log_filter.show_cfg) {
+    LOG_DEBUG(
+        "[CFG]: Configuracion OK: Microsteps=1/%d, Chopper=%s, IRUN=%.1fA\n",
+        current_msteps_val,
+        (chop_mode == TMC2209_CHOPPER_STEALTHCHOP) ? "StealthChop"
+                                                   : "SpreadCycle",
+        run_amps);
+  }
 
   // 3. Conversiones Cinemáticas
   // Cuántos micrometros se avanza por cada paso completo del motor (sin
@@ -270,8 +280,8 @@ void tmc2209_move_linear_um_dma(TMC2209_t *motor, float target_um,
   if (f_start < 50.0f)
     f_start = 50.0f; // Limitador bajo
 
-  float f_mid_accel = f_start + (target_freq_hz - f_start) * 0.5f;
-  float f_mid_decel = target_freq_hz - (target_freq_hz - f_start) * 0.5f;
+  float f_mid_accel = f_start + (target_freq_hz - f_start) * 0.8f;
+  float f_mid_decel = target_freq_hz - (target_freq_hz - f_start) * 0.2f;
   float f_end = f_start;
 
   // 4. Perfil de Velocidad Trapecial 2-Partes (Curva S)
@@ -306,12 +316,17 @@ void tmc2209_move_linear_um_dma(TMC2209_t *motor, float target_um,
   uint32_t d_p1 = pasos_frenado / 2;
   uint32_t d_p2 = pasos_frenado - d_p1;
 
-  LOG_DEBUG("Cinemática => Pasos totales: %u, Freq: %.1f Hz\n",
-            total_microsteps, target_freq_hz);
-  LOG_DEBUG("Perfil => Accel: %u (P1:%u P2:%u) | Crucero: %u | Decel: %u "
-            "(P1:%u P2:%u)\n",
-            pasos_aceleracion, a_p1, a_p2, pasos_constantes, pasos_frenado,
-            d_p1, d_p2);
+  if (g_log_filter.show_kin) {
+    LOG_DEBUG("[KIN]: Cinemática => Pasos totales: %u, Freq: %.1f Hz\n",
+              total_microsteps, target_freq_hz);
+  }
+  if (g_log_filter.show_prf) {
+    LOG_DEBUG(
+        "[PRF]: Perfil => Accel: %u (P1:%u P2:%u) | Crucero: %u | Decel: %u "
+        "(P1:%u P2:%u)\n",
+        pasos_aceleracion, a_p1, a_p2, pasos_constantes, pasos_frenado, d_p1,
+        d_p2);
+  }
 
   // 5. Iniciar Movimiento DMA
   tmc2209_move_2part_profile_dma(motor, f_start, a_p1, f_mid_accel, a_p2,
@@ -473,6 +488,8 @@ void core1_main(void) {
   // --- VARIABLES DE LA MAQUINA DE ESTADOS (FSM) ---
   Core1State_t current_state = ST_UNHOMED;
   Core1Event_t active_event = EV_NONE;
+  float fsm_home_velocity_ums = 1500.0f;
+  float fsm_search_velocity_ums = 1200.0f;
 
   // --- EJECUCION DE MOVIMIENTO LINEAL ---
   // tmc2209_move_linear_um_dma(&motor1, -15000.0f, 450.0f);
@@ -505,9 +522,11 @@ void core1_main(void) {
       switch (cmd.id) {
       case CMD_HOME:
         active_event = EV_CMD_HOME;
+        fsm_home_velocity_ums = cmd.payload.move_home.target_velocity_ums;
         break;
       case CMD_SEARCH_SYRINGE:
         active_event = EV_CMD_SEARCH_SYRINGE;
+        fsm_search_velocity_ums = cmd.payload.move_home.target_velocity_ums;
         break;
       case CMD_START_DISPENSE:
         active_event = EV_CMD_START_DISPENSE;
@@ -529,6 +548,17 @@ void core1_main(void) {
         break;
       case CMD_CALIBRATE:
         active_event = EV_CMD_CALIBRATE;
+        break;
+      case CMD_SET_VIRTUAL_LSW:
+        virtual_lsw_enabled = cmd.payload.set_virtual_lsw.enabled;
+        virtual_lsw_start_count = cmd.payload.set_virtual_lsw.start_count;
+        virtual_lsw_end_count = cmd.payload.set_virtual_lsw.end_count;
+        if (g_log_filter.show_cfg) {
+          LOG_DEBUG("[CFG]: Virtual LSW Configured -> Enabled: %d, Start: %d, "
+                    "End: %d\n",
+                    virtual_lsw_enabled, virtual_lsw_start_count,
+                    virtual_lsw_end_count);
+        }
         break;
 
       // Handle raw config/debug commands manually, override FSM
@@ -578,13 +608,13 @@ void core1_main(void) {
         current_state = ST_MANUAL_OVERRIDE;
         RESET_ENCODER_COUNTS();
         logger_send_motor_moving();
-        tmc2209_move_linear_um_dma(global_motor, -105000.0f, 1200.0f);
+        tmc2209_move_linear_um_dma(global_motor, -105000.0f, 1500.0f);
         break;
       case CMD_HOME_END:
         current_state = ST_MANUAL_OVERRIDE;
         RESET_ENCODER_COUNTS();
         logger_send_motor_moving();
-        tmc2209_move_linear_um_dma(global_motor, 105000.0f, 1200.0f);
+        tmc2209_move_linear_um_dma(global_motor, 105000.0f, 1500.0f);
         break;
       case CMD_MOVE_NSTEPS:
         current_state = ST_MANUAL_OVERRIDE;
@@ -617,8 +647,22 @@ void core1_main(void) {
     const uint8_t DEBOUNCE_THRESHOLD = 3;
 
     if (global_motor->limit_switches_enabled) {
-      bool start_sw_active = gpio_get(global_motor->limit_switch_start_pin);
-      bool end_sw_active = gpio_get(global_motor->limit_switch_end_pin);
+      int32_t current_enc = 0;
+      if (ENABLE_ENCODER) {
+        current_enc = USE_QUADRATURE_ENCODER
+                          ? quadrature_encoder_get_count(pio1, sm_enc_q)
+                          : pulse_counter_get_count(pio1, sm_enc_a);
+      }
+
+      bool virtual_start_active =
+          virtual_lsw_enabled && (current_enc <= virtual_lsw_start_count);
+      bool virtual_end_active =
+          virtual_lsw_enabled && (current_enc >= virtual_lsw_end_count);
+
+      bool start_sw_active = gpio_get(global_motor->limit_switch_start_pin) ||
+                             virtual_start_active;
+      bool end_sw_active =
+          gpio_get(global_motor->limit_switch_end_pin) || virtual_end_active;
 
       if (start_sw_active) {
         if (start_sw_debounce < DEBOUNCE_THRESHOLD)
@@ -660,7 +704,10 @@ void core1_main(void) {
       // Imprimir el voltaje cada ~500ms basado en el `counter` global.
       // Dado que el loop tiene un sleep_ms(10), 50 iteraciones son aprox 500ms.
       if (counter % 50 == 0) {
-        LOG_DEBUG("ADC Voltage (State %d): %.2f V\n", current_state, voltage);
+        if (g_log_filter.show_adc) {
+          LOG_DEBUG("[ADC]: ADC Voltage (State %d): %.2f V\n", current_state,
+                    voltage);
+        }
       }
 
       // Sensibilidad Simulada
@@ -684,14 +731,19 @@ void core1_main(void) {
     }
     was_moving = is_moving;
 
+    static Core1State_t post_lsw_start_state = ST_READY_AT_HOME;
+
     // --- Handler Global de Limit Switches ---
     // Siempre que se detecte un LSW, se aplica frenado con rampa de ~2s,
     // retroceso lento hasta liberar, y parada instantanea al soltar.
     if (active_event == iEV_LSW_START_HIT) {
-      // Preservar datos de calibracion si aplica
       if (current_state == ST_CALIB_SEEK_START) {
         RESET_ENCODER_COUNTS();
+        post_lsw_start_state = ST_CALIB_SEEK_END;
+      } else {
+        post_lsw_start_state = ST_READY_AT_HOME;
       }
+
       if (tmc2209_is_moving(global_motor)) {
         tmc2209_abort_profile_dma(global_motor);
         current_state = ST_BRAKING_LSW_START;
@@ -727,8 +779,11 @@ void core1_main(void) {
     // 3. Evaluate FSM (State transitions based on events)
     static Core1State_t previous_state = ST_UNHOMED;
     if (current_state != previous_state) {
-      LOG_DEBUG("[FSM] State changed: %s -> %s\n",
-                get_state_name(previous_state), get_state_name(current_state));
+      if (g_log_filter.show_fsm) {
+        LOG_DEBUG("[FSM]: State changed: %s -> %s\n",
+                  get_state_name(previous_state),
+                  get_state_name(current_state));
+      }
       previous_state = current_state;
     }
 
@@ -743,10 +798,10 @@ void core1_main(void) {
       } else if (active_event == EV_CMD_HOME) {
         RESET_ENCODER_COUNTS();
         tmc2209_move_linear_um_dma(global_motor, -105000.0f,
-                                   1200.0f); // TODO: Aumentar velocidad a >1000
+                                   fsm_home_velocity_ums);
         current_state = ST_HOMING;
       } else if (active_event == EV_CMD_CALIBRATE) {
-        tmc2209_move_linear_um_dma(global_motor, -105000.0f, 1200.0f);
+        tmc2209_move_linear_um_dma(global_motor, -105000.0f, 1500.0f);
         current_state = ST_CALIB_SEEK_START;
       }
       break;
@@ -782,14 +837,19 @@ void core1_main(void) {
     case ST_RELEASING_LSW_START:
       if (active_event == iEV_LSW_START_RELEASED) {
         tmc2209_stop(global_motor); // Parada instantanea sin rampa
-        current_state = ST_READY_AT_HOME;
+        current_state = post_lsw_start_state;
+        if (current_state == ST_CALIB_SEEK_END) {
+          // Continuar hacia el LSW_END para la calibracion
+          tmc2209_move_linear_um_dma(global_motor, 105000.0f, 1500.0f);
+        }
       }
       break;
 
     case ST_READY_AT_HOME:
       if (active_event == EV_CMD_SEARCH_SYRINGE) {
         // Avanzar buscando contacto
-        tmc2209_move_linear_um_dma(global_motor, 105000.0f, 1200.0f);
+        tmc2209_move_linear_um_dma(global_motor, 105000.0f,
+                                   fsm_search_velocity_ums);
         current_state = ST_SEARCHING_SYRINGE;
       }
       break;
@@ -804,18 +864,26 @@ void core1_main(void) {
 
     case ST_SYRINGE_ENGAGED:
       if (active_event == EV_CMD_START_DISPENSE) {
-        RESET_ENCODER_COUNTS();
+        int32_t current_enc = USE_QUADRATURE_ENCODER
+                                  ? quadrature_encoder_get_count(pio1, sm_enc_q)
+                                  : pulse_counter_get_count(pio1, sm_enc_a);
         tmc2209_move_linear_um_dma(
             global_motor, cmd.payload.start_dispense.target_um,
             cmd.payload.start_dispense.target_velocity_ums);
         closed_loop_init_move(&scl, cmd.payload.start_dispense.target_um,
                               cmd.payload.start_dispense.target_velocity_ums,
-                              0);
+                              current_enc);
         current_state = ST_DISPENSING;
       }
       break;
 
     case ST_DISPENSING:
+      if (counter % 50 == 0) {
+        float pct = tmc2209_get_move_progress_pct(global_motor);
+        if (g_log_filter.show_prg) {
+          LOG_DEBUG("[PRG]: Dispensing progress: %.1f%%\n", pct);
+        }
+      }
       if (active_event == iEV_TARGET_REACHED) {
         float missing_um = 0.0f;
         int32_t current_enc = USE_QUADRATURE_ENCODER
@@ -831,7 +899,7 @@ void core1_main(void) {
           current_state = ST_DISPENSE_COMPLETED;
         }
       } else if (active_event == iEV_OCCLUSION_DETECTED) {
-        tmc2209_stop(global_motor);
+        tmc2209_abort_profile_dma(global_motor);
         current_state = ST_OCCLUSION_STOPPING;
       }
       // LSW_END handling is now global
@@ -850,13 +918,15 @@ void core1_main(void) {
 
     case ST_SET_NEW_DISPENSE:
       if (active_event == EV_CMD_START_DISPENSE) {
-        RESET_ENCODER_COUNTS();
+        int32_t current_enc = USE_QUADRATURE_ENCODER
+                                  ? quadrature_encoder_get_count(pio1, sm_enc_q)
+                                  : pulse_counter_get_count(pio1, sm_enc_a);
         tmc2209_move_linear_um_dma(
             global_motor, cmd.payload.start_dispense.target_um,
             cmd.payload.start_dispense.target_velocity_ums);
         closed_loop_init_move(&scl, cmd.payload.start_dispense.target_um,
                               cmd.payload.start_dispense.target_velocity_ums,
-                              0);
+                              current_enc);
         current_state = ST_DISPENSING;
       }
       break;
@@ -952,6 +1022,20 @@ void core1_main(void) {
     if (ENABLE_ENCODER) {
       if (USE_QUADRATURE_ENCODER) {
         int32_t current_count = quadrature_encoder_get_count(pio1, sm_enc_q);
+
+        bool is_fsm_routine = (current_state >= ST_SEARCHING_SYRINGE &&
+                               current_state <= ST_OCCLUSION_PAUSED);
+        if (counter % 50 == 0 && is_fsm_routine && is_moving) {
+          float pos_pct =
+              (float)current_count / (float)MAX_TRAVEL_ENCODER_COUNT * 100.0f;
+          if (pos_pct < 0.0f)
+            pos_pct = 0.0f;
+          if (pos_pct > 100.0f)
+            pos_pct = 100.0f;
+          if (g_log_filter.show_prg) {
+            LOG_DEBUG("[POS]: Position progress: %.1f%%\n", pos_pct);
+          }
+        }
 
         if (counter % 10 == 0) {
           float pps = measure_encoder_speed(

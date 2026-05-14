@@ -182,7 +182,7 @@ static void task_logger(void *params) {
                  msg.payload.pressure_psi);
         break;
       case LOG_EVENT_MOTOR_STOPPED:
-        printf("Motor detenido.\n");
+        if (g_log_filter.show_mtr) printf("[MTR]: Motor detenido.\n");
         snprintf(buf, sizeof(buf), "Motor detenido.");
         break;
       case LOG_EVENT_MOTOR_RETRACTING:
@@ -253,29 +253,37 @@ static void task_logger(void *params) {
         float pulses_per_rev = USE_QUADRATURE_ENCODER ? (ENCODER_LINES_PER_REV * 4.0f) : (float)ENCODER_LINES_PER_REV;
         float um_per_pulse = LEAD_SCREW_PITCH_UM / pulses_per_rev;
         float displacement_um = msg.payload.encoder_count * um_per_pulse;
-        printf("Encoder Val: %d steps, %.2f um\n", msg.payload.encoder_count, displacement_um);
+        if (g_log_filter.show_enc) {
+            printf("[ENC]: Encoder Val: %d steps, %.2f um\n", msg.payload.encoder_count, displacement_um);
+        }
         snprintf(buf, sizeof(buf), "Encoder Val: %d steps, %.2f um",
                  msg.payload.encoder_count, displacement_um);
         break;
       }
       case LOG_EVENT_ENCODER_INDEP_UPDATE:
-        printf("Encoder Indep: A=%d B=%d\n",
-               msg.payload.encoder_indep_count.count_a,
-               msg.payload.encoder_indep_count.count_b);
+        if (g_log_filter.show_enc) {
+            printf("[ENC]: Encoder Indep: A=%d B=%d\n",
+                   msg.payload.encoder_indep_count.count_a,
+                   msg.payload.encoder_indep_count.count_b);
+        }
         snprintf(buf, sizeof(buf), "{\"A\": %d, \"B\": %d}",
                  msg.payload.encoder_indep_count.count_a,
                  msg.payload.encoder_indep_count.count_b);
         break;
       case LOG_EVENT_ENCODER_SPEED:
-        printf("Encoder Speed: %.2f um/s\n", msg.payload.encoder_speed);
+        if (g_log_filter.show_enc) {
+            printf("[ENC]: Encoder Speed: %.2f um/s\n", msg.payload.encoder_speed);
+        }
         snprintf(buf, sizeof(buf), "{\"speed_ums\": %.2f}",
                  msg.payload.encoder_speed);
         break;
       case LOG_EVENT_SPEED_WARNING:
-        printf("WARNING: Speed deviation (expected: %.2f um/s, actual: %.2f "
-               "um/s)\n",
-               msg.payload.speed_warning.expected_ums,
-               msg.payload.speed_warning.actual_ums);
+        if (g_log_filter.show_enc) {
+            printf("[ENC]: WARNING: Speed deviation (expected: %.2f um/s, actual: %.2f "
+                   "um/s)\n",
+                   msg.payload.speed_warning.expected_ums,
+                   msg.payload.speed_warning.actual_ums);
+        }
         snprintf(buf, sizeof(buf),
                  "{\"warning\": \"Speed Deviation\", \"expected_ums\": %.2f, "
                  "\"actual_ums\": %.2f}",

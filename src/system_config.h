@@ -19,4 +19,11 @@
 #define MAX_CORRECTION_ATTEMPTS 1
 #define CRUISE_CHECK_DELAY_US 500000 // 500ms ignoring acceleration
 
+// --- Calibration Settings ---
+#define CALIBRATION_MOVE_SPEED 200.0f
+#define CALIBRATION_SEEK_SPEED 100.0f
+
+#define MAX_TRAVEL_ENCODER_COUNT                                               \
+  150000 // TODO: Implementar la calibracion y guardado en flash
+
 #endif // SYSTEM_CONFIG_H

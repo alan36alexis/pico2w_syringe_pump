@@ -5,6 +5,22 @@
 #include <stdbool.h>
 #include "pico/util/queue.h"
 
+// Log Filter Configuration
+typedef struct {
+    bool show_tgt; // Target
+    bool show_cfg; // Configuration
+    bool show_kin; // Kinematics
+    bool show_prf; // Profile
+    bool show_fsm; // State Machine
+    bool show_adc; // ADC Voltage
+    bool show_prg; // Progress
+    bool show_enc; // Encoder
+    bool show_mtr; // Motor
+} LogFilterConfig_t;
+
+extern LogFilterConfig_t g_log_filter;
+void log_filter_set(const char *hdr, bool state);
+
 // Define the queue that will pass events from Core 1 to Core 0
 extern queue_t crosscore_log_queue;
 
