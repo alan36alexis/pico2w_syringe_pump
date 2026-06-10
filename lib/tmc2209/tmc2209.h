@@ -8,10 +8,6 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-#ifndef TMC2209_DMA_MAX_STEPS
-#define TMC2209_DMA_MAX_STEPS 8u
-#endif
-
 // Tamaño del buffer Ping-Pong DMA
 #ifndef TMC2209_PING_PONG_BUFFER_STEPS
 #define TMC2209_PING_PONG_BUFFER_STEPS 64u
@@ -21,10 +17,8 @@
 typedef enum {
   TMC2209_MODE_STANDBY_FREE = 0, // Motor en reposo, ENA deshabilitado
   TMC2209_MODE_STANDBY_HOLD = 1, // Motor en reposo, ENA habilitado
-  // TODO: Cambiar RUN_CW y RUN_CCW por nombres más descriptivos, como AVANCE y
-  // RETROCESO
-  TMC2209_MODE_RUN_CW = 2,  // Motor en movimiento sentido horario
-  TMC2209_MODE_RUN_CCW = 3, // Motor en movimiento sentido antihorario
+  TMC2209_MODE_RUN_FORWARD = 2,   // Motor moving forward (direction = true)
+  TMC2209_MODE_RUN_BACKWARD = 3, // Motor moving backward (direction = false)
   TMC2209_MODE_NSTEPS =
       4, // Motor en movimiento por un número específico de pasos
   TMC2209_MODE_ALARM = 5 // Modo de alarma, motor detenido
@@ -72,7 +66,7 @@ typedef struct {
   uart_inst_t *uart; // Instancia UART (ej. uart0 o uart1)
   uint8_t addr;      // Dirección del esclavo (0-3)
 
-  // DMA / S-Curve State
+  // DMA State
   int dma_ramp_ch;
   int dma_steady_ch;
   int dma_stop_ch;
@@ -111,11 +105,6 @@ typedef struct {
   float decel_slope2;
 
   uint32_t steady_buf[2] __attribute__((aligned(8)));
-
-  // Legacy S-Curve Buffers
-  // TODO: Eliminar estos buffers, solo usar el ping-pong
-  uint32_t ramp_buf[2u * TMC2209_DMA_MAX_STEPS] __attribute__((aligned(8)));
-  uint32_t stop_buf[2u * TMC2209_DMA_MAX_STEPS] __attribute__((aligned(8)));
 } TMC2209_t;
 
 // Valores de microstepping
@@ -476,43 +465,6 @@ void tmc2209_set_vactual(TMC2209_t *motor, int32_t vactual);
  */
 int32_t tmc2209_compute_vactual(TMC2209_t *motor, float rpm);
 
-// --- Funciones DMA / Curva S (Portadas de stepgen) ---
-
-/**
- * @brief Inicia un movimiento con aceleración y desaceleración suaves (Curva
- * S).
- *
- * @param motor Puntero a la estructura del motor.
- * @param freq_start_hz Frecuencia inicial en Hz.
- * @param freq_target_hz Frecuencia objetivo en Hz.
- * @param duty_cycle Ciclo de trabajo (0.0 a 1.0).
- * @param ramp_steps Número de pasos para la rampa.
- * @param aggressiveness Agresividad de la curva (1-10).
- */
-void tmc2209_start_s_curve_dma(TMC2209_t *motor, float freq_start_hz,
-                               float freq_target_hz, float duty_cycle,
-                               uint ramp_steps, int aggressiveness);
-
-/**
- * @brief Detiene el movimiento con desaceleración suave (Curva S).
- *
- * @param motor Puntero a la estructura del motor.
- * @param freq_end_hz Frecuencia final en Hz.
- * @param ramp_steps Número de pasos para la rampa.
- */
-void tmc2209_stop_s_curve_dma(TMC2209_t *motor, float freq_end_hz,
-                              uint ramp_steps);
-
-/**
- * @brief Cambia la frecuencia de un movimiento que ya se está ejecutando.
- * 
- * @param motor Puntero a la estructura del motor.
- * @param freq_new_hz Frecuencia objetivo en Hz.
- * @param ramp_steps Número de pasos para la rampa.
- */
-void tmc2209_change_frequency_dma(TMC2209_t *motor, float freq_new_hz,
-                                  uint ramp_steps);
-
 /**
  * @brief Obtiene la frecuencia instantánea (Hz) a la que se está moviendo el
  * motor. Basado en la lectura en tiempo real del DMA.
@@ -603,29 +555,5 @@ void tmc2209_abort_profile_dma(TMC2209_t *motor);
  * @brief Obtiene el porcentaje de progreso del movimiento actual (0.0f a 100.0f)
  */
 float tmc2209_get_move_progress_pct(TMC2209_t *motor);
-
-/**
- * @brief Inicia un movimiento de avance (CW) con perfil de velocidad en Curva
- * S.
- *
- * @param motor Puntero a la estructura del motor.
- * @param freq_start Frecuencia inicial en Hz.
- * @param freq_end Frecuencia final (objetivo) en Hz.
- * @param ramp_steps Cantidad de pasos para completar la rampa de aceleración.
- */
-void tmc2209_move_forward_s_curve(TMC2209_t *motor, float freq_start,
-                                  float freq_end, uint ramp_steps);
-
-/**
- * @brief Inicia un movimiento de retroceso (CCW) con perfil de velocidad en
- * Curva S.
- *
- * @param motor Puntero a la estructura del motor.
- * @param freq_start Frecuencia inicial en Hz.
- * @param freq_end Frecuencia final (objetivo) en Hz.
- * @param ramp_steps Cantidad de pasos para completar la rampa de aceleración.
- */
-void tmc2209_move_backward_s_curve(TMC2209_t *motor, float freq_start,
-                                   float freq_end, uint ramp_steps);
 
 #endif // TMC2209_H

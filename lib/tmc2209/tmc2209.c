@@ -9,7 +9,6 @@
 #include "pico/stdlib.h"
 #include "tmc2209.pio.h" // Header generado automáticamente por CMake
 
-#include <math.h>
 #include <stdio.h>
 
 // Direcciones de registros TMC2209
@@ -54,60 +53,6 @@ static inline void split_total_cycles(uint32_t total_cycles, float duty_cycle,
 
   *high_cycles_out = high_cycles;
   *low_cycles_out = total_cycles - high_cycles;
-}
-
-static inline float get_curve_factor(float t, int aggressiveness) {
-  if (t <= 0.0f)
-    return 0.0f;
-  if (t >= 1.0f)
-    return 1.0f;
-
-  // Si agresividad es 1, usamos lineal (Trapezoidal)
-  if (aggressiveness <= 1)
-    return t;
-
-  // Fórmula sigmoide ajustable: x^k / (x^k + (1-x)^k)
-  // k = agresividad
-  float p = (float)aggressiveness;
-  // Evitamos pow si es 2 o 3 para eficiencia, O usamos pow directamente
-  // Para simplificar y dar soporte hasta 5, usamos powf
-  float t_p = powf(t, p);
-  float t_inv_p = powf(1.0f - t, p);
-
-  return t_p / (t_p + t_inv_p);
-}
-
-static void build_s_curve_cycles(uint32_t *out_words, uint steps, float f0_hz,
-                                 float f1_hz, float duty_cycle,
-                                 int aggressiveness) {
-  const uint32_t sys_hz = clock_get_hz(clk_sys);
-  if (steps < 2)
-    steps = 2;
-
-  const uint32_t min_cycles = 1u;
-  const uint32_t max_cycles = 0x7fffffffu;
-
-  for (uint i = 0; i < steps; ++i) {
-    const float t = (float)i / (float)(steps - 1u);
-    const float s = get_curve_factor(t, aggressiveness);
-    const float f_hz = f0_hz + (f1_hz - f0_hz) * s;
-
-    float safe_f_hz = f_hz;
-    if (safe_f_hz < 0.1f)
-      safe_f_hz = 0.1f;
-
-    const uint64_t total_cycles_64 =
-        (uint64_t)((double)sys_hz / (double)safe_f_hz);
-    const uint32_t total_cycles =
-        clamp_u32(total_cycles_64, min_cycles + 2u, max_cycles);
-
-    uint32_t high_cycles = 0;
-    uint32_t low_cycles = 0;
-    split_total_cycles(total_cycles, duty_cycle, &high_cycles, &low_cycles);
-
-    out_words[2u * i + 0u] = high_cycles;
-    out_words[2u * i + 1u] = low_cycles;
-  }
 }
 
 // Tiempo fijo del pulso en Alto por recomendación del TMC2209 en nanosegundos
@@ -379,11 +324,8 @@ void tmc2209_init(TMC2209_t *motor, uint8_t step_pin, uint8_t dir_pin,
   motor->dma_stop_ch = dma_claim_unused_channel(true);
 
   // Registrar esta instancia en el mapa global para la IRQ
-  // Ahora interceptamos el canal de rampa para el double buffering ping-pong
   g_dma_ctx_map[motor->dma_ramp_ch] = motor;
-  g_dma_ctx_map[motor->dma_steady_ch] =
-      motor; // Agregado como doble safety (el ping-pong usará el steady u otro
-             // loop)
+  g_dma_ctx_map[motor->dma_steady_ch] = motor;
   g_dma_ctx_map[motor->dma_stop_ch] = motor;
 
   irq_set_exclusive_handler(DMA_IRQ_0, tmc2209_dma_irq_handler);
@@ -580,11 +522,7 @@ void tmc2209_set_rpm(TMC2209_t *motor, float rpm) {
 
   pio_sm_set_enabled(motor->pio, motor->sm, true);
 
-  if (motor->direction == true) {
-    motor->mode = TMC2209_MODE_RUN_CW; // Modo avance
-  } else {
-    motor->mode = TMC2209_MODE_RUN_CCW; // Modo retroceso
-  }
+  motor->mode = motor->direction ? TMC2209_MODE_RUN_FORWARD : TMC2209_MODE_RUN_BACKWARD;
 }
 
 void tmc2209_stop(TMC2209_t *motor) {
@@ -698,8 +636,8 @@ bool tmc2209_is_moving(TMC2209_t *motor) {
     }
   }
 
-  if (motor->mode == TMC2209_MODE_RUN_CW ||
-      motor->mode == TMC2209_MODE_RUN_CCW ||
+  if (motor->mode == TMC2209_MODE_RUN_FORWARD ||
+      motor->mode == TMC2209_MODE_RUN_BACKWARD ||
       motor->mode == TMC2209_MODE_NSTEPS) {
     return true;
   }
@@ -988,7 +926,7 @@ void tmc2209_set_vactual(TMC2209_t *motor, int32_t vactual) {
   if (vactual == 0) {
     motor->mode = TMC2209_MODE_STANDBY_HOLD;
   } else {
-    motor->mode = (vactual > 0) ? TMC2209_MODE_RUN_CW : TMC2209_MODE_RUN_CCW;
+    motor->mode = (vactual > 0) ? TMC2209_MODE_RUN_FORWARD : TMC2209_MODE_RUN_BACKWARD;
   }
 }
 
@@ -1005,72 +943,6 @@ int32_t tmc2209_compute_vactual(TMC2209_t *motor, float rpm) {
   return (int32_t)vactual;
 }
 
-// --- Implementación de funciones DMA / Curva S ---
-
-void tmc2209_start_s_curve_dma(TMC2209_t *motor, float freq_start_hz,
-                               float freq_target_hz, float duty_cycle,
-                               uint ramp_steps, int aggressiveness) {
-  if (ramp_steps > TMC2209_DMA_MAX_STEPS)
-    ramp_steps = TMC2209_DMA_MAX_STEPS;
-  if (ramp_steps < 2u)
-    ramp_steps = 2u;
-
-  motor->freq_start_hz = freq_start_hz;
-  motor->freq_target_hz = freq_target_hz;
-  motor->duty_cycle = duty_cycle;
-  motor->ramp_steps = ramp_steps;
-
-  build_s_curve_cycles(motor->ramp_buf, ramp_steps, freq_start_hz,
-                       freq_target_hz, duty_cycle, aggressiveness);
-  build_constant_cycles_pair(motor->steady_buf, freq_target_hz);
-
-  const uint dreq = pio_get_dreq(motor->pio, motor->sm, true);
-  volatile void *pio_txf = &motor->pio->txf[motor->sm];
-
-  // Workaround RP2040-E13: deshabilitar IRQs ANTES del abort
-  dma_channel_set_irq0_enabled(motor->dma_ramp_ch, false);
-  dma_channel_set_irq0_enabled(motor->dma_steady_ch, false);
-  dma_channel_set_irq0_enabled(motor->dma_stop_ch, false);
-
-  dma_channel_abort(motor->dma_ramp_ch);
-  dma_channel_abort(motor->dma_steady_ch);
-  dma_channel_abort(motor->dma_stop_ch);
-
-  dma_hw->ints0 = (1u << motor->dma_ramp_ch) | (1u << motor->dma_steady_ch) | (1u << motor->dma_stop_ch);
-
-  pio_sm_set_enabled(motor->pio, motor->sm, false);
-  pio_sm_clear_fifos(motor->pio, motor->sm);
-  pio_sm_exec(
-      motor->pio, motor->sm,
-      pio_encode_jmp(motor->offset + tmc2209_stepgen_offset_dma_stream));
-  pio_sm_set_enabled(motor->pio, motor->sm, true);
-
-  // DMA steady: lectura circular de 2 words (alto/bajo) para pulsos indefinidos
-  dma_channel_config c_steady =
-      dma_channel_get_default_config(motor->dma_steady_ch);
-  channel_config_set_transfer_data_size(&c_steady, DMA_SIZE_32);
-  channel_config_set_read_increment(&c_steady, true);
-  channel_config_set_write_increment(&c_steady, false);
-  channel_config_set_dreq(&c_steady, dreq);
-  // Ring en READ sobre 8 bytes = 2 words
-  channel_config_set_ring(&c_steady, false /* write */, 3 /* 2^3 bytes */);
-  dma_channel_configure(motor->dma_steady_ch, &c_steady, pio_txf,
-                        motor->steady_buf, 0xffffffffu, false);
-
-  // DMA de rampa: one-shot, y encadena a steady al terminar
-  dma_channel_config c_ramp =
-      dma_channel_get_default_config(motor->dma_ramp_ch);
-  channel_config_set_transfer_data_size(&c_ramp, DMA_SIZE_32);
-  channel_config_set_read_increment(&c_ramp, true);
-  channel_config_set_write_increment(&c_ramp, false);
-  channel_config_set_dreq(&c_ramp, dreq);
-  channel_config_set_chain_to(&c_ramp, motor->dma_steady_ch);
-  dma_channel_configure(motor->dma_ramp_ch, &c_ramp, pio_txf, motor->ramp_buf,
-                        2u * ramp_steps, true);
-
-  motor->mode =
-      TMC2209_MODE_RUN_CW; // Asumimos movimiento (la dirección se setea aparte)
-}
 
 void tmc2209_start_2part_curve_dma(TMC2209_t *motor, float freq_start,
                                    uint32_t pulses_seg1, float freq_mid,
@@ -1169,9 +1041,9 @@ void tmc2209_start_2part_curve_dma(TMC2209_t *motor, float freq_start,
   dma_channel_set_irq0_enabled(motor->dma_ramp_ch, true);
   dma_channel_set_irq0_enabled(motor->dma_steady_ch, true);
 
-  if (motor->mode != TMC2209_MODE_RUN_CW &&
-      motor->mode != TMC2209_MODE_RUN_CCW) {
-    motor->mode = TMC2209_MODE_RUN_CW; // Default si estaba detenido
+  if (motor->mode != TMC2209_MODE_RUN_FORWARD &&
+      motor->mode != TMC2209_MODE_RUN_BACKWARD) {
+    motor->mode = TMC2209_MODE_RUN_FORWARD; // Default si estaba detenido
   }
 
   // Iniciar el baile con el canal A
@@ -1285,7 +1157,7 @@ void tmc2209_stop_2part_curve_dma(TMC2209_t *motor, float freq_start,
   // Restaurar la dirección real del movimiento que se estaba frenando.
   // No usamos el modo anterior (ya fue pisado por STANDBY_HOLD arriba),
   // sino el pin de dirección que nunca cambia durante el frenado.
-  motor->mode = motor->direction ? TMC2209_MODE_RUN_CW : TMC2209_MODE_RUN_CCW;
+  motor->mode = motor->direction ? TMC2209_MODE_RUN_FORWARD : TMC2209_MODE_RUN_BACKWARD;
 
   dma_channel_start(motor->dma_ramp_ch);
 }
@@ -1439,87 +1311,6 @@ void tmc2209_abort_profile_dma(TMC2209_t *motor) {
 
   dma_channel_set_irq0_enabled(motor->dma_ramp_ch, true);
   dma_channel_set_irq0_enabled(motor->dma_steady_ch, true);
-}
-
-void tmc2209_stop_s_curve_dma(TMC2209_t *motor, float freq_end_hz,
-                              uint ramp_steps) {
-  if (ramp_steps > TMC2209_DMA_MAX_STEPS)
-    ramp_steps = TMC2209_DMA_MAX_STEPS;
-  if (ramp_steps < 2u)
-    ramp_steps = 2u;
-
-  float f_end = freq_end_hz;
-  if (f_end < 0.1f)
-    f_end = 0.1f;
-  // Usamos agresividad 2 por defecto para parada suave
-  build_s_curve_cycles(motor->stop_buf, ramp_steps, motor->freq_target_hz,
-                       f_end, motor->duty_cycle, 2);
-
-  const uint dreq = pio_get_dreq(motor->pio, motor->sm, true);
-  volatile void *pio_txf = &motor->pio->txf[motor->sm];
-
-  // Workaround RP2040-E13: deshabilitar IRQs ANTES del abort
-  dma_channel_set_irq0_enabled(motor->dma_ramp_ch, false);
-  dma_channel_set_irq0_enabled(motor->dma_steady_ch, false);
-  dma_channel_set_irq0_enabled(motor->dma_stop_ch, false);
-
-  dma_channel_abort(motor->dma_ramp_ch);
-  dma_channel_abort(motor->dma_steady_ch);
-  dma_channel_abort(motor->dma_stop_ch);
-
-  dma_hw->ints0 = (1u << motor->dma_ramp_ch) | (1u << motor->dma_steady_ch) | (1u << motor->dma_stop_ch);
-
-  // Reiniciar PIO
-  pio_sm_set_enabled(motor->pio, motor->sm, false);
-  pio_sm_clear_fifos(motor->pio, motor->sm);
-  pio_sm_exec(
-      motor->pio, motor->sm,
-      pio_encode_jmp(motor->offset + tmc2209_stepgen_offset_dma_stream));
-  pio_sm_set_enabled(motor->pio, motor->sm, true);
-
-  dma_channel_set_irq0_enabled(motor->dma_stop_ch, true);
-
-  dma_channel_config c_stop =
-      dma_channel_get_default_config(motor->dma_stop_ch);
-  channel_config_set_transfer_data_size(&c_stop, DMA_SIZE_32);
-  channel_config_set_read_increment(&c_stop, true);
-  channel_config_set_write_increment(&c_stop, false);
-  channel_config_set_dreq(&c_stop, dreq);
-  dma_channel_configure(motor->dma_stop_ch, &c_stop, pio_txf, motor->stop_buf,
-                        2u * ramp_steps, true);
-}
-
-void tmc2209_change_frequency_dma(TMC2209_t *motor, float freq_new_hz,
-                                  uint ramp_steps) {
-  // Reutilizamos la lógica de start_s_curve_dma, pero usando la frecuencia
-  // actual como inicio Nota: Esto detiene momentáneamente el DMA para
-  // reconfigurar. Para una transición perfecta sin glitches se requeriría doble
-  // buffer o ping-pong DMA, pero esta implementación es suficiente para cambios
-  // rápidos.
-
-  // Si el motor no estaba corriendo, usar freq_new_hz como inicio también
-  // (arranque suave)
-  float current_freq = motor->freq_target_hz;
-  if (motor->mode == TMC2209_MODE_STANDBY_HOLD ||
-      motor->mode == TMC2209_MODE_STANDBY_FREE) {
-    current_freq = 10.0f; // Frecuencia mínima de arranque
-  }
-
-  // Usar agresividad 2 por defecto en cambio de frecuencia
-  tmc2209_start_s_curve_dma(motor, current_freq, freq_new_hz, motor->duty_cycle,
-                            ramp_steps, 2);
-}
-
-void tmc2209_move_forward_s_curve(TMC2209_t *motor, float freq_start,
-                                  float freq_end, uint ramp_steps) {
-  tmc2209_set_direction(motor, true); // Configurar dirección de avance
-  tmc2209_start_s_curve_dma(motor, freq_start, freq_end, 0.5f, ramp_steps, 2);
-}
-
-void tmc2209_move_backward_s_curve(TMC2209_t *motor, float freq_start,
-                                   float freq_end, uint ramp_steps) {
-  tmc2209_set_direction(motor, false); // Configurar dirección de avance
-  tmc2209_start_s_curve_dma(motor, freq_start, freq_end, 0.5f, ramp_steps, 2);
 }
 
 float tmc2209_get_move_progress_pct(TMC2209_t *motor) {

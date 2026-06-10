@@ -386,15 +386,15 @@ void cmd_parse_and_execute(const char *payload_str) {
         return;
     }
 
-    // Fallback: assume it's cmd_send_move_linear_um (speed,position)
-    float speed = 0.0f, pos = 0.0f;
+    // Fallback: assume format "target_um,velocity_ums"
+    float target_um = 0.0f, velocity_ums = 0.0f;
     char *comma = strchr(cmd_str, ',');
     if (comma != NULL) {
-        *comma = '\0'; // Dividir el string en 2
-        speed = (float)atof(cmd_str);
-        pos = (float)atof(comma + 1);
-        printf("Executing linear move command: speed=%.2f, pos=%.2f\n", speed, pos);
-        cmd_send_move_linear_um(speed, pos);
+        *comma = '\0';
+        target_um = (float)atof(cmd_str);
+        velocity_ums = (float)atof(comma + 1);
+        printf("Executing linear move: target=%.2f um, vel=%.2f um/s\n", target_um, velocity_ums);
+        cmd_send_move_linear_um(target_um, velocity_ums);
     } else {
         printf("Failed to parse command payload: %s\n", payload_str);
     }
