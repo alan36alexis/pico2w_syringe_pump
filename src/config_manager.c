@@ -22,6 +22,7 @@ extern TMC2209_t *global_motor;
 #define CONFIG_MAGIC_WORD 0xA1B2C3D4
 
 SystemConfig_t g_sys_config;
+volatile bool g_calibration_dirty = false;
 static SemaphoreHandle_t g_config_mutex = NULL;
 
 static void config_lock(void) {
@@ -87,6 +88,8 @@ void config_manager_init(void) {
         
         g_sys_config.mqtt_port = MQTT_BROKER_PORT;
         g_sys_config.wifi_enabled = 1;
+        g_sys_config.calibration_valid = 0;
+        g_sys_config.calibrated_max_encoder_count = 0;
     }
 }
 

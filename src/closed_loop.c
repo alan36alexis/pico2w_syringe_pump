@@ -28,9 +28,7 @@ void closed_loop_check_speed(ClosedLoopState_t *state, float pps_actual, bool us
 
     uint32_t elapsed_us = time_us_32() - state->move_start_time_us;
     if (elapsed_us > CRUISE_CHECK_DELAY_US) {
-        float pulses_per_rev = use_quadrature ? (ENCODER_LINES_PER_REV * 4.0f) : (float)ENCODER_LINES_PER_REV;
-        float um_per_pulse = LEAD_SCREW_PITCH_UM / pulses_per_rev;
-        float speed_ums = fabsf(pps_actual) * um_per_pulse;
+        float speed_ums = fabsf(pps_actual) * calc_um_per_pulse(use_quadrature);
 
         if (fabsf(speed_ums - state->expected_target_velocity_ums) > (state->expected_target_velocity_ums * SPEED_TOLERANCE_PCT / 100.0f)) {
             logger_send_speed_warning(state->expected_target_velocity_ums, speed_ums);
@@ -52,9 +50,7 @@ bool closed_loop_calculate_correction(ClosedLoopState_t *state, int32_t current_
     }
 
     int32_t delta_counts = current_count - state->start_encoder_count_cl;
-    float pulses_per_rev = use_quadrature ? (ENCODER_LINES_PER_REV * 4.0f) : (float)ENCODER_LINES_PER_REV;
-    float um_per_pulse = LEAD_SCREW_PITCH_UM / pulses_per_rev;
-    float actual_um_moved = (float)delta_counts * um_per_pulse;
+    float actual_um_moved = (float)delta_counts * calc_um_per_pulse(use_quadrature);
 
     float error_um = state->closed_loop_target_um - actual_um_moved;
     float missing_um = 0.0f;
@@ -66,7 +62,7 @@ bool closed_loop_calculate_correction(ClosedLoopState_t *state, int32_t current_
         missing_um = error_um;
     }
 
-    if (missing_um != 0.0f && state->correction_attempts < MAX_CORRECTION_ATTEMPTS) {
+    if (fabsf(missing_um) > CORRECTION_DEADBAND_UM && state->correction_attempts < MAX_CORRECTION_ATTEMPTS) {
         state->correction_attempts++;
         *missing_um_out = missing_um;
         return true;

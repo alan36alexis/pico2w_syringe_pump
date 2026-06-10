@@ -1,5 +1,6 @@
 #include "syringe_pump_api.h"
 #include "crosscore_cmd.h"
+#include "system_config.h"
 #include <math.h>
 #include <stdio.h>
 
@@ -41,7 +42,7 @@ void Pump_Init(void) {
     ctx.infused_volume_ml = 0.0f;
     ctx.current_rate_ml_h = 0.0f;
     ctx.current_pressure_mmhg = 0.0f;
-    ctx.occlusion_threshold_mmhg = 975.0f; // Default highest safe limit
+    ctx.occlusion_threshold_mmhg = OCC_THRESHOLD_L3_MMHG;
     ctx.elapsed_time_s = 0.0f;
     ctx.state = PUMP_STATE_STOPPED;
     
@@ -130,9 +131,8 @@ bool Pump_Mode_Bolus(float bolus_volume_ml, float bolus_rate_ml_h) {
 bool Pump_Mode_Purge(void) {
     if (!syringe_selected) return false;
     
-    // Purging is moving the syringe fast (e.g. 1000 mL/h) for a short distance
-    float purge_rate = 1000.0f; // 1000 mL/h
-    float purge_volume = 1.0f;  // 1 mL safely
+    float purge_rate = PURGE_FLOW_RATE_MLH;
+    float purge_volume = PURGE_VOLUME_ML;
     
     float velocity_ums = ml_h_to_um_s(purge_rate);
     float target_um = ml_to_um(purge_volume);
@@ -146,8 +146,7 @@ bool Pump_Mode_Purge(void) {
 bool Pump_Mode_KVO(void) {
     if (!syringe_selected) return false;
     
-    // KVO (Keep Vein Open) is usually a very small rate (e.g., 1.0 mL/h minimum)
-    float kvo_rate = 1.0f; 
+    float kvo_rate = KVO_FLOW_RATE_MLH;
     
     float remaining_in_syringe = current_syringe.max_capacity_ml - ctx.infused_volume_ml;
     if (remaining_in_syringe <= 0.0f) return false; // Syringe is completely empty
@@ -172,11 +171,11 @@ bool Pump_Stop(void) {
 void Pump_SetOcclusionThreshold(uint8_t level) {
     // 4 levels mapping 225 to 975 mmHg
     switch(level) {
-        case 0: ctx.occlusion_threshold_mmhg = 225.0f; break;
-        case 1: ctx.occlusion_threshold_mmhg = 475.0f; break;
-        case 2: ctx.occlusion_threshold_mmhg = 725.0f; break;
-        case 3: 
-        default: ctx.occlusion_threshold_mmhg = 975.0f; break;
+        case 0: ctx.occlusion_threshold_mmhg = OCC_THRESHOLD_L0_MMHG; break;
+        case 1: ctx.occlusion_threshold_mmhg = OCC_THRESHOLD_L1_MMHG; break;
+        case 2: ctx.occlusion_threshold_mmhg = OCC_THRESHOLD_L2_MMHG; break;
+        case 3:
+        default: ctx.occlusion_threshold_mmhg = OCC_THRESHOLD_L3_MMHG; break;
     }
 }
 

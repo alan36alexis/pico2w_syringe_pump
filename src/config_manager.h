@@ -19,11 +19,15 @@ typedef struct {
     char mqtt_ip[MAX_IP_LEN];
     uint16_t mqtt_port;
     uint8_t wifi_enabled;
-    uint8_t _padding1;
+    uint8_t calibration_valid;
+    int32_t calibrated_max_encoder_count;
     uint32_t crc;
 } SystemConfig_t;
 
 extern SystemConfig_t g_sys_config;
+
+// Set by Core 1 after a successful calibration; cleared by Core 0 after saving.
+extern volatile bool g_calibration_dirty;
 
 // Initializes the configuration manager: loads from flash if valid, 
 // otherwise populates with defaults.

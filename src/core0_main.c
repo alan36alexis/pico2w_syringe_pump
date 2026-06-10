@@ -150,6 +150,13 @@ static void task_logger(void *params) {
       printf("%s", print_msg);
     }
 
+    // Persist calibration if Core 1 flagged a new result
+    if (g_calibration_dirty) {
+        g_calibration_dirty = false;
+        config_manager_save(true);
+        safe_printf("CONFIG: Calibration saved to Flash.\n");
+    }
+
     // Verifica si hay mensajes en la cola desde el Core 1
     while (queue_try_remove(&crosscore_log_queue, &msg)) {
       buf[0] = '\0';
@@ -204,10 +211,6 @@ static void task_logger(void *params) {
         snprintf(buf, sizeof(buf), "$%u;", msg.payload.motor_status.stall);
         break;
       case LOG_EVENT_DRV_STATUS_ERROR:
-        // printf("Stall: %u | DRV: 0x%X | GSTAT: 0x%X\n",
-        //        msg.payload.motor_status.stall,
-        //        msg.payload.motor_status.drv_status,
-        //        msg.payload.motor_status.gstat);
         snprintf(buf, sizeof(buf), "Stall: %u | DRV: 0x%X | GSTAT: 0x%X",
                  msg.payload.motor_status.stall,
                  msg.payload.motor_status.drv_status,
@@ -250,9 +253,7 @@ static void task_logger(void *params) {
         snprintf(buf, sizeof(buf), "%s", msg.payload.msg_str);
         break;
       case LOG_EVENT_ENCODER_UPDATE: {
-        float pulses_per_rev = USE_QUADRATURE_ENCODER ? (ENCODER_LINES_PER_REV * 4.0f) : (float)ENCODER_LINES_PER_REV;
-        float um_per_pulse = LEAD_SCREW_PITCH_UM / pulses_per_rev;
-        float displacement_um = msg.payload.encoder_count * um_per_pulse;
+        float displacement_um = msg.payload.encoder_count * calc_um_per_pulse(USE_QUADRATURE_ENCODER);
         if (g_log_filter.show_enc) {
             printf("[ENC]: Encoder Val: %d steps, %.2f um\n", msg.payload.encoder_count, displacement_um);
         }
@@ -364,18 +365,7 @@ static void task_example_internal_cmd(void *params) {
   Pump_Init();
   Pump_SelectSyringe(19.13f, 20.0f);
 
-  // Esperar 10 segundos antes de accionar (para estabilizar red y driver)
   vTaskDelay(pdMS_TO_TICKS(5000));
-  // safe_printf("Iniciando bomba jeringa a 50 mL/h en Modo Continuo...\n");
-  // Pump_Mode_Continuous(10.0f);
-  // Pump_Mode_Bolus(2.0f, 60.0f);
-
-  // float turns = 3;
-  // cmd_send_move_2part_profile(20.0f, 200, 400.0f, 200, 700.0f,
-  //                             2400 + turns * 3200, 200, 400.0f, 200, 20.0f);
-
-  // cmd_send_move_linear_um(2000.0f, 400.0f);
-  // cmd_send_move_nsteps(3200 * 27, 1600);
 
   while (1) {
     vTaskDelay(pdMS_TO_TICKS(60000));
