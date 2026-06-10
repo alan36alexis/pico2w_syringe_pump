@@ -12,7 +12,7 @@ Para garantizar estabilidad, respuesta en tiempo real (hard real-time) y funcion
 El núcleo 1 se ejecuta **sin sistema operativo (Baremetal)** impulsado completamente por interrupciones de hardware, temporizadores dedicados, DMA (Direct Memory Access) y algoritmos bloqueantes controlados.
 - **Responsabilidades:**
   - Comunicación SPI1 ultrarrápida (1 MHz) con el sensor de presión Honeywell para monitorear sobrepresiones con lecturas deterministas cada 500 ms.
-  - Generación de pulsos para el motor usando la abstracción en C hacia el componente PIO y perfiles avanzados en DMA S-Curve y Trapezoidales para aceleración/desaceleración suave del TMC2209.
+  - Generación de pulsos para el motor usando la abstracción en C hacia el componente PIO y perfiles trapezoidales de 2 segmentos en DMA para aceleración/desaceleración suave del TMC2209.
   - Configuración UART bidireccional asíncrona dedicada (57600 baudios) para programar microstepping, corriente del motor dinámicamente, y sensar pasivamente *StallGuard* (choques sin final de carrera físico) leyendo registros del TMC2209.
   - Lectura en alta frecuencia en modo "polling" (mientras las transferencias DMA operan en paralelo) de los finales de carrera pasivos mediante GPIO (`START_PIN` / `END_PIN`).
 
@@ -49,21 +49,22 @@ El sistema soporta el envío de comandos de movimiento y la configuración diná
 
 | Comando Payload | Descripción | Notas |
 |---|---|---|
-| `stop_imm` o `STOP_IMM` | Parada inmediata (Hard Stop) | Frena el motor deteniendo su generador abruptamente. |
-| `stop` o `STOP` | Parada suave (Soft Stop) | Desacelera respetando la rampa configurada hasta llegar a 0. |
-| `fsm_home` | FSM: Inicio (Homing) | Inicia la secuencia de búsqueda del tope de inicio. |
-| `fsm_search` | FSM: Buscar jeringa | Inicia la búsqueda del émbolo de la jeringa. |
+| `stop_imm` o `STOP_IMM` | Parada inmediata (Hard Stop) | Frena el motor deteniendo su generador abruptamente. Prioridad máxima: se procesa antes que cualquier comando pendiente en la cola. |
+| `stop` o `STOP` | Parada suave (Soft Stop) | Desacelera respetando la rampa de 2 segmentos hasta llegar a 0. |
+| `fsm_home,<VEL>` | FSM: Inicio (Homing) | Inicia la secuencia de búsqueda del tope de inicio a la velocidad indicada (um/s). Ej: `fsm_home,1500.0` |
+| `fsm_search,<VEL>` | FSM: Buscar jeringa | Inicia la búsqueda del émbolo de la jeringa a la velocidad indicada (um/s). Ej: `fsm_search,1200.0` |
 | `fsm_dispense,<TARGET>,<VEL>` | FSM: Dosificar | Inicia la dosificación a una posición dada (um) y velocidad (um/s). Ej: `fsm_dispense,10000.0,450.0` |
 | `fsm_search_eot` | FSM: Buscar Fin de Carrera | Busca el tope de fin de carrera (End Of Travel). |
-| `fsm_reset` | FSM: Reset | Resetea la máquina de estados. |
+| `fsm_reset` | FSM: Reset | Resetea la máquina de estados a ST_UNHOMED. |
 | `fsm_cont` | FSM: Continuar | Continúa la dosificación previamente pausada. |
 | `fsm_occ_rel` | FSM: Liberar Oclusión | Retrocede el motor para liberar presión tras una oclusión. |
 | `fsm_resume` | FSM: Reanudar | Reanuda la operación después de resolver un evento. |
-| `fsm_calibrate` | FSM: Calibrar Encoder | Secuencia de ida y vuelta a los topes para capturar en RAM el recorrido máximo en encoder. |
-| `home_start,<velocidad>` | Busca el inicio / Homing (Atrás) | Motor se mueve negativo a velocidad constante hasta hallar el tope. Ej: `home_start,1200` |
-| `home_end,<velocidad>` | Busca el fin / Homing (Adelante)| Motor se mueve positivo a velocidad constante hasta hallar el tope. Ej: `home_end,1200` |
-| `nsteps,<pasos>,<freq_hz>`| Movimiento por Pasos puros | Inyecta N pasos fijos a cierta frecuencia. Ej: `nsteps,3200,500.0` |
-| `<velocidad>,<posicion>` | Movimiento Lineal | Mueve a una posición dada (um) a cierta velocidad (um/s). Falla si el payload no es reconocido como ningún otro comando previo. Ej: `500.0,15000.0` |
+| `fsm_calibrate` | FSM: Calibrar Encoder | Secuencia de ida y vuelta a los topes para medir el recorrido máximo en encoder counts. El resultado se persiste automáticamente en Flash. |
+| `fsm_virtual_lsw,<ENA>,<START>,<END>` | FSM: Finales de carrera virtuales | Activa (`ENA=1`) o desactiva (`ENA=0`) límites de software basados en encoder counts. Ej: `fsm_virtual_lsw,1,100,148000` |
+| `home_start,<VEL>` | Homing manual (Atrás) | Motor se mueve en dirección negativa a velocidad constante hasta hallar el tope físico. Ej: `home_start,1200` |
+| `home_end,<VEL>` | Homing manual (Adelante) | Motor se mueve en dirección positiva a velocidad constante hasta hallar el tope físico. Ej: `home_end,1200` |
+| `nsteps,<pasos>,<freq_hz>` | Movimiento por pasos puros | Inyecta N pasos a una frecuencia fija (Hz). Ej: `nsteps,3200,500.0` |
+| `<POSICION>,<VELOCIDAD>` | Movimiento lineal (fallback) | Mueve a la posición indicada (um) a la velocidad indicada (um/s). Se ejecuta si el payload no coincide con ningún comando anterior. Ej: `15000.0,500.0` |
 
 ### Comandos de Configuración Exclusivos de CLI
 
@@ -82,6 +83,23 @@ Actualmente, estos comandos son accesibles mediante la consola serial y se utili
 | `reconnect` | Efectúa un reseteo *suave* (Soft Reset) del hardware Wi-Fi desasociándolo de su actual red (LwIP leave) obligándolo a re-engancharse y conectar MQTT con la nueva configuración sin reiniciar el procesador. |
 | `net_disable` | Apaga el chip Wi-Fi (desactiva RF y tareas de red) para máximo ahorro de batería. |
 | `net_enable` | Enciende el chip Wi-Fi y restaura la conectividad de red a sus valores guardados. |
+| `log_en,<HDR>` | Activa una categoría de log de diagnóstico en el serial. Usar `ALL` para activar todas. |
+| `log_dis,<HDR>` | Desactiva una categoría de log de diagnóstico. Usar `ALL` para silenciar todo. |
+
+**Categorías de log disponibles (`<HDR>`):**
+
+| Header | Descripción |
+|---|---|
+| `ALL` | Activa / desactiva todas las categorías a la vez. |
+| `TGT` | Target de movimiento (distancia y velocidad solicitados). |
+| `CFG` | Configuración del driver aplicada (microsteps, corriente, chopper). |
+| `KIN` | Cinemática calculada (um/paso, total de micropasos). |
+| `PRF` | Perfil de aceleración calculado (frecuencias, segmentos). |
+| `FSM` | Transiciones de estado de la FSM. |
+| `ADC` | Lecturas del ADC. |
+| `PRG` | Progreso del movimiento en curso (porcentaje). |
+| `ENC` | Lecturas del encoder (posición y velocidad). |
+| `MTR` | Eventos de parada del motor. |
 
 ### Tópicos MQTT 
 
@@ -100,8 +118,8 @@ Actualmente, estos comandos son accesibles mediante la consola serial y se utili
   * `syringe_pump/log/progress` - Telemetría pura del porcentaje completado (`progress_pct`) durante el movimiento.
 
 ### TODO
-- [ ] Implementar libreria de control de TFT+Touch y lógica de menues. **WIP**
-- [ ] Implementar control lazo cerrado (driver+motor PAP , encoder). **WIP**
+- [ ] Implementar libreria de control de TFT+Touch y lógica de menues. **WIP** *(submodulo integrado en branch `tft_integration`)*
+- [ ] Implementar control lazo cerrado (driver+motor PAP , encoder). **WIP** *(lazo de desplazamiento activo; lazo de velocidad pendiente)*
 - [ ] Implementar CLI para control del sistema. **WIP**
 - [ ] Implementar el uso del watchdog multi-thread(event group o challenge-response).
 - [ ] Implementar libreria para manejo de memoria no volatil. Actualmente se usa funciones de flash nativas del SDK, analizar uso de littlefs.

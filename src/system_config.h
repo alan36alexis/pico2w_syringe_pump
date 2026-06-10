@@ -13,7 +13,7 @@
 #define MOTOR_MICROSTEPS TMC2209_MICROSTEPS_16
 #define REAL_GEARBOX_RATIO 26.85124f  // From motor datasheet; can be refined via encoder calibration
 #define LEAD_SCREW_PITCH_UM 2000.0f
-#define ENCODER_LINES_PER_REV 892     // 223 lines/rev * 4 (quadrature)
+#define ENCODER_LINES_PER_REV 892     // physical encoder lines/rev; ×4 quadrature = 3568 counts/rev (on output shaft, post-gearbox)
 
 // --- Semi-Closed Loop Settings ---
 #define SPEED_TOLERANCE_PCT 15.0f
@@ -64,8 +64,12 @@
 
 // --- Kinematics Helper ---
 static inline float calc_um_per_pulse(bool use_quadrature) {
-    float lines = use_quadrature ? (ENCODER_LINES_PER_REV * 4.0f) : (float)ENCODER_LINES_PER_REV;
-    return (LEAD_SCREW_PITCH_UM * REAL_GEARBOX_RATIO) / lines;
+    // Encoder on output shaft (post-gearbox): gearbox ratio does not apply.
+    float counts = use_quadrature ? (ENCODER_LINES_PER_REV * 4.0f)
+                                  : (float)ENCODER_LINES_PER_REV;
+    return LEAD_SCREW_PITCH_UM / counts;
+    // quadrature:     2000 / (892 * 4) = 0.5607 um/count
+    // non-quadrature: 2000 / 892       = 2.242  um/count
 }
 
 #endif // SYSTEM_CONFIG_H
