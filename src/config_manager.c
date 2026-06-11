@@ -5,6 +5,7 @@
 #include "hardware/flash.h"
 #include "hardware/sync.h"
 #include "pico/multicore.h"
+#include "pico/unique_id.h"
 #include "tmc2209.h"
 #include "FreeRTOS.h"
 #include "semphr.h"
@@ -19,7 +20,7 @@ extern TMC2209_t *global_motor;
 
 // Reservamos el último sector de la flash (1 sector = 4096 bytes)
 #define CONFIG_FLASH_OFFSET (PICO_FLASH_SIZE_BYTES - FLASH_SECTOR_SIZE)
-#define CONFIG_MAGIC_WORD 0xA1B2C3D4
+#define CONFIG_MAGIC_WORD 0xA1B2C3D5
 
 SystemConfig_t g_sys_config;
 volatile bool g_calibration_dirty = false;
@@ -90,6 +91,10 @@ void config_manager_init(void) {
         g_sys_config.wifi_enabled = 1;
         g_sys_config.calibration_valid = 0;
         g_sys_config.calibrated_max_encoder_count = 0;
+
+        char unique_id[17];
+        pico_get_unique_board_id_string(unique_id, sizeof(unique_id));
+        snprintf(g_sys_config.device_id, sizeof(g_sys_config.device_id), "bj-%.8s", unique_id);
     }
 }
 

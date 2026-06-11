@@ -101,31 +101,73 @@ Actualmente, estos comandos son accesibles mediante la consola serial y se utili
 | `ENC` | Lecturas del encoder (posición y velocidad). |
 | `MTR` | Eventos de parada del motor. |
 
-### Tópicos MQTT 
+### Tópicos MQTT
 
-* **Comandos entrantes hacia la Pico**:
-  * `syringe_pump/cmd` - (Espera los Payloads descritos más arriba).
+El sistema usa una jerarquía de tópicos con ID de dispositivo para soporte multi-bomba.
+El `{id}` tiene el formato `bj-XXXXXXXX` derivado del ID único del chip (ej: `bj-a1b2c3d4`).
+Ver `MQTT_CONTRACT.md` en la raíz del repo para el contrato completo (esquemas JSON, QoS, diagramas).
 
-* **Telemetría y Logging (Publicados por la Pico)**:
-  * `syringe_pump/telemetry` - JSON global con estado general enviado cada X segundos.
-  * `syringe_pump/telemetry/system_health` - JSON con datos de memoria/temperatura del procesador.
-  * `syringe_pump/log/system` - Advertencias, correcciones y eventos genéricos del logger centralizado.
-  * `syringe_pump/log/motor_state` - Eventos de parada, retroceso, movimiento y límites de carrera.
-  * `syringe_pump/log/motor_regs` - Diagnóstico UART con sus registros StallGuard, DRV_STATUS, inicialización cruzada, etc.
-  * `syringe_pump/log/pressure` - Eventos sobre alertas de sobre-presión o retornos de protección (desde el sensor de presión SPI).
-  * `syringe_pump/log/encoder` y `.../encoder_indep` - Valores crudos o en cuadratura del Encoder si está habilitado.
-  * `syringe_pump/log/encoder_speed` - PPS (Pulsos Por Segundo).
-  * `syringe_pump/log/progress` - Telemetría pura del porcentaje completado (`progress_pct`) durante el movimiento.
+#### Tópicos activos
+
+| Tópico | QoS | Retain | Descripción |
+|--------|-----|--------|-------------|
+| `bj/{id}/status` | 1 | Sí | Online/Offline. LWT configurado: el broker publica `offline` si se pierde el keepalive (60 s). |
+| `bj/{id}/cmd` | 1 | No | Comandos desde el dashboard (payload: `{"cid":N,"cmd":"..."}`) |
+| `bj/{id}/telemetry` | 0 | No | JSON de telemetría clínica cada 2 s *(migración en curso)* |
+| `bj/{id}/event` | 1 | No | Alarmas y cambios de estado *(migración en curso)* |
+| `bj/{id}/cmd/ack` | 1 | No | Confirmación de comandos con correlation ID *(próximamente)* |
+
+**Suscripción recomendada en Node-RED:**
+```
+bj/+/status     QoS 1, retain=true
+bj/+/telemetry  QoS 0
+bj/+/event      QoS 1
+bj/+/cmd/ack    QoS 1
+```
+
+#### Comandos vía `bj/{id}/cmd`
+
+El payload debe ser un JSON con correlation ID y el string de comando:
+```json
+{"cid": 17, "cmd": "fsm_dispense,10000.0,450.0"}
+```
+Los strings de comando son los mismos que los de la CLI (ver tabla de comandos más arriba).
+
+#### Tópicos legacy (en proceso de deprecación)
+
+Los tópicos `syringe_pump/*` siguen activos hasta que se complete la migración (PR2).
+No usar para nuevas integraciones.
+
+| Tópico (legacy) | Estado |
+|---|---|
+| `syringe_pump/cmd` | Reemplazado por `bj/{id}/cmd` |
+| `syringe_pump/telemetry` | Reemplazado por `bj/{id}/telemetry` |
+| `syringe_pump/log/*` | Reemplazados por `bj/{id}/event` |
 
 ### TODO
+
+#### MQTT / IoT
+- [x] Identidad de dispositivo única (`device_id` derivado de chip ID, formato `bj-XXXXXXXX`)
+- [x] Módulo `mqtt_topics` — jerarquía `bj/{id}/...` sin strings literales en el código
+- [x] Last Will Testament (LWT) — broker publica `offline` ante desconexión inesperada
+- [x] Fix bug topic en callbacks RX MQTT (`s_rx_topic`, `MQTT_DATA_FLAG_LAST`)
+- [x] `MQTT_CONTRACT.md` — contrato de tópicos, esquemas JSON, QoS, diagrama cmd/ack
+- [ ] Migrar telemetría y logs a `bj/{id}/...` (eliminar literales `syringe_pump/*`) **PR2**
+- [ ] Agregar `tools/simulator/pump_simulator.py` al repo y actualizar sus tópicos **PR2**
+- [ ] `cmd_envelope` + ACK correlacionado en `bj/{id}/cmd/ack` **PR3**
+- [ ] Buffer `MQTT_MAX_PAYLOAD=512` + QoS diferenciado por tipo de mensaje **PR4**
+- [ ] Dashboard Node-RED: overview, detalle, alarmas, control remoto, datalog
+- [ ] Notificaciones PWA (Web Push)
+
+#### Firmware
 - [ ] Implementar libreria de control de TFT+Touch y lógica de menues. **WIP** *(submodulo integrado en branch `tft_integration`)*
-- [ ] Implementar control lazo cerrado (driver+motor PAP , encoder). **WIP** *(lazo de desplazamiento activo; lazo de velocidad pendiente)*
-- [ ] Implementar CLI para control del sistema. **WIP**
-- [ ] Implementar el uso del watchdog multi-thread(event group o challenge-response).
-- [ ] Implementar libreria para manejo de memoria no volatil. Actualmente se usa funciones de flash nativas del SDK, analizar uso de littlefs.
-- [ ] Implementar mini database para guardar datos de uso, estado del sistema y logs..
+- [ ] Implementar control lazo cerrado (driver+motor PAP, encoder). **WIP** *(lazo de desplazamiento activo; lazo de velocidad pendiente)*
+- [x] Implementar CLI para control del sistema.
+- [ ] Implementar watchdog multi-thread (event group o challenge-response).
+- [ ] Implementar librería para manejo de memoria no volátil (analizar littlefs sobre flash nativa).
+- [ ] Implementar mini database para datos de uso, estado del sistema y logs.
 - [ ] Implementar sincronización con hora actual + RTC.
 - [ ] Implementar lectura de sensor de fuerza y lógica de seguridad asociada.
-- [ ] Implementar control de modo bajo consumo(modo sleep).
+- [ ] Implementar control de modo bajo consumo (modo sleep).
 - [ ] Implementar sistema de alarma (buzzer, led, logs) en base a salud y estado de sistema. **WIP**
-- [ ] Implementar monitoreo y actuación sobre estado de energía (modo batería, nivel de carga, etc)
+- [ ] Implementar monitoreo y actuación sobre estado de energía (modo batería, nivel de carga, etc.)

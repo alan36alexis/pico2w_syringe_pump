@@ -21,6 +21,7 @@ typedef struct {
     uint8_t wifi_enabled;
     uint8_t calibration_valid;
     int32_t calibrated_max_encoder_count;
+    char device_id[17];
     uint32_t crc;
 } SystemConfig_t;
 
