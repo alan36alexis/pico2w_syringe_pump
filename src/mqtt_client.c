@@ -1,6 +1,7 @@
 #include "mqtt_client.h"
+#include "mqtt_topics.h"
 #include "lwip/apps/mqtt.h"
-#include "crosscore_cmd.h"
+#include "pump_hmi.h"
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -31,20 +32,22 @@ void mqtt_client_queue_init(void) {
     }
 }
 
+static char s_rx_topic[64];
+
 static void mqtt_incoming_data_cb(void *arg, const u8_t *data, u16_t len, u8_t flags) {
     (void)arg;
-    (void)flags;
-    
+
     if (mqtt_rx_queue == NULL) return;
+    if (!(flags & MQTT_DATA_FLAG_LAST)) return; // ignore fragmented payloads
 
     mqtt_msg_t rx_msg;
-    rx_msg.topic[0] = '\0';
-    
+    strncpy(rx_msg.topic, s_rx_topic, sizeof(rx_msg.topic) - 1);
+    rx_msg.topic[sizeof(rx_msg.topic) - 1] = '\0';
+
     u16_t copy_len = len < (sizeof(rx_msg.payload) - 1) ? len : (sizeof(rx_msg.payload) - 1);
     memcpy(rx_msg.payload, data, copy_len);
     rx_msg.payload[copy_len] = '\0';
-    
-    // Inject directly into the FreeRTOS queue (non-blocking)
+
     xQueueSendToBack(mqtt_rx_queue, &rx_msg, 0);
 }
 
@@ -55,14 +58,16 @@ void mqtt_rx_task(void *params) {
     while (1) {
         if (xQueueReceive(mqtt_rx_queue, &msg, portMAX_DELAY) == pdTRUE) {
             // Reutiliza exitosamente el analizador central del proyecto
-            cmd_parse_and_execute(msg.payload);
+            pump_hmi_parse_and_execute(msg.payload);
         }
     }
 }
 
 static void mqtt_incoming_publish_cb(void *arg, const char *topic, u32_t tot_len) {
     (void)arg;
-    printf("MQTT Incoming publish on topic: %s, total length: %u\n", topic, tot_len);
+    (void)tot_len;
+    strncpy(s_rx_topic, topic, sizeof(s_rx_topic) - 1);
+    s_rx_topic[sizeof(s_rx_topic) - 1] = '\0';
 }
 
 static void mqtt_request_cb(void *arg, err_t err) {
@@ -74,19 +79,23 @@ static void mqtt_request_cb(void *arg, err_t err) {
 static void mqtt_connection_cb(mqtt_client_t *client, void *arg, mqtt_connection_status_t status) {
     (void)arg;
     if (status == MQTT_CONNECT_ACCEPTED) {
-        printf("MQTT Connected!\n");
+        printf("MQTT Connected! id=%s\n", g_sys_config.device_id);
         mqtt_connected = true;
-        
-        // Setup incoming callbacks
+
         mqtt_set_inpub_callback(client, mqtt_incoming_publish_cb, mqtt_incoming_data_cb, NULL);
-        
-        // Subscribe to command topic
-        err_t err = mqtt_subscribe(client, "syringe_pump/cmd", 0, mqtt_request_cb, NULL);
+
+        err_t err = mqtt_subscribe(client, topic_cmd(), 1, mqtt_request_cb, NULL);
         if (err != ERR_OK) {
-            printf("Failed to subscribe (err %d)\n", err);
+            printf("MQTT subscribe error: %d\n", err);
         }
+
+        // Publish online status with retain so the dashboard always sees it
+        char online[80];
+        snprintf(online, sizeof(online),
+            "{\"state\":\"online\",\"id\":\"%s\",\"fw\":\"v1.0.0\"}", g_sys_config.device_id);
+        mqtt_publish(client, topic_status(), online, strlen(online), 1, 1, mqtt_request_cb, NULL);
     } else {
-        printf("MQTT Connection disconnected, status: %d\n", status);
+        printf("MQTT disconnected, status: %d\n", status);
         mqtt_connected = false;
     }
 }
@@ -106,10 +115,16 @@ void mqtt_client_task(void *params) {
         return;
     }
 
+    topics_init(g_sys_config.device_id);
+
     struct mqtt_connect_client_info_t ci;
     memset(&ci, 0, sizeof(ci));
-    ci.client_id = "pico2w_syringe_pump";
+    ci.client_id  = g_sys_config.device_id;
     ci.keep_alive = 60;
+    ci.will_topic  = topic_status();
+    ci.will_msg    = "{\"state\":\"offline\"}";
+    ci.will_qos    = 1;
+    ci.will_retain = 1;
 
     // Retry loop
     mqtt_msg_t msg;

@@ -10,6 +10,8 @@
 #include "crosscore_cmd.h"
 #include "crosscore_logger.h"
 #include "mqtt_client.h"
+#include "pump_hmi.h"
+#include "ui_state.h"
 #include "pico/cyw43_arch.h"
 #include "pico/multicore.h"
 #include "pico/stdlib.h"
@@ -298,9 +300,14 @@ static void task_logger(void *params) {
                  msg.payload.correction_um);
         break;
       case LOG_EVENT_MOTOR_PROGRESS:
-        // No imprimimos por printf para no saturar la consola
         snprintf(buf, sizeof(buf), "{\"progress_pct\": %.1f}",
                  msg.payload.progress_pct);
+        break;
+      case LOG_EVENT_FSM_STATE:
+        if (g_log_filter.show_fsm)
+          printf("[FSM]: -> %s\n", get_state_name(msg.payload.fsm_state));
+        snprintf(buf, sizeof(buf), "{\"fsm_state\": \"%s\"}",
+                 get_state_name(msg.payload.fsm_state));
         break;
       default:
         printf("Unknown crosscore logger event: %d\n", msg.id);
@@ -347,10 +354,17 @@ static void task_logger(void *params) {
       case LOG_EVENT_MOTOR_PROGRESS:
         topic = "syringe_pump/log/progress";
         break;
+      case LOG_EVENT_FSM_STATE:
+        topic = "syringe_pump/events/fsm_state";
+        break;
       default:
         topic = "syringe_pump/log/system";
         break;
       }
+
+      // Actualizar el mirror de estado para la UI (task_tft lo leerá via ui_state_get_snapshot)
+      ui_state_update_from_event(&msg);
+
       mqtt_client_publish(topic, buf);
     }
     vTaskDelay(pdMS_TO_TICKS(10)); // Poll cada 10ms
@@ -405,7 +419,7 @@ static void task_cli(void *params) {
         if (cli_idx > 0) {
           cli_buf[cli_idx] = '\0';
           printf("\n"); // Echo newline
-          cmd_parse_and_execute(cli_buf);
+          pump_hmi_parse_and_execute(cli_buf);
           cli_idx = 0;
         }
       } else if (c == '\b' || c == 127) { // backspace
@@ -490,6 +504,43 @@ static void task_system_monitor(void *params) {
 #endif
 
 /**
+ * @brief Tarea de display TFT + Touch (LVGL).
+ *
+ * Requiere que lib/tft_touch_module esté integrado al build (ENABLE_TFT).
+ * Por ahora es un stub que inicializa la capa HMI y el mirror de estado.
+ */
+#ifdef ENABLE_TFT
+#include "display_driver.h"
+#include "touch_driver.h"
+#include "encoder_driver.h"
+#include "ui.h"
+#endif
+
+static void task_tft(void *params) {
+  (void)params;
+#ifdef ENABLE_TFT
+  lv_init();
+  display_driver_init();
+  touch_driver_init();
+  encoder_driver_init();
+  ui_init();
+
+  TickType_t last_wake = xTaskGetTickCount();
+  const TickType_t period = pdMS_TO_TICKS(5);
+  while (1) {
+    lv_tick_inc(5);
+    lv_timer_handler();
+    // Leer UIState_t y actualizar widgets LVGL aqui
+    vTaskDelayUntil(&last_wake, period);
+  }
+#else
+  // Stub: la tarea existe en el scheduler pero no hace nada hasta que
+  // ENABLE_TFT esté definido y el módulo TFT esté integrado al build.
+  vTaskDelete(NULL);
+#endif
+}
+
+/**
  * @brief Función para configurar todas las tareas del Core 0 antes de iniciar
  * FreeRTOS
  */
@@ -499,6 +550,8 @@ void core0_main_setup(void) {
   crosscore_logger_init();
   crosscore_cmd_init();
   mqtt_client_queue_init();
+  pump_hmi_init();
+  ui_state_init();
 
   // Creación de las tareas de FreeRTOS
   xTaskCreate(task_init, "Init", 1024, NULL, 2, NULL);
@@ -516,4 +569,6 @@ void core0_main_setup(void) {
 #endif
   xTaskCreate(task_example_internal_cmd, "CmdExample", configMINIMAL_STACK_SIZE,
               NULL, 1, NULL);
+  // Stack de 6 KB para LVGL (stub hasta que ENABLE_TFT esté activo)
+  xTaskCreate(task_tft, "TFT", configMINIMAL_STACK_SIZE * 12, NULL, 1, NULL);
 }

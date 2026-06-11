@@ -343,7 +343,8 @@ void tmc2209_set_microstepping_by_pins(TMC2209_t *motor,
   if (!motor)
     return;
 
-  // Inicializar pines como salida
+  if (motor->ms1_pin == TMC2209_NO_PIN || motor->ms2_pin == TMC2209_NO_PIN)
+    return;
   gpio_init(motor->ms1_pin);
   gpio_set_dir(motor->ms1_pin, GPIO_OUT);
   gpio_init(motor->ms2_pin);
@@ -420,15 +421,17 @@ void tmc2209_print_limit_switches_status(TMC2209_t *motor) {
 }
 
 void tmc2209_set_uart_address_pins(TMC2209_t *motor, uint8_t addr) {
-  gpio_init(motor->ms1_pin);
-  gpio_set_dir(motor->ms1_pin, GPIO_OUT);
-  gpio_put(motor->ms1_pin, addr & 0x01); // Bit 0
-
-  gpio_init(motor->ms2_pin);
-  gpio_set_dir(motor->ms2_pin, GPIO_OUT);
-  gpio_put(motor->ms2_pin, (addr >> 1) & 0x01); // Bit 1
-
-  motor->addr = addr; // Actualizar la dirección almacenada en la estructura
+  if (motor->ms1_pin != TMC2209_NO_PIN) {
+    gpio_init(motor->ms1_pin);
+    gpio_set_dir(motor->ms1_pin, GPIO_OUT);
+    gpio_put(motor->ms1_pin, addr & 0x01); // Bit 0
+  }
+  if (motor->ms2_pin != TMC2209_NO_PIN) {
+    gpio_init(motor->ms2_pin);
+    gpio_set_dir(motor->ms2_pin, GPIO_OUT);
+    gpio_put(motor->ms2_pin, (addr >> 1) & 0x01); // Bit 1
+  }
+  motor->addr = addr;
 }
 
 void tmc2209_set_microstepping_uart(TMC2209_t *motor,

@@ -4,7 +4,6 @@
 #include <stdio.h>
 
 #include "hardware/adc.h"
-#include "hardware/spi.h"
 #include "pico/multicore.h"
 #include "pico/stdlib.h"
 
@@ -15,7 +14,6 @@
 #include "config_manager.h"
 #include "crosscore_logger.h"
 #include "hardware/pio.h"
-#include "honeywell_spi.h"
 #include "pulse_counter.pio.h"
 #include "quadrature_encoder.pio.h"
 #include "system_config.h"
@@ -40,38 +38,25 @@
 #define UART_TX_PIN 4
 #define UART_RX_PIN 5
 
-// Pines para microstepping y enable
-#define MOTOR_MS2_PIN 6
-#define MOTOR_MS1_PIN 7
+// Pin de enable del driver (activo bajo; GP8)
 #define MOTOR_ENA_PIN 8
+// MS1/MS2 estan en GND por hardware (direccion UART = 0); se usa TMC2209_NO_PIN
+// para omitir su configuracion por software
 
-// Alias para modo UART (Mismos pines físicos)
-#define MOTOR_ADDR_PIN_1 MOTOR_MS2_PIN // Bit 1 de direccion
-#define MOTOR_ADDR_PIN_0 MOTOR_MS1_PIN // Bit 0 de direccion
-
-// Seleccion de Modo: true = Modo UART (Pines fijan direccion), false = Modo
-// Pines (Pines fijan pasos)
+// Seleccion de Modo: true = Modo UART, false = Modo Pines
 #define USE_UART_MODE true
 
 // Pines de Finales de Carrera
-#define LIMIT_SW_START_PIN 17 // 27
-#define LIMIT_SW_END_PIN 16   // 26
+// GP9: START  |  GP13: END  (GP8 lo ocupa ENA; GP6/GP7 los ocupa el encoder)
+#define LIMIT_SW_START_PIN 9
+#define LIMIT_SW_END_PIN   13
 
-// Pines de ADC
+// Pines de ADC (sensor de fuerza en embolo para deteccion de presion indirecta)
 #define ADC_PIN 28
 
-// Pines de Encoder
-#define ENCODER_PIN_A 20
-#define ENCODER_PIN_B 21
-
-// --- Pines Honeywell SPI0 ---
-#define SPI_PORT spi0
-#define PIN_MISO 16
-#define PIN_CS 17
-#define PIN_SCK 18
-#define PIN_MOSI 19
-
-honeywell_hsc_t pressure_sensor;
+// Pines de Encoder (GP6/GP7; PIO toma el control despues del init del TMC2209)
+#define ENCODER_PIN_A 6
+#define ENCODER_PIN_B 7
 TMC2209_t *global_motor = NULL;
 
 const char *get_state_name(Core1State_t state) {
@@ -140,49 +125,6 @@ volatile bool virtual_lsw_enabled = false;
 volatile int32_t virtual_lsw_start_count = 0;
 volatile int32_t virtual_lsw_end_count = 0;
 
-bool honeywell_timer_callback(repeating_timer_t *rt) {
-  honeywell_hsc_data_t data;
-  if (honeywell_hsc_read(&pressure_sensor, &data)) {
-    float pressure_mmhg = data.pressure_psi * 51.7149f;
-    logger_send_pressure_update(data.pressure_psi);
-
-    switch (emergency_state) {
-    case EMERGENCY_NORMAL:
-      if (data.status == 0 && data.pressure_psi > 20.0f) {
-        if (global_motor != NULL && tmc2209_is_moving(global_motor)) {
-          logger_send_pressure_alert(data.pressure_psi);
-          tmc2209_abort_profile_dma(global_motor);
-          emergency_state = EMERGENCY_STOPPING;
-        }
-      }
-      break;
-
-    case EMERGENCY_STOPPING:
-      if (global_motor != NULL && !tmc2209_is_moving(global_motor)) {
-        logger_send_motor_stopped();
-        logger_send_motor_retracting();
-        tmc2209_move_linear_um_dma(global_motor, -200000.0f, 500.0f);
-        emergency_state = EMERGENCY_RETRACTING;
-      }
-      break;
-
-    case EMERGENCY_RETRACTING:
-      if (data.status == 0 && data.pressure_psi < 15.0f) {
-        logger_send_pressure_safe(data.pressure_psi);
-        tmc2209_abort_profile_dma(global_motor);
-        emergency_state = EMERGENCY_STOPPED;
-      }
-      break;
-
-    case EMERGENCY_STOPPED:
-      // Permanece detenido
-      break;
-    }
-  } else {
-    LOG_DEBUG("SPI read error\n");
-  }
-  return true; // Keep repeating
-}
 
 void tmc2209_move_linear_um_dma(TMC2209_t *motor, float target_um,
                                 float target_velocity_ums) {
@@ -368,27 +310,12 @@ void core1_main(void) {
   ClosedLoopState_t scl;
   closed_loop_init(&scl);
 
-  // Configurar pines SPI1 para Honeywell
-  spi_init(SPI_PORT, 1000 * 1000);
-  gpio_set_function(PIN_MISO, GPIO_FUNC_SPI);
-  gpio_set_function(PIN_CS, GPIO_FUNC_SIO); // CS is handled manually
-  gpio_set_function(PIN_SCK, GPIO_FUNC_SPI);
-  gpio_set_function(PIN_MOSI, GPIO_FUNC_SPI);
-
-  gpio_set_dir(PIN_CS, GPIO_OUT);
-  gpio_put(PIN_CS, 1);
-
-  honeywell_hsc_init(&pressure_sensor, SPI_PORT, PIN_CS, -100.0f, 100.0f);
-
-  repeating_timer_t honeywell_timer;
-  (void)honeywell_timer;
-
   TMC2209_t motor1;
   global_motor = &motor1;
 
   tmc2209_init(&motor1, MOTOR_STEP_PIN, MOTOR_DIR_PIN, MOTOR_ENA_PIN,
-               MOTOR_STEPS_PER_REV, MOTOR_MICROSTEPS, MOTOR_MS1_PIN,
-               MOTOR_MS2_PIN);
+               MOTOR_STEPS_PER_REV, MOTOR_MICROSTEPS,
+               TMC2209_NO_PIN, TMC2209_NO_PIN);
   sleep_ms(SENSOR_INIT_DELAY_MS);
 
   // Configurar finales de carrera
@@ -493,6 +420,7 @@ void core1_main(void) {
     }                                                                          \
   } while (0)
 
+    Core1State_t prev_state = current_state;
     Core1CmdMessage_t cmd;
     active_event = EV_NONE;
     bool have_cmd = false;
@@ -1147,6 +1075,10 @@ void core1_main(void) {
         }
       }
     }
+    if (current_state != prev_state) {
+      logger_send_fsm_state(current_state);
+    }
+
     counter++;
 
     sleep_ms(10);

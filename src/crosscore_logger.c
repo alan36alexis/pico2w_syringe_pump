@@ -205,3 +205,10 @@ void logger_send_motor_progress(float pct) {
     _try_send(&msg);
 }
 
+void logger_send_fsm_state(Core1State_t state) {
+    LogMessage_t msg;
+    msg.id = LOG_EVENT_FSM_STATE;
+    msg.payload.fsm_state = state;
+    _try_send(&msg);
+}
+

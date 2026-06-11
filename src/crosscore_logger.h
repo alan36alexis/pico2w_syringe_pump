@@ -4,6 +4,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include "pico/util/queue.h"
+#include "core1_main.h"
 
 // Log Filter Configuration
 typedef struct {
@@ -48,7 +49,8 @@ typedef enum {
     LOG_EVENT_ENCODER_SPEED,
     LOG_EVENT_SPEED_WARNING,
     LOG_EVENT_CORRECTION_APPLIED,
-    LOG_EVENT_MOTOR_PROGRESS
+    LOG_EVENT_MOTOR_PROGRESS,
+    LOG_EVENT_FSM_STATE
 } LogEventID_t;
 
 // Payload Struct (Union to save space)
@@ -82,6 +84,7 @@ typedef struct {
         } speed_warning;
         float correction_um;
         float progress_pct;        // For motor progress
+        Core1State_t fsm_state;    // For FSM state transitions
         uint32_t raw_data;         // For arbitrary data
         const char *msg_str;       // For string messages (pointers)
     } payload;
@@ -113,5 +116,6 @@ void logger_send_encoder_speed(float ums);
 void logger_send_speed_warning(float expected_ums, float actual_ums);
 void logger_send_correction_applied(float correction_um);
 void logger_send_motor_progress(float pct);
+void logger_send_fsm_state(Core1State_t state);
 
 #endif // CROSSCORE_LOGGER_H

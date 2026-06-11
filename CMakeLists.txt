@@ -32,16 +32,12 @@ pico_sdk_init()
 # Include the TMC2209 library
 add_subdirectory(lib/tmc2209)
 
-# Include honeywell_spi library if applicable (check if exists locally, if not we assume it needs copying or paths update, but assuming it exists in workspace)
-# Since honeywell_spi might not exist locally yet, we need to check this next. I will just link it for now and verify.
-# Wait, I see I should see where honeywell_spi is located first via list_dir. I'll defer linking honeywell if it is not in the lib folder yet.
-add_subdirectory(lib/honeywell)
 
 add_subdirectory(freertos)
 target_include_directories(freertos PUBLIC ${CMAKE_CURRENT_LIST_DIR})
 
 # Define the main executable
-add_executable(pico2w_syringe_pump 
+add_executable(pico2w_syringe_pump
     src/main.c
     src/core0_main.c
     src/core1_main.c
@@ -50,8 +46,11 @@ add_executable(pico2w_syringe_pump
     src/crosscore_cmd.c
     src/test_modes.c
     src/mqtt_client.c
+    src/mqtt_topics.c
     src/syringe_pump_api.c
     src/config_manager.c
+    src/pump_hmi.c
+    src/ui_state.c
 )
 
 pico_generate_pio_header(pico2w_syringe_pump ${CMAKE_CURRENT_LIST_DIR}/src/quadrature_encoder.pio)
@@ -64,9 +63,7 @@ pico_enable_stdio_uart(pico2w_syringe_pump 1)
 # Link the executable with standard libraries and our custom TMC2209 library
 target_link_libraries(pico2w_syringe_pump
     pico_stdlib
-    hardware_spi
     tmc2209
-    honeywell_spi
     pico_cyw43_arch_lwip_sys_freertos
     pico_lwip_mqtt
     pico_multicore

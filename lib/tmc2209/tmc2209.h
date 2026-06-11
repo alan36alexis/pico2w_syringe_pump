@@ -14,6 +14,9 @@
 #endif
 #define TMC2209_PING_PONG_BUFFER_WORDS (TMC2209_PING_PONG_BUFFER_STEPS * 2u)
 
+// Valor centinela para pines no conectados (ej: MS1/MS2 con pull-down en hardware)
+#define TMC2209_NO_PIN 0xFF
+
 typedef enum {
   TMC2209_MODE_STANDBY_FREE = 0, // Motor en reposo, ENA deshabilitado
   TMC2209_MODE_STANDBY_HOLD = 1, // Motor en reposo, ENA habilitado

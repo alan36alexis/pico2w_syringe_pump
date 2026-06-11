@@ -57,4 +57,9 @@ typedef enum {
  */
 void core1_main(void);
 
+/**
+ * @brief Returns a human-readable string for a Core1State_t value.
+ */
+const char *get_state_name(Core1State_t state);
+
 #endif // CORE1_MAIN_H
