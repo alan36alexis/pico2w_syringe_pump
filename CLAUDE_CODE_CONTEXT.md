@@ -159,80 +159,109 @@ Cada PR es funcional y testeable de forma independiente. **No mezclar.**
 
 ---
 
-## 5. Simulador Python — YA IMPLEMENTADO
+## 5. Entorno Docker de Desarrollo — ✅ IMPLEMENTADO
 
-**Archivo:** `pump_simulator.py` (disponible para agregar al repo)
+**Motivación:** Red corporativa sin acceso al hardware ni al broker de laboratorio.
+Permite desarrollar y probar el dashboard Node-RED completamente offline.
 
-### Qué hace exactamente
-- Porta `syringe_pump_api.c` línea por línea a Python
-- Genera JSON **byte-exacto** al `Pump_GetTelemetryJSON()` del firmware:
-  ```json
-  {"vol_inf":0.83,"vol_tgt":10.00,"rate":50.00,"t_ela_s":60.0,
-   "t_rem_h":0.18,"pres":12.2,"st":1,
-   "alm":{"occ":0,"near":0,"end":0,"bub":0,"emp":0,"err":0}}
-  ```
-- Implementa todos los estados de `PumpState_t` con transiciones correctas
-- Implementa `Pump_CheckAlarms()` completo (oclusión, último 10%, fin→KVO, vacía)
-- Acepta todos los comandos de `cmd_parse_and_execute()`
-- Modelo de presión físico: ruido basal + rampa de oclusión a 100 mmHg/s + decaimiento exponencial
-- LWT configurado: broker publica `offline` si el proceso muere
+### Estructura
+```
+docker/
+├── docker-compose.yml          ← orquesta los 3 servicios
+├── mosquitto/config/
+│   └── mosquitto.conf          ← listener TCP 1883 + WebSocket 9001, anónimo
+├── simulator/
+│   ├── Dockerfile              ← python:3.11-slim + paho-mqtt==1.6.1
+│   └── requirements.txt
+└── flows_bomba.json            ← flow Node-RED importable (ver sección 6)
+nodered/
+└── pump_simulator.py           ← simulador Python (montado read-only en el contenedor)
+```
 
-### Instalación y uso
+### Levantar el entorno
 ```bash
-pip install paho-mqtt
-
-# Bomba simple contra broker local
-python pump_simulator.py
-
-# Con ID y broker remoto
-python pump_simulator.py --broker 192.168.1.100 --id bj-001
-
-# Jeringas según diámetro BD Plastipak
-python pump_simulator.py --diam 14.50 --cap 10.0   # 10 mL
-python pump_simulator.py --diam 19.05 --cap 20.0   # 20 mL (default)
-python pump_simulator.py --diam 26.70 --cap 50.0   # 50 mL
-
-# Tres bombas en paralelo (multi-instancia)
-python pump_simulator.py --id bj-001 &
-python pump_simulator.py --id bj-002 &
-python pump_simulator.py --id bj-003 &
+cd docker
+docker compose up          # la primera vez descarga las imágenes (~1-2 min)
+docker compose up -d       # en background
+docker compose down        # detener y eliminar contenedores
 ```
 
-### Comandos via mosquitto_pub
+### Accesos
+| Servicio | URL / Puerto |
+|---|---|
+| Node-RED editor | http://localhost:1880 |
+| Dashboard 2.0 | http://localhost:1880/dashboard |
+| Broker MQTT TCP | localhost:1883 |
+| Broker MQTT WebSocket | localhost:9001 |
+
+### Dentro de Docker, los servicios se ven entre sí por hostname
+- Simulador conecta al broker como `mosquitto:1883`
+- Node-RED conecta al broker como `mosquitto:1883`
+- Desde el host (para debug) usar `localhost:1883`
+
+---
+
+## 6. Simulador Python — ✅ ACTUALIZADO AL CONTRATO MQTT
+
+**Archivo:** `nodered/pump_simulator.py`
+
+### Estado actual (post sesión 2026-06-12)
+- ✅ Tópicos actualizados a `bj/{device_id}/...` (contrato completo)
+- ✅ Maneja envelope JSON del comando: `{"cid":N,"cmd":"..."}` con fallback a string crudo
+- ✅ Publica ACK a `bj/{id}/cmd/ack`: `{"cid":N,"result":"accepted"/"rejected","reason":"..."}`
+- ✅ Cola de eventos `pop_events()` + hilo `_event_loop` que publica a `bj/{id}/event`
+- ✅ Eventos de transición de estado (`{"type":"state","from":N,"to":M}`)
+- ✅ Eventos de alarma (`{"type":"alarm","code":"occ","level":2}`)
+- ✅ `parse_and_execute()` retorna `("accepted"|"rejected", reason)` en vez de `None`
+
+### Tópicos activos
+```
+bj/{id}/telemetry   ← publica JSON cada 2 s (QoS 0)
+bj/{id}/cmd         ← suscribe comandos con envelope JSON (QoS 1)
+bj/{id}/cmd/ack     ← publica ACK correlacionado (QoS 1)
+bj/{id}/event       ← publica transiciones de estado y alarmas (QoS 1)
+bj/{id}/status      ← online/offline con retain (QoS 1)
+bj/{id}/sim_fault   ← inyección de fallas exclusiva del simulador (QoS 0)
+```
+
+### ID del simulador en Docker
+El contenedor arranca con `--id bj-deadbeef`. Para cambiar el device ID:
+- Editar la línea `command:` en `docker/docker-compose.yml`
+
+### Comandos via mosquitto_pub (desde el host)
 ```bash
-# Inyectar escenarios de prueba (tópico exclusivo del simulador)
-mosquitto_pub -t syringe_pump/sim_fault -m "infuse,50.0,20.0"    # arrancar infusión
-mosquitto_pub -t syringe_pump/sim_fault -m "bolus,5.0,200.0"     # bolo 5mL a 200mL/h
-mosquitto_pub -t syringe_pump/sim_fault -m "fault_occ"           # inyectar oclusión
-mosquitto_pub -t syringe_pump/sim_fault -m "fault_bubble"        # alarma de burbuja
-mosquitto_pub -t syringe_pump/sim_fault -m "fault_clear"         # limpiar fallas
-mosquitto_pub -t syringe_pump/sim_fault -m "select_syringe,19.05,20.0"
+# Ver toda la actividad del simulador
+mosquitto_sub -h localhost -t "bj/+/#" -v
 
-# Comandos reales del firmware (mismo canal que el hardware)
-mosquitto_pub -t syringe_pump/cmd -m "stop"
-mosquitto_pub -t syringe_pump/cmd -m "fsm_reset"
-mosquitto_pub -t syringe_pump/cmd -m "fsm_occ_rel"
+# Iniciar infusión (canal sim)
+mosquitto_pub -h localhost -t bj/bj-deadbeef/sim_fault -m "infuse,50.0,20.0"
+mosquitto_pub -h localhost -t bj/bj-deadbeef/sim_fault -m "bolus,5.0,200.0"
+mosquitto_pub -h localhost -t bj/bj-deadbeef/sim_fault -m "fault_occ"
+mosquitto_pub -h localhost -t bj/bj-deadbeef/sim_fault -m "fault_bubble"
+mosquitto_pub -h localhost -t bj/bj-deadbeef/sim_fault -m "fault_clear"
+
+# Comandos reales (con envelope JSON del contrato)
+mosquitto_pub -h localhost -t bj/bj-deadbeef/cmd -m '{"cid":1,"cmd":"stop"}'
+mosquitto_pub -h localhost -t bj/bj-deadbeef/cmd -m '{"cid":2,"cmd":"fsm_reset"}'
+mosquitto_pub -h localhost -t bj/bj-deadbeef/cmd -m '{"cid":3,"cmd":"fsm_occ_rel"}'
+
+# Verificar ACK
+mosquitto_sub -h localhost -t "bj/bj-deadbeef/cmd/ack" -C 1
 ```
 
-### Tópicos actuales del simulador (actualizar en PR2)
-```
-syringe_pump/telemetry   ← publica JSON cada 2 s (= firmware actual)
-syringe_pump/cmd         ← suscribe comandos reales
-syringe_pump/status      ← online/offline con retain
-syringe_pump/sim_fault   ← inyección de fallas (exclusivo simulador)
+### Uso local (sin Docker)
+```bash
+pip install paho-mqtt==1.6.1
+python nodered/pump_simulator.py --broker localhost --id bj-001
+python nodered/pump_simulator.py --diam 14.50 --cap 10.0  # jeringa 10 mL
+python nodered/pump_simulator.py --diam 26.70 --cap 50.0  # jeringa 50 mL
 ```
 
 ---
 
-## 6. Dashboard Node-RED — Arquitectura definida
+## 7. Dashboard Node-RED — Estado actual
 
-### Por qué Node-RED y no Python + Flask + WebSockets
-- El browser no habla MQTT TCP nativo → siempre hay un bridge MQTT↔WebSocket
-- Node-RED **es** ese bridge ya hecho + servidor web + UI + persistencia
-- Python requeriría: paho + Flask/FastAPI + WebSockets + HTML/JS + SQLite + Web Push
-- Para un proyecto donde el diferencial técnico está en el firmware (no en el web), minimizar el esfuerzo en dashboard es la decisión correcta
-
-### Capas del dashboard en Node-RED
+### Arquitectura de capas
 ```
 [Bombas / Simulador]
         ↓  MQTT pub/sub
@@ -240,40 +269,65 @@ syringe_pump/sim_fault   ← inyección de fallas (exclusivo simulador)
         ↓
 [Node-RED — servidor central]
   ├── Ingesta          → parseo y validación de JSON entrante
-  ├── Comandos         → publicación cmd + espera ack
-  ├── Estado global    → contexto por bomba en flow context
-  ├── Motor de alarmas → priorización, deduplicación, silenciado
-  ├── Persistencia     → SQLite / histórico
-  ├── Push             → Web Push API → PWA del personal
+  ├── Comandos         → publicación cmd + espera ack (fn_mk_cmd)
+  ├── Estado global    → contexto por bomba en flow context (TODO)
+  ├── Motor de alarmas → notificaciones + tabla de eventos
+  ├── Persistencia     → SQLite / histórico (TODO)
+  ├── Push             → Web Push API → PWA del personal (TODO)
   └── Páginas UI       → Dashboard 2.0 (FlowFuse)
         ↓
 [Navegador / PWA]
 ```
 
-### Páginas del dashboard a implementar
-1. **Overview / Sala** — estado de todas las bombas en grid (tarjeta por bomba)
-2. **Detalle bomba** — gráfico de caudal en tiempo real, presión, volumen, progreso
-3. **Panel de alarmas** — lista priorizada, silenciado, histórico
-4. **Control remoto** — envío de comandos con confirmación ACK
-5. **Datalog** — descarga de histórico de infusión por bomba/paciente
-6. **Config** — parámetros del sistema, umbral de oclusión, perfil de jeringa
+### Flow inicial — ✅ IMPLEMENTADO (`docker/flows_bomba.json`)
 
-### Nodos de Node-RED requeridos
+Importar en Node-RED: Menú (≡) → Import → seleccionar `docker/flows_bomba.json` → Deploy
+
+**Prerequisito:** instalar Dashboard 2.0 primero:
+Menú → Manage Palette → Install → buscar `@flowfuse/node-red-dashboard` → Install
+
+#### Estructura del flow
 ```
-npm install node-red-dashboard          ← UI Dashboard 2.0
-npm install node-red-node-sqlite        ← persistencia
-npm install node-red-contrib-web-push   ← notificaciones PWA
+MQTT in (bj/+/telemetry) → fn_telem [3 out] → gauge caudal
+                                             → templates: estado, infusión, alarmas
+                                             → chart presión
+
+MQTT in (bj/+/status)   → fn_status         → template dispositivo
+MQTT in (bj/+/event)    → fn_event [2 out]  → tabla eventos
+                                             → ui-notification (alarmas)
+MQTT in (bj/+/cmd/ack)  → fn_ack            → ui-text ACK
+
+btn_stop/pause/...       → fn_mk_cmd         → MQTT out (bj/bj-deadbeef/cmd)
+btn_sim_infuse/occ/...   → fn_fault_topic    → MQTT out (bj/bj-deadbeef/sim_fault)
 ```
 
-### Regla de QoS para flows Node-RED
-- Suscribirse a `bj/+/telemetry` con QoS 0 (stream de datos)
-- Suscribirse a `bj/+/event` con QoS 1 (alarmas, no perder)
-- Suscribirse a `bj/+/status` con QoS 1 + `retain=true` (estado online/offline)
-- Publicar a `bj/{id}/cmd` con QoS 1 (confirmar con ack correlacionado)
+#### Páginas del flow
+| Página | Widgets |
+|---|---|
+| Monitor | Dispositivo (online/offline + ID), Estado FSM (color por estado), Caudal (gauge), Infusión (vol_inf, vol_tgt, t_ela, t_rem), Presión (chart tiempo real), Alarmas (badges OCC/NEAR/END/BUB/EMP/ERR) |
+| Control | Botones: STOP, STOP IMM, PAUSAR, REANUDAR, RESET FSM, LIB. OCLUSIÓN — Sim: Infundir, Oclusión, Burbuja, Limpiar — ACK display + tabla de eventos |
+
+#### IDs hardcodeados a cambiar si se usa otro device_id
+- `fn_mk_cmd` → `msg.topic = 'bj/bj-deadbeef/cmd'`
+- `fn_fault_topic` → `msg.topic = 'bj/bj-deadbeef/sim_fault'`
+- Los MQTT in usan wildcard `bj/+/...` → no necesitan cambio
+
+### Páginas pendientes de implementar
+1. **Overview / Sala** — grid de tarjetas para N bombas (multi-device)
+2. **Panel de alarmas** — lista priorizada, silenciado, histórico
+3. **Datalog** — descarga de histórico (requiere `node-red-node-sqlite`)
+4. **Config** — umbral de oclusión, perfil de jeringa
+
+### Paquetes Node-RED adicionales (pendientes)
+```
+@flowfuse/node-red-dashboard  ← ✅ instalar antes de importar el flow
+node-red-node-sqlite          ← persistencia (TODO)
+node-red-contrib-web-push     ← notificaciones PWA (TODO)
+```
 
 ---
 
-## 7. Contrato MQTT — A crear como MQTT_CONTRACT.md
+## 8. Contrato MQTT — MQTT_CONTRACT.md
 
 Este es el primer entregable antes de cualquier código de dashboard o PR de firmware.
 
@@ -325,40 +379,46 @@ bj/{device_id}/cmd/ack       QoS 1  retain 0   firmware → dashboard
 
 ---
 
-## 8. Próximos pasos en orden de prioridad
+## 9. Próximos pasos en orden de prioridad
 
 ### ✅ Completado
 - [x] Crear `MQTT_CONTRACT.md` en la raíz del repo
 - [x] PR1: `device_id` en `SystemConfig_t` + `mqtt_topics.h/.c` + LWT/status + fix RX topic bug
+- [x] Entorno Docker: mosquitto + simulador + Node-RED (`docker/docker-compose.yml`)
+- [x] Simulador actualizado al contrato completo: tópicos `bj/{id}/...`, envelope CMD, ACK, eventos
+- [x] Flow inicial Node-RED: Monitor (telemetría, estado, alarmas) + Control (botones) importable
 
-### Inmediato — PR2 (siguiente sesión)
-- [ ] `core0_main.c`: cambiar `"syringe_pump/telemetry"` → `topic_telemetry()` en `task_pump_telemetry`
-- [ ] `core0_main.c`: cambiar los 8 literales `"syringe_pump/log/*"` del `task_logger` → tópicos `bj/{id}/...`
-- [ ] `core0_main.c`: aumentar `json_buf` de 256 a 512 bytes
-- [ ] Agregar `pump_simulator.py` al repo en `tools/simulator/` (ya implementado, solo copiar)
-- [ ] Actualizar `pump_simulator.py` con tópicos `bj/{id}/*`
+### Inmediato — Testear el flow con el simulador Docker
+1. `cd docker && docker compose up`
+2. En Node-RED: instalar `@flowfuse/node-red-dashboard` (Manage Palette)
+3. Importar `docker/flows_bomba.json` → Deploy
+4. Abrir http://localhost:1880/dashboard
+5. Pulsar "▶ Infundir" → verificar que el gauge de caudal y la telemetría se actualicen
+6. Pulsar "⚠ Oclusión" → verificar notificación y badge OCC en rojo
+7. Pulsar "STOP" → verificar ACK en la tabla de eventos
 
-### Paralelo con PR2 — infraestructura dashboard
-- [ ] Instalar Mosquitto en la máquina de desarrollo
-- [ ] Instalar Node-RED con los 3 paquetes de la sección 6
-- [ ] Crear primer flow: suscribir `bj/+/telemetry` + debug node + gauge básico
-- [ ] Verificar que el gauge muestra datos del simulador Python
+### PR2 — firmware (siguiente)
+- [ ] `core0_main.c`: `"syringe_pump/telemetry"` → `topic_telemetry()` en `task_pump_telemetry`
+- [ ] `core0_main.c`: 8 literales `"syringe_pump/log/*"` del `task_logger` → `topic_event()` o subtópicos
+- [ ] `core0_main.c`: `json_buf[256]` → `json_buf[512]`
 
-### Sprint siguiente
-- [ ] PR3: `cmd_envelope` + ACK en `topic_cmd_ack()` (parsear `{"cid":N,"cmd":"..."}`)
-- [ ] Panel de control remoto en dashboard con confirmación de ACK
-- [ ] Implementar nodo de estado global por bomba en Node-RED (flow context)
-- [ ] Motor de alarmas básico (switch por campo `alm.*`)
-- [ ] Primera página de overview con estado de N bombas
+### PR3 — firmware (siguiente a PR2)
+- [ ] Parsear envelope `{"cid":N,"cmd":"..."}` en `mqtt_rx_task`
+- [ ] Publicar `{"cid":N,"result":"accepted"}` en `topic_cmd_ack()` QoS 1
+
+### Dashboard — mejoras al flow actual
+- [ ] Nodo de estado global por device (flow context con Map de bombas)
+- [ ] Página Overview: grid de tarjetas para N bombas simultáneas
+- [ ] Página de alarmas: lista priorizada con silenciado y histórico
+- [ ] Persistencia: `node-red-node-sqlite` + datalog descargable
 
 ### Después
-- [ ] PR4: `MQTT_MAX_PAYLOAD=512` + QoS diferenciado en `mqtt_client_publish_reliable()`
-- [ ] Persistencia SQLite + datalog descargable
-- [ ] Notificaciones PWA
+- [ ] PR4: `MQTT_MAX_PAYLOAD=512` + `mqtt_client_publish_reliable()` QoS 1 para alarmas/ACK
+- [ ] Notificaciones PWA con `node-red-contrib-web-push`
 
 ---
 
-## 9. Notas técnicas importantes
+## 10. Notas técnicas importantes
 
 ### Sobre el manejo de memoria en el firmware
 - Heap configurado con `heap_3.c` (malloc estándar de stdlib). `xPortGetFreeHeapSize()`
@@ -391,12 +451,14 @@ FLOW_COEFF_MMHG_MLH  = 0.05    # 50 mL/h ≈ +2.5 mmHg
 
 ---
 
-## 10. Recursos y referencias
+## 11. Recursos y referencias
 
 | Recurso | URL / Ubicación |
 |---------|----------------|
 | Repo firmware | https://github.com/alan36alexis/pico2w_syringe_pump (rama: tft_integration) |
-| Simulador | `tools/simulator/pump_simulator.py` (agregar al repo) |
+| Simulador | `nodered/pump_simulator.py` |
+| Flow Node-RED | `docker/flows_bomba.json` (importar en Node-RED) |
+| Docker Compose | `docker/docker-compose.yml` |
 | Pico SDK docs | https://datasheets.raspberrypi.com/pico/raspberry-pi-pico-c-sdk.pdf |
 | lwIP MQTT API | `$PICO_SDK_PATH/lib/lwip/src/include/lwip/apps/mqtt.h` |
 | Node-RED Dashboard 2.0 | https://dashboard.flowfuse.com/getting-started.html |
