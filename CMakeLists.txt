@@ -51,6 +51,7 @@ add_executable(pico2w_syringe_pump
     src/config_manager.c
     src/pump_hmi.c
     src/ui_state.c
+    src/ui_events.c
 )
 
 pico_generate_pio_header(pico2w_syringe_pump ${CMAKE_CURRENT_LIST_DIR}/src/quadrature_encoder.pio)

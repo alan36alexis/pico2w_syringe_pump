@@ -12,6 +12,7 @@
 #include "mqtt_client.h"
 #include "pump_hmi.h"
 #include "ui_state.h"
+#include "ui_events.h"
 #include "pico/cyw43_arch.h"
 #include "pico/multicore.h"
 #include "pico/stdlib.h"
@@ -516,6 +517,29 @@ static void task_system_monitor(void *params) {
 #include "ui.h"
 #endif
 
+/**
+ * @brief Lectura de periféricos UI: encoder, teclas, touch.
+ * Prioridad tskIDLE_PRIORITY+3, período 10 ms. Single producer de ui_event_queue.
+ */
+static void task_ui_input(void *params) {
+  (void)params;
+#ifdef ENABLE_TFT
+  TickType_t last_wake = xTaskGetTickCount();
+  const TickType_t period = pdMS_TO_TICKS(10);
+  while (1) {
+    // TODO: leer encoder delta, estados de teclas (debounce) y touch (XPT2046)
+    // y enviar UIEvent_t via ui_event_send().
+    vTaskDelayUntil(&last_wake, period);
+  }
+#else
+  vTaskDelete(NULL);
+#endif
+}
+
+/**
+ * @brief Renderizado LVGL + consumo de eventos táctiles de ui_event_queue.
+ * Prioridad tskIDLE_PRIORITY+2, período 20 ms (50 Hz LVGL máximo).
+ */
 static void task_tft(void *params) {
   (void)params;
 #ifdef ENABLE_TFT
@@ -526,16 +550,25 @@ static void task_tft(void *params) {
   ui_init();
 
   TickType_t last_wake = xTaskGetTickCount();
-  const TickType_t period = pdMS_TO_TICKS(5);
+  const TickType_t period = pdMS_TO_TICKS(20);
   while (1) {
-    lv_tick_inc(5);
+    lv_tick_inc(20);
     lv_timer_handler();
-    // Leer UIState_t y actualizar widgets LVGL aqui
+
+    UIState_t state = ui_state_get_snapshot();
+    (void)state; // TODO: actualizar widgets LVGL con state
+
+    // Consumir eventos táctiles (non-blocking)
+    UIEvent_t ev;
+    while (xQueueReceive(ui_event_queue, &ev, 0) == pdTRUE) {
+      if (ev.type == UI_EVENT_TOUCH) {
+        // TODO: pasar coordenadas calibradas al driver de input de LVGL
+      }
+    }
+
     vTaskDelayUntil(&last_wake, period);
   }
 #else
-  // Stub: la tarea existe en el scheduler pero no hace nada hasta que
-  // ENABLE_TFT esté definido y el módulo TFT esté integrado al build.
   vTaskDelete(NULL);
 #endif
 }
@@ -551,6 +584,7 @@ void core0_main_setup(void) {
   crosscore_cmd_init();
   mqtt_client_queue_init();
   pump_hmi_init();
+  ui_events_init();
   ui_state_init();
 
   // Creación de las tareas de FreeRTOS
@@ -569,6 +603,8 @@ void core0_main_setup(void) {
 #endif
   xTaskCreate(task_example_internal_cmd, "CmdExample", configMINIMAL_STACK_SIZE,
               NULL, 1, NULL);
-  // Stack de 6 KB para LVGL (stub hasta que ENABLE_TFT esté activo)
-  xTaskCreate(task_tft, "TFT", configMINIMAL_STACK_SIZE * 12, NULL, 1, NULL);
+  // task_ui_input: prioridad más alta para capturar input antes del frame LVGL
+  xTaskCreate(task_ui_input, "UI_Input", 512,  NULL, tskIDLE_PRIORITY + 3, NULL);
+  // task_tft: 4096 words (16 KB) — LVGL necesita stack generoso
+  xTaskCreate(task_tft,      "TFT",      4096, NULL, tskIDLE_PRIORITY + 2, NULL);
 }

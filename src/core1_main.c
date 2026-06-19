@@ -680,7 +680,7 @@ void core1_main(void) {
     // --- Handler Global de Limit Switches ---
     // Siempre que se detecte un LSW, se aplica frenado con rampa de ~2s,
     // retroceso lento hasta liberar, y parada instantanea al soltar.
-    if (active_event == iEV_LSW_START_HIT) {
+    if (active_event == iEV_LSW_START_HIT && current_state != ST_FAULT) {
       if (current_state == ST_CALIB_SEEK_START) {
         RESET_ENCODER_COUNTS();
         post_lsw_start_state = ST_CALIB_SEEK_END;
@@ -693,13 +693,15 @@ void core1_main(void) {
         current_state = ST_BRAKING_LSW_START;
         active_event = EV_NONE; // Consumido
       } else {
+        // Motor ya parado sobre el switch: iniciar retroceso para liberarlo
         tmc2209_stop(global_motor);
+        tmc2209_send_nsteps_at_freq(global_motor, 1000000, 2000.0f);
         current_state = ST_RELEASING_LSW_START;
         active_event = EV_NONE; // Consumido
       }
     }
 
-    if (active_event == iEV_LSW_END_HIT) {
+    if (active_event == iEV_LSW_END_HIT && current_state != ST_FAULT) {
       // Preservar datos de calibracion si aplica
       if (current_state == ST_CALIB_SEEK_END) {
         int32_t current_enc = USE_QUADRATURE_ENCODER
@@ -717,7 +719,9 @@ void core1_main(void) {
         current_state = ST_BRAKING_LSW_END;
         active_event = EV_NONE; // Consumido
       } else {
+        // Motor ya parado sobre el switch: iniciar retroceso para liberarlo
         tmc2209_stop(global_motor);
+        tmc2209_send_nsteps_at_freq(global_motor, -1000000, 2000.0f);
         current_state = ST_RELEASING_LSW_END;
         active_event = EV_NONE; // Consumido
       }
