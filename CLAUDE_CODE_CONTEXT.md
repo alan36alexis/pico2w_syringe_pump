@@ -75,20 +75,23 @@ Todo logging de Core 1 va por `crosscore_logger` (queue no-bloqueante) hacia Cor
 `CONFIG_MAGIC_WORD` bumpeado a `0xA1B2C3D5` → flash vieja se detecta y se regeneran defaults.
 `mqtt_client.c` usa `g_sys_config.device_id` como `ci.client_id`.
 
-### 3.2 Tópicos MQTT planos sin jerarquía de ID — ⚠️ PARCIALMENTE IMPLEMENTADO
+### 3.2 Tópicos MQTT planos sin jerarquía de ID — ✅ IMPLEMENTADO (PR2)
 Módulo `src/mqtt_topics.h/.c` creado (PR1). Suscripción a `topic_cmd()` activa.
-**Pendiente (PR2):** migrar `"syringe_pump/telemetry"` en `core0_main.c` a `topic_telemetry()`
-y los 8 literales `"syringe_pump/log/*"` del `task_logger`.
+PR2 completado: eliminados todos los literales `syringe_pump/*` del código.
+- `task_pump_telemetry`: `"syringe_pump/telemetry"` → `topic_telemetry()` (QoS 0)
+- `task_logger`: segundo switch de topics eliminado; `LOG_EVENT_FSM_STATE` → `topic_event()` QoS 1 con formato `{"type":"state","from":N,"to":N}`; demás logs son solo serial
+- `task_system_monitor`: publish de `system_health` eliminado (no estaba en el contrato)
+- `mqtt_client_publish_qos1()` agregada: propaga `msg.qos` a `mqtt_publish()` via `mqtt_msg_t.qos`
 
 Estructura activa:
 ```
 bj/{id}/status           QoS 1, retain=true  — ACTIVO (PR1)
 bj/{id}/cmd              QoS 1, sin retain   — ACTIVO (PR1)
-bj/{id}/telemetry        QoS 0, sin retain   — PENDIENTE PR2
-bj/{id}/event            QoS 1, sin retain   — PENDIENTE PR2
+bj/{id}/telemetry        QoS 0, sin retain   — ACTIVO (PR2)
+bj/{id}/event            QoS 1, sin retain   — ACTIVO (PR2, solo transiciones FSM por ahora)
 bj/{id}/cmd/ack          QoS 1, sin retain   — PENDIENTE PR3
 ```
-Tópicos legacy `syringe_pump/*` siguen activos hasta PR2.
+No quedan literales `syringe_pump/*` en `src/`.
 
 ### 3.3 Sin Last Will Testament (LWT) — ✅ IMPLEMENTADO (PR1)
 `mqtt_client.c` configura `ci.will_topic/will_msg/will_qos/will_retain` antes de conectar.
@@ -140,14 +143,14 @@ Cada PR es funcional y testeable de forma independiente. **No mezclar.**
      → Suscripción a topic_cmd() QoS 1
      → Fix s_rx_topic en callbacks RX + MQTT_DATA_FLAG_LAST
 
-⏳ PR2: Migrar telemetría y eventos a bj/{id}/...  [SIGUIENTE]
+✅ PR2: Migrar telemetría y eventos a bj/{id}/...  [COMPLETADO]
      → core0_main.c: "syringe_pump/telemetry" → topic_telemetry()
-     → core0_main.c: 8 literales "syringe_pump/log/*" → topic_event() o subtópicos
-     → core0_main.c: json_buf 256 → 512
-     → Agregar tools/simulator/pump_simulator.py al repo
-     → Actualizar simulador con nuevos tópicos bj/{id}/*
+     → core0_main.c: task_logger legacy switch eliminado; FSM → topic_event() QoS 1
+     → mqtt_client.c: mqtt_msg_t.qos + mqtt_client_publish_qos1()
+     → nodered/pump_simulator.py: ya usaba bj/{id}/... (sin cambios)
+     → json_buf 256→512 y alarm events (type:alarm) quedan para PR futuro
 
-⬜ PR3: cmd_envelope + ACK
+⏳ PR3: cmd_envelope + ACK  [SIGUIENTE]
      → Parsear {"cid":N,"cmd":"..."} en mqtt_rx_task
      → Publicar {"cid":N,"result":"accepted"} en topic_cmd_ack() QoS 1
 
@@ -397,12 +400,7 @@ bj/{device_id}/cmd/ack       QoS 1  retain 0   firmware → dashboard
 6. Pulsar "⚠ Oclusión" → verificar notificación y badge OCC en rojo
 7. Pulsar "STOP" → verificar ACK en la tabla de eventos
 
-### PR2 — firmware (siguiente)
-- [ ] `core0_main.c`: `"syringe_pump/telemetry"` → `topic_telemetry()` en `task_pump_telemetry`
-- [ ] `core0_main.c`: 8 literales `"syringe_pump/log/*"` del `task_logger` → `topic_event()` o subtópicos
-- [ ] `core0_main.c`: `json_buf[256]` → `json_buf[512]`
-
-### PR3 — firmware (siguiente a PR2)
+### PR3 — firmware (siguiente)
 - [ ] Parsear envelope `{"cid":N,"cmd":"..."}` en `mqtt_rx_task`
 - [ ] Publicar `{"cid":N,"result":"accepted"}` en `topic_cmd_ack()` QoS 1
 

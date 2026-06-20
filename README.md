@@ -112,10 +112,10 @@ Ver `MQTT_CONTRACT.md` en la raíz del repo para el contrato completo (esquemas 
 | Tópico | QoS | Retain | Descripción |
 |--------|-----|--------|-------------|
 | `bj/{id}/status` | 1 | Sí | Online/Offline. LWT configurado: el broker publica `offline` si se pierde el keepalive (60 s). |
-| `bj/{id}/cmd` | 1 | No | Comandos desde el dashboard (payload: `{"cid":N,"cmd":"..."}`) |
-| `bj/{id}/telemetry` | 0 | No | JSON de telemetría clínica cada 2 s *(migración en curso)* |
-| `bj/{id}/event` | 1 | No | Alarmas y cambios de estado *(migración en curso)* |
-| `bj/{id}/cmd/ack` | 1 | No | Confirmación de comandos con correlation ID *(próximamente)* |
+| `bj/{id}/cmd` | 1 | No | Comandos desde el dashboard (payload: string crudo; PR3 agrega envelope `{"cid":N,"cmd":"..."}`) |
+| `bj/{id}/telemetry` | 0 | No | JSON de telemetría clínica cada 2 s |
+| `bj/{id}/event` | 1 | No | Transiciones de estado FSM `{"type":"state","from":N,"to":N}` (alarmas en PR futuro) |
+| `bj/{id}/cmd/ack` | 1 | No | Confirmación de comandos con correlation ID *(PR3)* |
 
 **Suscripción recomendada en Node-RED:**
 ```
@@ -133,16 +133,9 @@ El payload debe ser un JSON con correlation ID y el string de comando:
 ```
 Los strings de comando son los mismos que los de la CLI (ver tabla de comandos más arriba).
 
-#### Tópicos legacy (en proceso de deprecación)
+#### Tópicos legacy (eliminados en PR2)
 
-Los tópicos `syringe_pump/*` siguen activos hasta que se complete la migración (PR2).
-No usar para nuevas integraciones.
-
-| Tópico (legacy) | Estado |
-|---|---|
-| `syringe_pump/cmd` | Reemplazado por `bj/{id}/cmd` |
-| `syringe_pump/telemetry` | Reemplazado por `bj/{id}/telemetry` |
-| `syringe_pump/log/*` | Reemplazados por `bj/{id}/event` |
+Los tópicos `syringe_pump/*` fueron eliminados del firmware. No usar en integraciones nuevas.
 
 ### TODO
 
@@ -152,8 +145,8 @@ No usar para nuevas integraciones.
 - [x] Last Will Testament (LWT) — broker publica `offline` ante desconexión inesperada
 - [x] Fix bug topic en callbacks RX MQTT (`s_rx_topic`, `MQTT_DATA_FLAG_LAST`)
 - [x] `MQTT_CONTRACT.md` — contrato de tópicos, esquemas JSON, QoS, diagrama cmd/ack
-- [ ] Migrar telemetría y logs a `bj/{id}/...` (eliminar literales `syringe_pump/*`) **PR2**
-- [ ] Agregar `tools/simulator/pump_simulator.py` al repo y actualizar sus tópicos **PR2**
+- [x] Migrar telemetría y logs a `bj/{id}/...` (eliminar literales `syringe_pump/*`) **PR2**
+- [x] `nodered/pump_simulator.py` en el repo con tópicos `bj/{id}/*` actualizados **PR2**
 - [ ] `cmd_envelope` + ACK correlacionado en `bj/{id}/cmd/ack` **PR3**
 - [ ] Buffer `MQTT_MAX_PAYLOAD=512` + QoS diferenciado por tipo de mensaje **PR4**
 - [ ] Dashboard Node-RED: overview, detalle, alarmas, control remoto, datalog

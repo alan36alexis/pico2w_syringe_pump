@@ -10,6 +10,7 @@
 #include "crosscore_cmd.h"
 #include "crosscore_logger.h"
 #include "mqtt_client.h"
+#include "mqtt_topics.h"
 #include "pump_hmi.h"
 #include "ui_state.h"
 #include "ui_events.h"
@@ -147,6 +148,7 @@ static void task_logger(void *params) {
   LogMessage_t msg;
   char buf[256];
   char print_msg[PRINT_MSG_MAX_LEN];
+  static Core1State_t s_prev_fsm_state = (Core1State_t)0;
   while (1) {
     // Procesa peticiones de impresión procedentes de otras tareas del Core 0
     while (xQueueReceive(print_q, print_msg, 0) == pdTRUE) {
@@ -306,8 +308,9 @@ static void task_logger(void *params) {
       case LOG_EVENT_FSM_STATE:
         if (g_log_filter.show_fsm)
           printf("[FSM]: -> %s\n", get_state_name(msg.payload.fsm_state));
-        snprintf(buf, sizeof(buf), "{\"fsm_state\": \"%s\"}",
-                 get_state_name(msg.payload.fsm_state));
+        snprintf(buf, sizeof(buf), "{\"type\":\"state\",\"from\":%d,\"to\":%d}",
+                 (int)s_prev_fsm_state, (int)msg.payload.fsm_state);
+        s_prev_fsm_state = msg.payload.fsm_state;
         break;
       default:
         printf("[SYS]: Unknown crosscore logger event: %d\n", msg.id);
@@ -316,56 +319,13 @@ static void task_logger(void *params) {
         break;
       }
 
-      const char *topic = "syringe_pump/log/system";
-      switch (msg.id) {
-      case LOG_EVENT_MOTOR_MOVING:
-      case LOG_EVENT_MOTOR_STOPPED:
-      case LOG_EVENT_MOTOR_RETRACTING:
-      case LOG_EVENT_MOTOR_START_HIT:
-      case LOG_EVENT_MOTOR_END_HIT:
-        topic = "syringe_pump/log/motor_state";
-        break;
-      case LOG_EVENT_PRESSURE_UPDATE:
-      case LOG_EVENT_PRESSURE_ALERT:
-      case LOG_EVENT_PRESSURE_SAFE:
-        topic = "syringe_pump/log/pressure";
-        break;
-      case LOG_EVENT_MOTOR_STALL:
-      case LOG_EVENT_DRV_STATUS_ERROR:
-      case LOG_EVENT_UART_INIT_OK:
-      case LOG_EVENT_UART_INIT_FAIL:
-      case LOG_EVENT_UART_INIT_MICROSTEPS_READ:
-      case LOG_EVENT_PINS_INIT_MODE:
-        topic = "syringe_pump/log/motor_regs";
-        break;
-      case LOG_EVENT_ENCODER_UPDATE:
-        topic = "syringe_pump/log/encoder";
-        break;
-      case LOG_EVENT_ENCODER_INDEP_UPDATE:
-        topic = "syringe_pump/log/encoder_indep";
-        break;
-      case LOG_EVENT_ENCODER_SPEED:
-        topic = "syringe_pump/log/encoder_speed";
-        break;
-      case LOG_EVENT_SPEED_WARNING:
-      case LOG_EVENT_CORRECTION_APPLIED:
-        topic = "syringe_pump/log/system";
-        break;
-      case LOG_EVENT_MOTOR_PROGRESS:
-        topic = "syringe_pump/log/progress";
-        break;
-      case LOG_EVENT_FSM_STATE:
-        topic = "syringe_pump/events/fsm_state";
-        break;
-      default:
-        topic = "syringe_pump/log/system";
-        break;
-      }
-
       // Actualizar el mirror de estado para la UI (task_tft lo leerá via ui_state_get_snapshot)
       ui_state_update_from_event(&msg);
 
-      mqtt_client_publish(topic, buf);
+      // Solo los eventos FSM van al dashboard; los logs diagnósticos son solo serial
+      if (msg.id == LOG_EVENT_FSM_STATE) {
+        mqtt_client_publish_qos1(topic_event(), buf);
+      }
     }
     vTaskDelay(pdMS_TO_TICKS(10)); // Poll cada 10ms
   }
@@ -398,7 +358,7 @@ static void task_pump_telemetry(void *params) {
     // seg
     Pump_Tick(telemetry_period_ms);
     Pump_GetTelemetryJSON(json_buf, sizeof(json_buf));
-    mqtt_client_publish("syringe_pump/telemetry", json_buf);
+    mqtt_client_publish(topic_telemetry(), json_buf);
     vTaskDelay(pdMS_TO_TICKS(telemetry_period_ms)); // Publicar cada 2 segundos
   }
 }
@@ -490,13 +450,6 @@ static void task_system_monitor(void *params) {
       safe_printf("Could not allocate memory for task status.\n");
     }
     safe_printf("---------------------\n\n");
-
-    // 4. Enviar JSON resumido por MQTT
-    snprintf(json_buf, sizeof(json_buf),
-             "{\"cpu_temp_c\": %.2f, \"free_heap_bytes\": %u, "
-             "\"min_free_heap_bytes\": %u}",
-             temp_c, free_heap, min_free_heap);
-    mqtt_client_publish("syringe_pump/telemetry/system_health", json_buf);
 
     vTaskDelay(pdMS_TO_TICKS(10000)); // Repetir cada 10 segundos
   }

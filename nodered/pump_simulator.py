@@ -197,6 +197,7 @@ class SyringePumpSimulator:
         self._pressure_model = PressureModel()
 
         self._event_queue: list = []
+        self._prev_state: PumpState = PumpState.STOPPED  # para detectar transiciones entre ticks
 
         log.info(f"[{self.device_id}] Jeringa configurada: Ø{diam_mm} mm, {cap_ml} mL")
 
@@ -372,7 +373,8 @@ class SyringePumpSimulator:
         with self._lock:
             ctx = self._ctx
             delta_s = delta_ms / 1000.0
-            prev_state = ctx.state
+            # Usar _prev_state para detectar cambios hechos por comandos entre ticks
+            prev_state = self._prev_state
 
             # Actualizar presión con el modelo físico
             ctx.current_pressure_mmhg = self._pressure_model.update(
@@ -395,13 +397,14 @@ class SyringePumpSimulator:
                 ctx.infused_volume_ml += delta_ml
                 self._check_alarms()
 
-            # Detectar transición de estado (incluyendo cambios de _check_alarms)
+            # Detectar transición de estado (comandos externos + _check_alarms)
             if ctx.state != prev_state:
                 self._event_queue.append({
                     "type": "state",
                     "from": int(prev_state),
                     "to":   int(ctx.state)
                 })
+            self._prev_state = ctx.state
 
     # -----------------------------------------------------------------------
     # Pump_GetTelemetryJSON() — byte-exacto al snprintf del firmware

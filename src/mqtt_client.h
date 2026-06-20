@@ -29,6 +29,7 @@ void mqtt_client_queue_init(void);
 void mqtt_client_task(void *params);
 void mqtt_rx_task(void *params);
 bool mqtt_client_publish(const char *topic, const char *payload);
+bool mqtt_client_publish_qos1(const char *topic, const char *payload);
 void mqtt_client_force_reconnect(void);
 
 #ifdef __cplusplus

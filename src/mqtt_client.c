@@ -15,6 +15,7 @@
 typedef struct {
     char topic[64];
     char payload[128];
+    uint8_t qos;
 } mqtt_msg_t;
 
 static QueueHandle_t mqtt_tx_queue = NULL;
@@ -158,7 +159,7 @@ void mqtt_client_task(void *params) {
                 if (xQueueReceive(mqtt_tx_queue, &msg, pdMS_TO_TICKS(5000)) == pdTRUE) {
                     if (mqtt_connected) {
                         cyw43_arch_lwip_begin();
-                        mqtt_publish(mqtt_client, msg.topic, msg.payload, strlen(msg.payload), 0, 0, mqtt_request_cb, NULL);
+                        mqtt_publish(mqtt_client, msg.topic, msg.payload, strlen(msg.payload), msg.qos, 0, mqtt_request_cb, NULL);
                         cyw43_arch_lwip_end();
                     }
                 }
@@ -178,11 +179,20 @@ bool mqtt_client_publish(const char *topic, const char *payload) {
     mqtt_msg_t msg;
     strncpy(msg.topic, topic, sizeof(msg.topic) - 1);
     msg.topic[sizeof(msg.topic) - 1] = '\0';
-    
     strncpy(msg.payload, payload, sizeof(msg.payload) - 1);
     msg.payload[sizeof(msg.payload) - 1] = '\0';
-    
+    msg.qos = 0;
+
     // Inyecta en la cola TX (no toma mutex, súper rápido, seguro de enviar desde cualquier tarea)
+    return (xQueueSendToBack(mqtt_tx_queue, &msg, 0) == pdTRUE);
+}
+
+bool mqtt_client_publish_qos1(const char *topic, const char *payload) {
+    if (mqtt_tx_queue == NULL) return false;
+    mqtt_msg_t msg;
+    strncpy(msg.topic,   topic,   sizeof(msg.topic)   - 1); msg.topic[sizeof(msg.topic)     - 1] = '\0';
+    strncpy(msg.payload, payload, sizeof(msg.payload) - 1); msg.payload[sizeof(msg.payload) - 1] = '\0';
+    msg.qos = 1;
     return (xQueueSendToBack(mqtt_tx_queue, &msg, 0) == pdTRUE);
 }
 
