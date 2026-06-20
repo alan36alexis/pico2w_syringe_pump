@@ -152,14 +152,6 @@ bool cmd_send_calibrate(void) {
     return queue_try_add(&crosscore_cmd_queue, &msg);
 }
 
-bool cmd_send_set_virtual_lsw(bool enabled, int32_t start_count, int32_t end_count) {
-    Core1CmdMessage_t msg;
-    msg.id = CMD_SET_VIRTUAL_LSW;
-    msg.payload.set_virtual_lsw.enabled = enabled;
-    msg.payload.set_virtual_lsw.start_count = start_count;
-    msg.payload.set_virtual_lsw.end_count = end_count;
-    return queue_try_add(&crosscore_cmd_queue, &msg);
-}
 
 void cmd_parse_and_execute(const char *payload_str) {
     // We expect a string like "10000.0,450.0" or "stop_imm" etc.
@@ -169,14 +161,14 @@ void cmd_parse_and_execute(const char *payload_str) {
 
     // Check for "STOP_IMM" command
     if (strncmp(cmd_str, "stop_imm", 8) == 0 || strncmp(cmd_str, "STOP_IMM", 8) == 0) {
-        printf("Executing STOP IMM command\n");
+        printf("[CMD]: Executing STOP IMM command\n");
         cmd_send_stop_immediate();
         return;
     }
 
     // Check for "STOP" or "stop" command
     if (strncmp(cmd_str, "stop", 4) == 0 || strncmp(cmd_str, "STOP", 4) == 0) {
-        printf("Executing STOP command\n");
+        printf("[CMD]: Executing STOP command\n");
         cmd_send_stop_motor();
         return;
     }
@@ -184,13 +176,13 @@ void cmd_parse_and_execute(const char *payload_str) {
     // --- FSM Commands ---
     if (strncmp(cmd_str, "fsm_home,", 9) == 0) {
         float speed = (float)atof(cmd_str + 9);
-        printf("FSM: Sending CMD_HOME (%.1f um/s)\n", speed);
+        printf("[FSM]: Sending CMD_HOME (%.1f um/s)\n", speed);
         cmd_send_home(speed);
         return;
     }
     if (strncmp(cmd_str, "fsm_search,", 11) == 0) {
         float speed = (float)atof(cmd_str + 11);
-        printf("FSM: Sending CMD_SEARCH_SYRINGE (%.1f um/s)\n", speed);
+        printf("[FSM]: Sending CMD_SEARCH_SYRINGE (%.1f um/s)\n", speed);
         cmd_send_search_syringe(speed);
         return;
     }
@@ -200,51 +192,41 @@ void cmd_parse_and_execute(const char *payload_str) {
             *comma = '\0';
             float target = (float)atof(cmd_str + 13);
             float vel = (float)atof(comma + 1);
-            printf("FSM: Sending CMD_START_DISPENSE (%.1f um @ %.1f um/s)\n", target, vel);
+            printf("[FSM]: Sending CMD_START_DISPENSE (%.1f um @ %.1f um/s)\n", target, vel);
             cmd_send_start_dispense(target, vel);
         } else {
-            printf("Error formating fsm_dispense. Use: fsm_dispense,TARGET,VELOCITY\n");
+            printf("[CMD]: Error formating fsm_dispense. Use: fsm_dispense,TARGET,VELOCITY\n");
         }
         return;
     }
     if (strncmp(cmd_str, "fsm_search_eot", 14) == 0) {
-        printf("FSM: Sending CMD_SEARCH_EOT\n");
+        printf("[FSM]: Sending CMD_SEARCH_EOT\n");
         cmd_send_search_eot();
         return;
     }
     if (strncmp(cmd_str, "fsm_reset", 9) == 0) {
-        printf("FSM: Sending CMD_RESET\n");
+        printf("[FSM]: Sending CMD_RESET\n");
         cmd_send_reset();
         return;
     }
     if (strncmp(cmd_str, "fsm_cont", 8) == 0) {
-        printf("FSM: Sending CMD_CONTINUE_DISPENSE\n");
+        printf("[FSM]: Sending CMD_CONTINUE_DISPENSE\n");
         cmd_send_continue_dispense();
         return;
     }
     if (strncmp(cmd_str, "fsm_occ_rel", 11) == 0) {
-        printf("FSM: Sending CMD_OCC_RELEASE\n");
+        printf("[FSM]: Sending CMD_OCC_RELEASE\n");
         cmd_send_occ_release();
         return;
     }
     if (strncmp(cmd_str, "fsm_resume", 10) == 0) {
-        printf("FSM: Sending CMD_RESUME_DISPENSE\n");
+        printf("[FSM]: Sending CMD_RESUME_DISPENSE\n");
         cmd_send_resume_dispense();
         return;
     }
     if (strncmp(cmd_str, "fsm_calibrate", 13) == 0) {
-        printf("FSM: Sending CMD_CALIBRATE\n");
+        printf("[FSM]: Sending CMD_CALIBRATE\n");
         cmd_send_calibrate();
-        return;
-    }
-    if (strncmp(cmd_str, "fsm_virtual_lsw,", 16) == 0) {
-        int enabled, start_c, end_c;
-        if (sscanf(cmd_str + 16, "%d,%d,%d", &enabled, &start_c, &end_c) == 3) {
-            printf("FSM: Sending CMD_SET_VIRTUAL_LSW (ena:%d, %d -> %d)\n", enabled, start_c, end_c);
-            cmd_send_set_virtual_lsw(enabled > 0, start_c, end_c);
-        } else {
-            printf("Error formating fsm_virtual_lsw. Use: fsm_virtual_lsw,ENABLED,START,END\n");
-        }
         return;
     }
     // --------------------
@@ -252,7 +234,7 @@ void cmd_parse_and_execute(const char *payload_str) {
     // Check for Home Start
     if (strncmp(cmd_str, "home_start,", 11) == 0) {
         float speed = (float)atof(cmd_str + 11);
-        printf("Executing HOME START command at %.2f um/s\n", speed);
+        printf("[CMD]: Executing HOME START command at %.2f um/s\n", speed);
         cmd_send_home_start(speed);
         return;
     }
@@ -260,7 +242,7 @@ void cmd_parse_and_execute(const char *payload_str) {
     // Check for Home End
     if (strncmp(cmd_str, "home_end,", 9) == 0) {
         float speed = (float)atof(cmd_str + 9);
-        printf("Executing HOME END command at %.2f um/s\n", speed);
+        printf("[CMD]: Executing HOME END command at %.2f um/s\n", speed);
         cmd_send_home_end(speed);
         return;
     }
@@ -272,10 +254,10 @@ void cmd_parse_and_execute(const char *payload_str) {
             *comma = '\0';
             int32_t nsteps = (int32_t)atoi(cmd_str + 7);
             float freq_hz = (float)atof(comma + 1);
-            printf("Executing NSTEPS command: steps=%d, freq=%.2f Hz\n", nsteps, freq_hz);
+            printf("[CMD]: Executing NSTEPS command: steps=%d, freq=%.2f Hz\n", nsteps, freq_hz);
             cmd_send_move_nsteps(nsteps, freq_hz);
         } else {
-            printf("Failed to parse NSTEPS command format\n");
+            printf("[CMD]: Failed to parse NSTEPS command format\n");
         }
         return;
     }
@@ -301,7 +283,7 @@ void cmd_parse_and_execute(const char *payload_str) {
             char *pass = comma + 1;
             config_set_wifi(ssid, pass);
         } else {
-            printf("Error formating config_wifi. Use: config_wifi,SSID,PASS\n");
+            printf("[CFG]: Error formating config_wifi. Use: config_wifi,SSID,PASS\n");
         }
         return;
     }
@@ -315,7 +297,7 @@ void cmd_parse_and_execute(const char *payload_str) {
             uint16_t port = (uint16_t)atoi(comma + 1);
             config_set_mqtt(ip, port);
         } else {
-            printf("Error formating config_mqtt. Use: config_mqtt,IP,PORT\n");
+            printf("[CFG]: Error formating config_mqtt. Use: config_mqtt,IP,PORT\n");
         }
         return;
     }
@@ -347,18 +329,17 @@ void cmd_parse_and_execute(const char *payload_str) {
 
     // Check for config_info
     if (strncmp(cmd_str, "config_info", 11) == 0) {
-        printf("\n--- CURRENT SYSTEM CONFIG ---\n");
-        printf("WiFi SSID: %s\n", g_sys_config.wifi_ssid);
-        printf("WiFi PASS: %s\n", g_sys_config.wifi_pass);
-        printf("MQTT IP  : %s\n", g_sys_config.mqtt_ip);
-        printf("MQTT PORT: %u\n", g_sys_config.mqtt_port);
-        printf("-----------------------------\n");
+        printf("[CFG]: CURRENT SYSTEM CONFIG\n");
+        printf("[CFG]: WiFi SSID: %s\n", g_sys_config.wifi_ssid);
+        printf("[CFG]: WiFi PASS: %s\n", g_sys_config.wifi_pass);
+        printf("[CFG]: MQTT IP  : %s\n", g_sys_config.mqtt_ip);
+        printf("[CFG]: MQTT PORT: %u\n", g_sys_config.mqtt_port);
         return;
     }
 
     // Check for reconnect
     if (strncmp(cmd_str, "reconnect", 9) == 0) {
-        printf("Force reconnecting WiFi and MQTT...\n");
+        printf("[NET]: Force reconnecting WiFi and MQTT...\n");
         // Force wifi disconnect
         cyw43_arch_lwip_begin();
         cyw43_wifi_leave(&cyw43_state, CYW43_ITF_STA);
@@ -371,7 +352,7 @@ void cmd_parse_and_execute(const char *payload_str) {
 
     // Check for net_disable
     if (strncmp(cmd_str, "net_disable", 11) == 0) {
-        printf("Disabling Wi-Fi/MQTT (Battery Save Mode)...\n");
+        printf("[NET]: Disabling Wi-Fi/MQTT (Battery Save Mode)...\n");
         config_set_wifi_enabled(false);
         mqtt_client_force_reconnect();
         cyw43_arch_disable_sta_mode();
@@ -380,7 +361,7 @@ void cmd_parse_and_execute(const char *payload_str) {
 
     // Check for net_enable
     if (strncmp(cmd_str, "net_enable", 10) == 0) {
-        printf("Enabling Wi-Fi/MQTT...\n");
+        printf("[NET]: Enabling Wi-Fi/MQTT...\n");
         config_set_wifi_enabled(true);
         cyw43_arch_enable_sta_mode();
         return;
@@ -393,9 +374,9 @@ void cmd_parse_and_execute(const char *payload_str) {
         *comma = '\0';
         target_um = (float)atof(cmd_str);
         velocity_ums = (float)atof(comma + 1);
-        printf("Executing linear move: target=%.2f um, vel=%.2f um/s\n", target_um, velocity_ums);
+        printf("[MTR]: Executing linear move: target=%.2f um, vel=%.2f um/s\n", target_um, velocity_ums);
         cmd_send_move_linear_um(target_um, velocity_ums);
     } else {
-        printf("Failed to parse command payload: %s\n", payload_str);
+        printf("[CMD]: Failed to parse command payload: %s\n", payload_str);
     }
 }

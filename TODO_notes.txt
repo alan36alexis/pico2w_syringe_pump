@@ -12,4 +12,5 @@ desdoblar en ST_READY_AT_HOME -> _VIRTUAL_READY_AT_HOME
 el conteo del encoder no se debe reiniciar en cada ciclo de movimiento, se debe pausar cuando se deteiene el movimiento
 y continuar el conteo cuando se reanuda el movimiento de manera que no se pierda la posicion relativa
 
+Interar implementación de virtual_lsw
 

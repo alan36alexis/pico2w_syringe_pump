@@ -37,8 +37,7 @@ typedef enum {
     EV_CMD_OCC_RELEASE,
     EV_CMD_RESUME_DISPENSE,
     EV_CMD_CALIBRATE,
-    EV_CMD_SET_VIRTUAL_LSW,
-    
+
     // Internal Events (Generated in Core 1)
     iEV_LSW_START_HIT,
     iEV_LSW_START_RELEASED,

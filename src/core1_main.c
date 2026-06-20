@@ -9,15 +9,16 @@
 
 // Componentes del proyecto
 #include "closed_loop.h"
+#include "config_manager.h"
 #include "core1_main.h"
 #include "crosscore_cmd.h"
-#include "config_manager.h"
 #include "crosscore_logger.h"
 #include "hardware/pio.h"
 #include "pulse_counter.pio.h"
 #include "quadrature_encoder.pio.h"
 #include "system_config.h"
 #include "tmc2209.h"
+
 
 // --- DEBUG MODE ---
 // 1 = Activado (printf habilitado), 0 = Desactivado (printf mudo)
@@ -48,8 +49,8 @@
 
 // Pines de Finales de Carrera
 // GP9: START  |  GP13: END  (GP8 lo ocupa ENA; GP6/GP7 los ocupa el encoder)
-#define LIMIT_SW_START_PIN 9
-#define LIMIT_SW_END_PIN   13
+#define LIMIT_SW_START_PIN 10
+#define LIMIT_SW_END_PIN 11
 
 // Pines de ADC (sensor de fuerza en embolo para deteccion de presion indirecta)
 #define ADC_PIN 28
@@ -117,25 +118,22 @@ typedef enum {
 
 static EmergencyState emergency_state = EMERGENCY_NORMAL;
 
-void tmc2209_move_linear_um_dma(TMC2209_t *motor, float target_um, float target_velocity_ums);
+void tmc2209_move_linear_um_dma(TMC2209_t *motor, float target_um,
+                                float target_velocity_ums);
 
 volatile int32_t calibration_max_encoder_count = 0;
-
-volatile bool virtual_lsw_enabled = false;
-volatile int32_t virtual_lsw_start_count = 0;
-volatile int32_t virtual_lsw_end_count = 0;
 
 
 void tmc2209_move_linear_um_dma(TMC2209_t *motor, float target_um,
                                 float target_velocity_ums) {
-  LOG_DEBUG("--- Abstraccion de Movimiento Lineal ---\n");
+  LOG_DEBUG("[MTR]: Abstraccion de Movimiento Lineal\n");
   if (g_log_filter.show_tgt) {
     LOG_DEBUG("[TGT]: Target: %.1f um a %.1f um/s\n", target_um,
               target_velocity_ums);
   }
 
   if (target_velocity_ums <= 0.0f || fabsf(target_um) < 1.0f) {
-    LOG_DEBUG("Error: Velocidad cero o distancia cero.\n");
+    LOG_DEBUG("[MTR]: Error: Velocidad cero o distancia cero.\n");
     return;
   }
 
@@ -202,8 +200,8 @@ void tmc2209_move_linear_um_dma(TMC2209_t *motor, float target_um,
 
   // Consideraciones para perfiles de aceleracion cortos
   if (total_microsteps < 100) {
-    LOG_DEBUG("Advertencia: Movimiento solicitado muy corto (%u micropasos). "
-              "Se enviará en burst.\n",
+    LOG_DEBUG("[MTR]: Advertencia: Movimiento solicitado muy corto (%u micropasos). "
+              "Se enviara en burst.\n",
               total_microsteps);
     float target_freq_hz = target_velocity_ums / um_per_microstep;
     tmc2209_send_nsteps_at_freq(motor, total_microsteps, target_freq_hz);
@@ -227,7 +225,8 @@ void tmc2209_move_linear_um_dma(TMC2209_t *motor, float target_um,
   // constante, 10% frenar O en su defecto, que la curva sea suficientemente
   // suave, limitando la aceleracion.
 
-  uint32_t pasos_aceleracion = (uint32_t)(total_microsteps * PROFILE_ACCEL_FRACTION);
+  uint32_t pasos_aceleracion =
+      (uint32_t)(total_microsteps * PROFILE_ACCEL_FRACTION);
   uint32_t pasos_frenado = pasos_aceleracion;
 
   // Si nos sobran para hacer 2-part profile
@@ -314,8 +313,8 @@ void core1_main(void) {
   global_motor = &motor1;
 
   tmc2209_init(&motor1, MOTOR_STEP_PIN, MOTOR_DIR_PIN, MOTOR_ENA_PIN,
-               MOTOR_STEPS_PER_REV, MOTOR_MICROSTEPS,
-               TMC2209_NO_PIN, TMC2209_NO_PIN);
+               MOTOR_STEPS_PER_REV, MOTOR_MICROSTEPS, TMC2209_NO_PIN,
+               TMC2209_NO_PIN);
   sleep_ms(SENSOR_INIT_DELAY_MS);
 
   // Configurar finales de carrera
@@ -323,12 +322,12 @@ void core1_main(void) {
 
   if (USE_UART_MODE) {
     // MODO UART: Configuramos los pines como direccion fija (Addr 0: Ambos LOW)
-    LOG_DEBUG(
-        "Iniciando en MODO UART (Pines MS usados para direccionamiento 0)\n");
+    LOG_DEBUG("[MTR]: Iniciando en MODO UART (Pines MS usados para direccionamiento 0)\n");
     tmc2209_set_uart_address_pins(&motor1, 0);
-    LOG_DEBUG("Direccion configurada: %d\n", motor1.addr);
+    LOG_DEBUG("[MTR]: Direccion configurada: %d\n", motor1.addr);
     // Inicializar UART
-    tmc2209_setup_uart(&motor1, uart1, TMC2209_UART_BAUD, 0, UART_TX_PIN, UART_RX_PIN);
+    tmc2209_setup_uart(&motor1, uart1, TMC2209_UART_BAUD, 0, UART_TX_PIN,
+                       UART_RX_PIN);
     // --- DIAGNoSTICO UART ---
     // Leemos el registro IOIN (0x06) para verificar si el driver responde.
     // Si devuelve 0, hay un problema físico (cableado, resistencia 1k faltante,
@@ -426,8 +425,8 @@ void core1_main(void) {
     bool have_cmd = false;
 
     // 1. Gather Events from IPC
-    // Pre-scan the queue: if a STOP_IMMEDIATE or STOP_MOTOR is present, process it
-    // first regardless of queue position (safety priority).
+    // Pre-scan the queue: if a STOP_IMMEDIATE or STOP_MOTOR is present, process
+    // it first regardless of queue position (safety priority).
     {
       Core1CmdMessage_t peek;
       Core1CmdMessage_t pending[10];
@@ -439,7 +438,10 @@ void core1_main(void) {
           emergency_found = true;
           break;
         }
-        if (pending_count < 10) pending[pending_count++] = peek;
+        if (pending_count < 10)
+          pending[pending_count++] = peek;
+        if (pending_count == 10)
+          break;
       }
       for (int _j = 0; _j < pending_count; _j++)
         queue_try_add(&crosscore_cmd_queue, &pending[_j]);
@@ -482,18 +484,6 @@ void core1_main(void) {
       case CMD_CALIBRATE:
         active_event = EV_CMD_CALIBRATE;
         break;
-      case CMD_SET_VIRTUAL_LSW:
-        virtual_lsw_enabled = cmd.payload.set_virtual_lsw.enabled;
-        virtual_lsw_start_count = cmd.payload.set_virtual_lsw.start_count;
-        virtual_lsw_end_count = cmd.payload.set_virtual_lsw.end_count;
-        if (g_log_filter.show_cfg) {
-          LOG_DEBUG("[CFG]: Virtual LSW Configured -> Enabled: %d, Start: %d, "
-                    "End: %d\n",
-                    virtual_lsw_enabled, virtual_lsw_start_count,
-                    virtual_lsw_end_count);
-        }
-        break;
-
       // Handle raw config/debug commands manually, override FSM
       case CMD_MOVE_LINEAR_UM:
         current_state = ST_MANUAL_OVERRIDE;
@@ -583,30 +573,8 @@ void core1_main(void) {
                           : pulse_counter_get_count(pio1, sm_enc_a);
       }
 
-      // Hysteresis prevents oscillation when encoder value sits near the threshold
-      static bool v_start_state = false;
-      static bool v_end_state = false;
-      if (virtual_lsw_enabled) {
-        if (!v_start_state && current_enc <= virtual_lsw_start_count)
-          v_start_state = true;
-        else if (v_start_state && current_enc > virtual_lsw_start_count + VIRTUAL_LSW_HYSTERESIS_COUNTS)
-          v_start_state = false;
-
-        if (!v_end_state && current_enc >= virtual_lsw_end_count)
-          v_end_state = true;
-        else if (v_end_state && current_enc < virtual_lsw_end_count - VIRTUAL_LSW_HYSTERESIS_COUNTS)
-          v_end_state = false;
-      } else {
-        v_start_state = false;
-        v_end_state = false;
-      }
-      bool virtual_start_active = virtual_lsw_enabled && v_start_state;
-      bool virtual_end_active   = virtual_lsw_enabled && v_end_state;
-
-      bool start_sw_active = gpio_get(global_motor->limit_switch_start_pin) ||
-                             virtual_start_active;
-      bool end_sw_active =
-          gpio_get(global_motor->limit_switch_end_pin) || virtual_end_active;
+      bool start_sw_active = gpio_get(global_motor->limit_switch_start_pin);
+      bool end_sw_active = gpio_get(global_motor->limit_switch_end_pin);
 
       if (start_sw_active) {
         if (start_sw_debounce < DEBOUNCE_THRESHOLD)
@@ -711,7 +679,7 @@ void core1_main(void) {
         g_sys_config.calibrated_max_encoder_count = current_enc;
         g_sys_config.calibration_valid = 1;
         g_calibration_dirty = true;
-        LOG_DEBUG("Calibration Complete! Max Encoder Count: %d\n",
+        LOG_DEBUG("[CFG]: Calibration Complete! Max Encoder Count: %d\n",
                   calibration_max_encoder_count);
       }
       if (tmc2209_is_moving(global_motor)) {
@@ -739,17 +707,19 @@ void core1_main(void) {
       previous_state = current_state;
     }
 
-    // Timeout guard: states that wait for hardware signal must not hang indefinitely
+    // Timeout guard: states that wait for hardware signal must not hang
+    // indefinitely
     static const Core1State_t hw_wait_states[] = {
-        ST_HOMING, ST_SEARCHING_EOT,
-        ST_BRAKING_LSW_START, ST_BRAKING_LSW_END,
-        ST_RELEASING_LSW_START, ST_RELEASING_LSW_END
-    };
-    for (int _i = 0; _i < (int)(sizeof(hw_wait_states)/sizeof(hw_wait_states[0])); _i++) {
+        ST_HOMING,          ST_SEARCHING_EOT,       ST_BRAKING_LSW_START,
+        ST_BRAKING_LSW_END, ST_RELEASING_LSW_START, ST_RELEASING_LSW_END};
+    for (int _i = 0;
+         _i < (int)(sizeof(hw_wait_states) / sizeof(hw_wait_states[0])); _i++) {
       if (current_state == hw_wait_states[_i]) {
-        uint32_t elapsed = to_ms_since_boot(get_absolute_time()) - fsm_state_entry_ms;
+        uint32_t elapsed =
+            to_ms_since_boot(get_absolute_time()) - fsm_state_entry_ms;
         if (elapsed > LSW_WAIT_TIMEOUT_MS && active_event == EV_NONE) {
-          LOG_DEBUG("[FSM]: Timeout in state %s after %u ms. Transitioning to ST_FAULT.\n",
+          LOG_DEBUG("[FSM]: Timeout in state %s after %u ms. Transitioning to "
+                    "ST_FAULT.\n",
                     get_state_name(current_state), elapsed);
           active_event = iEV_ENCODER_FAULT;
         }
@@ -757,7 +727,8 @@ void core1_main(void) {
       }
     }
 
-    // Global fault trap: any motor driver error transitions to ST_FAULT immediately
+    // Global fault trap: any motor driver error transitions to ST_FAULT
+    // immediately
     if (active_event == iEV_ENCODER_FAULT && current_state != ST_FAULT) {
       tmc2209_stop(global_motor);
       current_state = ST_FAULT;
@@ -866,7 +837,7 @@ void core1_main(void) {
                                   : pulse_counter_get_count(pio1, sm_enc_a);
         if (closed_loop_calculate_correction(
                 &scl, current_enc, USE_QUADRATURE_ENCODER, &missing_um)) {
-          LOG_DEBUG("Closed loop: Faltan %.1f um. Aplicando correccion...\n",
+          LOG_DEBUG("[ENC]: Closed loop: Faltan %.1f um. Aplicando correccion...\n",
                     missing_um);
           tmc2209_move_linear_um_dma(global_motor, missing_um,
                                      scl.expected_target_velocity_ums);
@@ -958,7 +929,7 @@ void core1_main(void) {
         if (closed_loop_calculate_correction(
                 &scl, current_enc, USE_QUADRATURE_ENCODER, &missing_um)) {
           LOG_DEBUG(
-              "Closed loop manual: Faltan %.1f um. Aplicando correccion...\n",
+              "[ENC]: Closed loop manual: Faltan %.1f um. Aplicando correccion...\n",
               missing_um);
           tmc2209_move_linear_um_dma(global_motor, missing_um,
                                      scl.expected_target_velocity_ums);
@@ -984,7 +955,8 @@ void core1_main(void) {
     uint32_t gstat = tmc2209_read_gstat(global_motor);
     uint16_t stall = tmc2209_read_sg_result(global_motor);
 
-    // GSTAT bit 1 = UV_CP (charge pump undervoltage), bit 2 = drv_err (driver error)
+    // GSTAT bit 1 = UV_CP (charge pump undervoltage), bit 2 = drv_err (driver
+    // error)
     if (gstat & 0x06) {
       if (active_event == EV_NONE && current_state != ST_FAULT) {
         active_event = iEV_ENCODER_FAULT;
@@ -1013,17 +985,11 @@ void core1_main(void) {
         bool is_fsm_routine = (current_state >= ST_SEARCHING_SYRINGE &&
                                current_state <= ST_OCCLUSION_PAUSED);
         if (counter % 50 == 0 && is_fsm_routine && is_moving) {
-          int32_t travel_counts = g_sys_config.calibration_valid
-                                      ? g_sys_config.calibrated_max_encoder_count
-                                      : MAX_TRAVEL_ENCODER_COUNT;
-          float pos_pct = (float)current_count / (float)travel_counts * 100.0f;
-          if (pos_pct < 0.0f)
-            pos_pct = 0.0f;
-          if (pos_pct > 100.0f)
-            pos_pct = 100.0f;
+          float pos_pct = tmc2209_get_move_progress_pct(global_motor);
           if (g_log_filter.show_prg) {
-            LOG_DEBUG("[POS]: Position progress: %.1f%%\n", pos_pct);
+            LOG_DEBUG("[PRG]: Position progress: %.1f%%\n", pos_pct);
           }
+          logger_send_motor_progress(pos_pct);
         }
 
         if (counter % 10 == 0) {
@@ -1031,7 +997,7 @@ void core1_main(void) {
               current_count, &last_speed_encoder_count, &last_speed_calc_time);
           if (is_moving) {
             if (counter % 50 == 0) {
-                  logger_send_encoder_speed(fabsf(pps) * calc_um_per_pulse(true));
+              logger_send_encoder_speed(fabsf(pps) * calc_um_per_pulse(true));
             }
             if (current_state != ST_BRAKING_LSW_START &&
                 current_state != ST_BRAKING_LSW_END &&
@@ -1058,7 +1024,8 @@ void core1_main(void) {
                                               &last_speed_calc_time);
           if (is_moving) {
             if (counter % 50 == 0) {
-                  logger_send_encoder_speed(fabsf(pps_a) * calc_um_per_pulse(false));
+              logger_send_encoder_speed(fabsf(pps_a) *
+                                        calc_um_per_pulse(false));
             }
             if (current_state != ST_BRAKING_LSW_START &&
                 current_state != ST_BRAKING_LSW_END &&

@@ -79,14 +79,14 @@ static void mqtt_request_cb(void *arg, err_t err) {
 static void mqtt_connection_cb(mqtt_client_t *client, void *arg, mqtt_connection_status_t status) {
     (void)arg;
     if (status == MQTT_CONNECT_ACCEPTED) {
-        printf("MQTT Connected! id=%s\n", g_sys_config.device_id);
+        printf("[MQT]: Connected! id=%s\n", g_sys_config.device_id);
         mqtt_connected = true;
 
         mqtt_set_inpub_callback(client, mqtt_incoming_publish_cb, mqtt_incoming_data_cb, NULL);
 
         err_t err = mqtt_subscribe(client, topic_cmd(), 1, mqtt_request_cb, NULL);
         if (err != ERR_OK) {
-            printf("MQTT subscribe error: %d\n", err);
+            printf("[MQT]: Subscribe error: %d\n", err);
         }
 
         // Publish online status with retain so the dashboard always sees it
@@ -95,7 +95,7 @@ static void mqtt_connection_cb(mqtt_client_t *client, void *arg, mqtt_connection
             "{\"state\":\"online\",\"id\":\"%s\",\"fw\":\"v1.0.0\"}", g_sys_config.device_id);
         mqtt_publish(client, topic_status(), online, strlen(online), 1, 1, mqtt_request_cb, NULL);
     } else {
-        printf("MQTT disconnected, status: %d\n", status);
+        printf("[MQT]: Disconnected, status: %d\n", status);
         mqtt_connected = false;
     }
 }
@@ -110,7 +110,7 @@ void mqtt_client_task(void *params) {
     cyw43_arch_lwip_end();
 
     if (mqtt_client == NULL) {
-        printf("Failed to create MQTT client\n");
+        printf("[MQT]: Failed to create MQTT client\n");
         vTaskDelete(NULL);
         return;
     }
@@ -141,14 +141,14 @@ void mqtt_client_task(void *params) {
             
             int link_status = cyw43_tcpip_link_status(&cyw43_state, CYW43_ITF_STA);
             if (link_status == CYW43_LINK_UP) {
-                printf("Attempting MQTT connection to %s:%d...\n", g_sys_config.mqtt_ip, g_sys_config.mqtt_port);
+                printf("[MQT]: Attempting connection to %s:%d...\n", g_sys_config.mqtt_ip, g_sys_config.mqtt_port);
                 
                 cyw43_arch_lwip_begin();
                 err_t err = mqtt_client_connect(mqtt_client, &broker_ip, g_sys_config.mqtt_port, mqtt_connection_cb, NULL, &ci);
                 cyw43_arch_lwip_end();
 
                 if (err != ERR_OK) {
-                    printf("MQTT connection error: %d\n", err);
+                    printf("[MQT]: Connection error: %d\n", err);
                 }
             }
             vTaskDelay(pdMS_TO_TICKS(5000));
@@ -188,7 +188,7 @@ bool mqtt_client_publish(const char *topic, const char *payload) {
 
 void mqtt_client_force_reconnect(void) {
     if (mqtt_client != NULL && mqtt_client_is_connected(mqtt_client)) {
-        printf("Forcing MQTT disconnect...\n");
+        printf("[MQT]: Forcing disconnect...\n");
         cyw43_arch_lwip_begin();
         mqtt_disconnect(mqtt_client);
         cyw43_arch_lwip_end();

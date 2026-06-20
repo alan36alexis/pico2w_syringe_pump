@@ -66,16 +66,16 @@ void config_manager_init(void) {
         if (calculate_checksum((SystemConfig_t*)flash_cfg) == flash_cfg->crc) {
             valid = true;
         } else {
-            printf("CONFIG: Magic OK, but CRC mismatch!\n");
+            printf("[CFG]: Magic OK, but CRC mismatch!\n");
         }
     }
 
     if (valid) {
         memcpy(&g_sys_config, flash_cfg, sizeof(SystemConfig_t));
-        printf("CONFIG: Loaded from Flash successfully.\n");
-        printf("CONFIG: SSID='%s', MQTT='%s:%d'\n", g_sys_config.wifi_ssid, g_sys_config.mqtt_ip, g_sys_config.mqtt_port);
+        printf("[CFG]: Loaded from Flash successfully.\n");
+        printf("[CFG]: SSID='%s', MQTT='%s:%d'\n", g_sys_config.wifi_ssid, g_sys_config.mqtt_ip, g_sys_config.mqtt_port);
     } else {
-        printf("CONFIG: No valid config in Flash. Using firmware defaults.\n");
+        printf("[CFG]: No valid config in Flash. Using firmware defaults.\n");
         g_sys_config.magic = CONFIG_MAGIC_WORD;
         
         strncpy(g_sys_config.wifi_ssid, WIFI_SSID, MAX_SSID_LEN);
@@ -104,7 +104,7 @@ bool config_manager_save(bool override_motor_check) {
     // Check motor status first
     if (!override_motor_check && global_motor != NULL) {
         if (tmc2209_is_moving(global_motor)) {
-            printf("CONFIG: Guardado abortado! El motor esta en movimiento.\n");
+            printf("[CFG]: Guardado abortado! El motor esta en movimiento.\n");
             config_unlock();
             return false;
         }
@@ -119,7 +119,7 @@ bool config_manager_save(bool override_motor_check) {
     // Note: sizeof(SystemConfig_t) must be <= FLASH_PAGE_SIZE
     memcpy(flash_buffer, &g_sys_config, sizeof(SystemConfig_t));
 
-    printf("CONFIG: Suspendiendo Core 1 y deshabilitando interrupciones para borrar/escribir sector Flash...\n");
+    printf("[CFG]: Suspendiendo Core 1 y deshabilitando interrupciones para borrar/escribir sector Flash...\n");
     
     // Pause execution of the other core
     multicore_lockout_start_blocking();
@@ -138,7 +138,7 @@ bool config_manager_save(bool override_motor_check) {
     multicore_lockout_end_blocking();
 
     config_unlock();
-    printf("CONFIG: Flash write complete. Sistema reanudado.\n");
+    printf("[CFG]: Flash write complete. Sistema reanudado.\n");
     return true;
 }
 
@@ -151,7 +151,7 @@ void config_set_wifi(const char* ssid, const char* pass) {
     g_sys_config.wifi_pass[MAX_PASS_LEN - 1] = '\0';
     config_unlock();
 
-    printf("CONFIG: WiFi en RAM actualizado (SSID y Pass)\n");
+    printf("[CFG]: WiFi en RAM actualizado (SSID y Pass)\n");
 }
 
 void config_set_wifi_ssid(const char* ssid) {
@@ -159,7 +159,7 @@ void config_set_wifi_ssid(const char* ssid) {
     strncpy(g_sys_config.wifi_ssid, ssid, MAX_SSID_LEN);
     g_sys_config.wifi_ssid[MAX_SSID_LEN - 1] = '\0';
     config_unlock();
-    printf("CONFIG: WiFi SSID actualizado a '%s'\n", ssid);
+    printf("[CFG]: WiFi SSID actualizado a '%s'\n", ssid);
 }
 
 void config_set_wifi_pass(const char* pass) {
@@ -167,7 +167,7 @@ void config_set_wifi_pass(const char* pass) {
     strncpy(g_sys_config.wifi_pass, pass, MAX_PASS_LEN);
     g_sys_config.wifi_pass[MAX_PASS_LEN - 1] = '\0';
     config_unlock();
-    printf("CONFIG: WiFi Password actualizado.\n");
+    printf("[CFG]: WiFi Password actualizado.\n");
 }
 
 void config_set_mqtt(const char* ip, uint16_t port) {
@@ -177,7 +177,7 @@ void config_set_mqtt(const char* ip, uint16_t port) {
     g_sys_config.mqtt_port = port;
     config_unlock();
     
-    printf("CONFIG: MQTT en RAM actualizado a '%s:%d'\n", g_sys_config.mqtt_ip, g_sys_config.mqtt_port);
+    printf("[CFG]: MQTT en RAM actualizado a '%s:%d'\n", g_sys_config.mqtt_ip, g_sys_config.mqtt_port);
 }
 
 void config_set_mqtt_ip(const char* ip) {
@@ -185,19 +185,19 @@ void config_set_mqtt_ip(const char* ip) {
     strncpy(g_sys_config.mqtt_ip, ip, MAX_IP_LEN);
     g_sys_config.mqtt_ip[MAX_IP_LEN - 1] = '\0';
     config_unlock();
-    printf("CONFIG: MQTT IP actualizado a '%s'\n", ip);
+    printf("[CFG]: MQTT IP actualizado a '%s'\n", ip);
 }
 
 void config_set_mqtt_port(uint16_t port) {
     config_lock();
     g_sys_config.mqtt_port = port;
     config_unlock();
-    printf("CONFIG: MQTT Port actualizado a %d\n", port);
+    printf("[CFG]: MQTT Port actualizado a %d\n", port);
 }
 
 void config_set_wifi_enabled(bool enabled) {
     config_lock();
     g_sys_config.wifi_enabled = enabled ? 1 : 0;
     config_unlock();
-    printf("CONFIG: WiFi Enabled status actualizado a %d\n", enabled ? 1 : 0);
+    printf("[CFG]: WiFi Enabled status actualizado a %d\n", enabled ? 1 : 0);
 }

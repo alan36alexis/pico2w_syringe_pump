@@ -26,7 +26,6 @@ typedef enum {
     CMD_OCC_RELEASE,
     CMD_RESUME_DISPENSE,
     CMD_CALIBRATE,
-    CMD_SET_VIRTUAL_LSW,
     // Add more commands here as needed
 } Core1CmdID_t;
 
@@ -61,11 +60,6 @@ typedef struct {
             float target_um;
             float target_velocity_ums;
         } start_dispense;
-        struct {
-            bool enabled;
-            int32_t start_count;
-            int32_t end_count;
-        } set_virtual_lsw;
         uint32_t raw_data; // For arbitrary data
     } payload;
 } Core1CmdMessage_t;
@@ -95,7 +89,6 @@ bool cmd_send_continue_dispense(void);
 bool cmd_send_occ_release(void);
 bool cmd_send_resume_dispense(void);
 bool cmd_send_calibrate(void);
-bool cmd_send_set_virtual_lsw(bool enabled, int32_t start_count, int32_t end_count);
 
 // Parse and execute a string command (used by MQTT and CLI)
 void cmd_parse_and_execute(const char *payload_str);

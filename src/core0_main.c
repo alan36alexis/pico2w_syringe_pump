@@ -55,26 +55,26 @@ static void task_init(void *params) {
 
   // Inicializacion de GPIO y Wi-Fi chip (CYW43)
   if (cyw43_arch_init_with_country(CYW43_COUNTRY_WORLDWIDE)) {
-    safe_printf("Wi-Fi init failed\n");
+    safe_printf("[NET]: Wi-Fi init failed\n");
     vTaskDelete(NULL);
     return;
   }
 
   if (g_sys_config.wifi_enabled) {
     cyw43_arch_enable_sta_mode();
-    safe_printf("Connecting to Wi-Fi SSID: [%s], PASS: [%s]...\n", g_sys_config.wifi_ssid, g_sys_config.wifi_pass);
+    safe_printf("[NET]: Connecting to Wi-Fi SSID: [%s], PASS: [%s]...\n", g_sys_config.wifi_ssid, g_sys_config.wifi_pass);
     int err = cyw43_arch_wifi_connect_timeout_ms(g_sys_config.wifi_ssid,
                                            g_sys_config.wifi_pass,
                                            CYW43_AUTH_WPA2_MIXED_PSK, 30000);
     if (err) {
-      safe_printf("Failed to connect to Wi-Fi on boot. Error: %d. Keepalive task will retry.\n", err);
+      safe_printf("[NET]: Failed to connect to Wi-Fi on boot. Error: %d. Keepalive task will retry.\n", err);
     } else {
-      safe_printf("Connected to Wi-Fi.\n");
+      safe_printf("[NET]: Connected to Wi-Fi.\n");
       cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, 1);
     }
   } else {
     cyw43_arch_disable_sta_mode();
-    safe_printf("Wi-Fi is disabled by configuration (Battery Save Mode).\n");
+    safe_printf("[NET]: Wi-Fi is disabled by configuration (Battery Save Mode).\n");
   }
 
   // Iniciar la tarea cliente MQTT
@@ -99,15 +99,15 @@ static void wifi_keepalive_task(void *params) {
     }
     int link_status = cyw43_tcpip_link_status(&cyw43_state, CYW43_ITF_STA);
     if (link_status != CYW43_LINK_UP) {
-      safe_printf("Wi-Fi disconnected (status: %d). Reconnecting to %s...\n",
+      safe_printf("[NET]: Wi-Fi disconnected (status: %d). Reconnecting to %s...\n",
                   link_status, g_sys_config.wifi_ssid);
       int err = cyw43_arch_wifi_connect_timeout_ms(g_sys_config.wifi_ssid,
                                              g_sys_config.wifi_pass,
                                              CYW43_AUTH_WPA2_MIXED_PSK, 30000);
       if (err) {
-        safe_printf("Failed to reconnect to Wi-Fi. Error: %d\n", err);
+        safe_printf("[NET]: Failed to reconnect to Wi-Fi. Error: %d\n", err);
       } else {
-        safe_printf("Reconnected to Wi-Fi.\n");
+        safe_printf("[NET]: Reconnected to Wi-Fi.\n");
       }
     }
     vTaskDelay(pdMS_TO_TICKS(10000));
@@ -157,7 +157,7 @@ static void task_logger(void *params) {
     if (g_calibration_dirty) {
         g_calibration_dirty = false;
         config_manager_save(true);
-        safe_printf("CONFIG: Calibration saved to Flash.\n");
+        safe_printf("[CFG]: Calibration saved to Flash.\n");
     }
 
     // Verifica si hay mensajes en la cola desde el Core 1
@@ -165,11 +165,11 @@ static void task_logger(void *params) {
       buf[0] = '\0';
       switch (msg.id) {
       case LOG_EVENT_HEARTBEAT:
-        printf("Core 1 counter: %u\n", msg.payload.counter);
+        printf("[SYS]: Core 1 counter: %u\n", msg.payload.counter);
         snprintf(buf, sizeof(buf), "Core 1 counter: %u", msg.payload.counter);
         break;
       case LOG_EVENT_PRESSURE_UPDATE:
-        printf("Status: OK, Pressure: %.2f psi (%.2f mmHg)\n",
+        printf("[PRS]: Status: OK, Pressure: %.2f psi (%.2f mmHg)\n",
                msg.payload.pressure_psi, msg.payload.pressure_psi * 51.7149f);
         snprintf(buf, sizeof(buf), "Status: OK, Pressure: %.2f psi (%.2f mmHg)",
                  msg.payload.pressure_psi, msg.payload.pressure_psi * 51.7149f);
@@ -178,14 +178,14 @@ static void task_logger(void *params) {
         Pump_UpdatePressure(msg.payload.pressure_psi * 51.7149f);
         break;
       case LOG_EVENT_PRESSURE_ALERT:
-        printf("ALERTA: Sobrepresion (%.2f PSI). Frenando para retroceder!\n",
+        printf("[PRS]: ALERTA: Sobrepresion (%.2f PSI). Frenando para retroceder!\n",
                msg.payload.pressure_psi);
         snprintf(buf, sizeof(buf),
                  "ALERTA: Sobrepresion (%.2f PSI). Frenando para retroceder!",
                  msg.payload.pressure_psi);
         break;
       case LOG_EVENT_PRESSURE_SAFE:
-        printf("Presion segura (%.2f PSI). Deteniendo definitivamente.\n",
+        printf("[PRS]: Presion segura (%.2f PSI). Deteniendo definitivamente.\n",
                msg.payload.pressure_psi);
         snprintf(buf, sizeof(buf),
                  "Presion segura (%.2f PSI). Deteniendo definitivamente.",
@@ -196,16 +196,16 @@ static void task_logger(void *params) {
         snprintf(buf, sizeof(buf), "Motor detenido.");
         break;
       case LOG_EVENT_MOTOR_RETRACTING:
-        printf("Retroceso iniciado...\n");
+        printf("[MTR]: Retroceso iniciado...\n");
         snprintf(buf, sizeof(buf), "Retroceso iniciado...");
         break;
       case LOG_EVENT_MOTOR_START_HIT:
-        printf("Tope INICIO alcanzado. Iniciando frenado suave...\n");
+        printf("[MTR]: Tope INICIO alcanzado. Iniciando frenado suave...\n");
         snprintf(buf, sizeof(buf),
                  "Tope INICIO alcanzado. Iniciando frenado suave...");
         break;
       case LOG_EVENT_MOTOR_END_HIT:
-        printf("Tope FIN alcanzado. Iniciando frenado suave...\n");
+        printf("[MTR]: Tope FIN alcanzado. Iniciando frenado suave...\n");
         snprintf(buf, sizeof(buf),
                  "Tope FIN alcanzado. Iniciando frenado suave...");
         break;
@@ -220,35 +220,34 @@ static void task_logger(void *params) {
                  msg.payload.motor_status.gstat);
         break;
       case LOG_EVENT_UART_INIT_OK:
-        printf("Conexion UART Exitosa. IOIN: 0x%08X\n", msg.payload.raw_data);
+        printf("[MTR]: Conexion UART Exitosa. IOIN: 0x%08X\n", msg.payload.raw_data);
         snprintf(buf, sizeof(buf), "Conexion UART Exitosa. IOIN: 0x%08X",
                  msg.payload.raw_data);
         break;
       case LOG_EVENT_UART_INIT_FAIL:
-        printf("ERROR CRITICO: No hay comunicacion UART (Lectura = 0).\n");
-        printf("Revisar conexion TX/RX y alimentacion VM.\n");
+        printf("[MTR]: ERROR CRITICO: No hay comunicacion UART (Lectura = 0).\n");
+        printf("[MTR]: Revisar conexion TX/RX y alimentacion VM.\n");
         snprintf(buf, sizeof(buf),
                  "ERROR CRITICO: No hay comunicacion UART (Lectura = 0). "
                  "Revisar conexion TX/RX y alimentacion VM.");
         break;
       case LOG_EVENT_UART_INIT_MICROSTEPS_READ:
-        printf("Microsteps Leido: %u\n", msg.payload.raw_data);
+        printf("[MTR]: Microsteps Leido: %u\n", msg.payload.raw_data);
         snprintf(buf, sizeof(buf), "Microsteps Leido: %u",
                  msg.payload.raw_data);
         break;
       case LOG_EVENT_PINS_INIT_MODE:
-        printf(
-            "Iniciando en MODO PINES (Pines MS usados para microstepping)\n");
+        printf("[MTR]: Iniciando en MODO PINES (Pines MS usados para microstepping)\n");
         snprintf(
             buf, sizeof(buf),
             "Iniciando en MODO PINES (Pines MS usados para microstepping)");
         break;
       case LOG_EVENT_GENERAL_DEBUG:
-        printf("Debug raw: %u\n", msg.payload.raw_data);
+        printf("[SYS]: Debug raw: %u\n", msg.payload.raw_data);
         snprintf(buf, sizeof(buf), "Debug raw: %u", msg.payload.raw_data);
         break;
       case LOG_EVENT_MOTOR_MOVING:
-        printf("Motor en movimiento...\n");
+        printf("[MTR]: Motor en movimiento...\n");
         snprintf(buf, sizeof(buf), "Motor en movimiento...");
         break;
       case LOG_EVENT_STRING_MSG:
@@ -295,7 +294,7 @@ static void task_logger(void *params) {
                  msg.payload.speed_warning.actual_ums);
         break;
       case LOG_EVENT_CORRECTION_APPLIED:
-        printf("INFO: Semi-Closed Loop correction applied (missing: %.2f um)\n",
+        printf("[ENC]: Semi-Closed Loop correction applied (missing: %.2f um)\n",
                msg.payload.correction_um);
         snprintf(buf, sizeof(buf), "{\"correction_applied_um\": %.2f}",
                  msg.payload.correction_um);
@@ -311,7 +310,7 @@ static void task_logger(void *params) {
                  get_state_name(msg.payload.fsm_state));
         break;
       default:
-        printf("Unknown crosscore logger event: %d\n", msg.id);
+        printf("[SYS]: Unknown crosscore logger event: %d\n", msg.id);
         snprintf(buf, sizeof(buf), "Unknown crosscore logger event: %d",
                  msg.id);
         break;

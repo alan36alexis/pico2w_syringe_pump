@@ -60,7 +60,6 @@
 
 // --- FSM Timeouts ---
 #define LSW_WAIT_TIMEOUT_MS         5000
-#define VIRTUAL_LSW_HYSTERESIS_COUNTS 5
 
 // --- Kinematics Helper ---
 static inline float calc_um_per_pulse(bool use_quadrature) {

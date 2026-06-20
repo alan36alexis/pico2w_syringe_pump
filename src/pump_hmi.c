@@ -117,7 +117,7 @@ void pump_hmi_parse_and_execute(const char *str) {
         if (sscanf(str + 13, "%f,%f", &target, &vel) == 2)
             ok = pump_hmi_execute(HMI_ACTION_START_DISPENSE, target, vel);
         else
-            printf("[HMI] Error: uso -> fsm_dispense,TARGET_UM,VELOCITY_UMS\n");
+            printf("[HMI]: Error: uso -> fsm_dispense,TARGET_UM,VELOCITY_UMS\n");
 
     } else if (strncmp(str, "fsm_search_eot", 14) == 0) {
         ok = pump_hmi_execute(HMI_ACTION_SEARCH_EOT, 0.0f, 0.0f);
@@ -142,7 +142,7 @@ void pump_hmi_parse_and_execute(const char *str) {
     }
 
     if (handled && !ok) {
-        printf("[HMI] Comando rechazado en estado: %s\n",
+        printf("[HMI]: Comando rechazado en estado: %s\n",
                get_state_name(pump_hmi_get_fsm_state()));
     } else if (!handled) {
         // Comandos de bajo nivel (nsteps, move_linear, config_*, log_*, etc.)
