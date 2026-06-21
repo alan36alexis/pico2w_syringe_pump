@@ -23,7 +23,8 @@ extern "C" {
 #define MQTT_BROKER_IP "192.168.0.21" // MQTT broker IP
 #endif
 
-#define MQTT_BROKER_PORT 1883
+#define MQTT_BROKER_PORT  1883
+#define MQTT_MAX_PAYLOAD  256  // max bytes de cualquier payload en la cola MQTT
 
 void mqtt_client_queue_init(void);
 void mqtt_client_task(void *params);

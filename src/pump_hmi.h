@@ -41,6 +41,6 @@ const PumpContext_t *pump_hmi_get_context(void);
 // Comandos fsm_* se validan contra el estado actual antes de ejecutar.
 // Comandos de bajo nivel (nsteps, move_linear, config_*) pasan directo a
 // cmd_parse_and_execute para mantener compatibilidad.
-void pump_hmi_parse_and_execute(const char *str);
+bool pump_hmi_parse_and_execute(const char *str);
 
 #endif // PUMP_HMI_H

@@ -3,7 +3,7 @@
 
 // Descomentar o comentar esta linea para habilitar/deshabilitar el monitoreo de
 // salud del sistema
-// #define ENABLE_SYS_HEALTH_MONITOR
+#define ENABLE_SYS_HEALTH_MONITOR
 
 #include "FreeRTOS.h"
 #include "config_manager.h"
@@ -28,6 +28,13 @@
 #include <stdio.h>
 
 static void wifi_keepalive_task(void *params);
+
+void vApplicationStackOverflowHook(TaskHandle_t xTask, char *pcTaskName) {
+  (void)xTask;
+  printf("\n[ERR]: *** STACK OVERFLOW en tarea: %s ***\n", pcTaskName);
+  __breakpoint(); // Detiene el debugger en este punto
+  for (;;);
+}
 
 #define PRINT_QUEUE_LENGTH 15
 #define PRINT_MSG_MAX_LEN 128
@@ -456,26 +463,14 @@ static void task_system_monitor(void *params) {
 }
 #endif
 
-/**
- * @brief Tarea de display TFT + Touch (LVGL).
- *
- * Requiere que lib/tft_touch_module esté integrado al build (ENABLE_TFT).
- * Por ahora es un stub que inicializa la capa HMI y el mirror de estado.
- */
 #ifdef ENABLE_TFT
 #include "display_driver.h"
 #include "touch_driver.h"
 #include "encoder_driver.h"
 #include "ui.h"
-#endif
 
-/**
- * @brief Lectura de periféricos UI: encoder, teclas, touch.
- * Prioridad tskIDLE_PRIORITY+3, período 10 ms. Single producer de ui_event_queue.
- */
 static void task_ui_input(void *params) {
   (void)params;
-#ifdef ENABLE_TFT
   TickType_t last_wake = xTaskGetTickCount();
   const TickType_t period = pdMS_TO_TICKS(10);
   while (1) {
@@ -483,18 +478,10 @@ static void task_ui_input(void *params) {
     // y enviar UIEvent_t via ui_event_send().
     vTaskDelayUntil(&last_wake, period);
   }
-#else
-  vTaskDelete(NULL);
-#endif
 }
 
-/**
- * @brief Renderizado LVGL + consumo de eventos táctiles de ui_event_queue.
- * Prioridad tskIDLE_PRIORITY+2, período 20 ms (50 Hz LVGL máximo).
- */
 static void task_tft(void *params) {
   (void)params;
-#ifdef ENABLE_TFT
   lv_init();
   display_driver_init();
   touch_driver_init();
@@ -510,7 +497,6 @@ static void task_tft(void *params) {
     UIState_t state = ui_state_get_snapshot();
     (void)state; // TODO: actualizar widgets LVGL con state
 
-    // Consumir eventos táctiles (non-blocking)
     UIEvent_t ev;
     while (xQueueReceive(ui_event_queue, &ev, 0) == pdTRUE) {
       if (ev.type == UI_EVENT_TOUCH) {
@@ -520,10 +506,8 @@ static void task_tft(void *params) {
 
     vTaskDelayUntil(&last_wake, period);
   }
-#else
-  vTaskDelete(NULL);
-#endif
 }
+#endif // ENABLE_TFT
 
 /**
  * @brief Función para configurar todas las tareas del Core 0 antes de iniciar
@@ -541,22 +525,25 @@ void core0_main_setup(void) {
 
   // Creación de las tareas de FreeRTOS
   xTaskCreate(task_init, "Init", 1024, NULL, 2, NULL);
-  xTaskCreate(task_blinky, "Blinky", configMINIMAL_STACK_SIZE, NULL, 1, NULL);
-  xTaskCreate(task_logger, "Logger", configMINIMAL_STACK_SIZE * 3, NULL, 1,
+  xTaskCreate(task_blinky, "Blinky", configMINIMAL_STACK_SIZE * 4, NULL, 1, NULL);
+  xTaskCreate(task_logger, "Logger", configMINIMAL_STACK_SIZE * 5, NULL, 1,
               NULL);
-  xTaskCreate(task_pump_telemetry, "Telemetry", configMINIMAL_STACK_SIZE * 2,
+  xTaskCreate(task_pump_telemetry, "Telemetry", configMINIMAL_STACK_SIZE * 4,
               NULL, 1, NULL);
   xTaskCreate(task_cli, "CLI", configMINIMAL_STACK_SIZE * 3, NULL, 1, NULL);
-  xTaskCreate(mqtt_rx_task, "MQTT_Rx", configMINIMAL_STACK_SIZE * 2, NULL, 2,
+  // mqtt_msg_t (324 B) + cmd_buf[128] + sscanf internals + publish_qos1 frame = ~500 words peak
+  xTaskCreate(mqtt_rx_task, "MQTT_Rx", configMINIMAL_STACK_SIZE * 8, NULL, 2,
               NULL);
 #ifdef ENABLE_SYS_HEALTH_MONITOR
   xTaskCreate(task_system_monitor, "SysMon", configMINIMAL_STACK_SIZE * 3, NULL,
               1, NULL);
 #endif
-  xTaskCreate(task_example_internal_cmd, "CmdExample", configMINIMAL_STACK_SIZE,
+  xTaskCreate(task_example_internal_cmd, "CmdExample", configMINIMAL_STACK_SIZE * 2,
               NULL, 1, NULL);
+#ifdef ENABLE_TFT
   // task_ui_input: prioridad más alta para capturar input antes del frame LVGL
   xTaskCreate(task_ui_input, "UI_Input", 512,  NULL, tskIDLE_PRIORITY + 3, NULL);
   // task_tft: 4096 words (16 KB) — LVGL necesita stack generoso
   xTaskCreate(task_tft,      "TFT",      4096, NULL, tskIDLE_PRIORITY + 2, NULL);
+#endif
 }

@@ -147,8 +147,8 @@ Los tópicos `syringe_pump/*` fueron eliminados del firmware. No usar en integra
 - [x] `MQTT_CONTRACT.md` — contrato de tópicos, esquemas JSON, QoS, diagrama cmd/ack
 - [x] Migrar telemetría y logs a `bj/{id}/...` (eliminar literales `syringe_pump/*`) **PR2**
 - [x] `nodered/pump_simulator.py` en el repo con tópicos `bj/{id}/*` actualizados **PR2**
-- [ ] `cmd_envelope` + ACK correlacionado en `bj/{id}/cmd/ack` **PR3**
-- [ ] Buffer `MQTT_MAX_PAYLOAD=512` + QoS diferenciado por tipo de mensaje **PR4**
+- [x] `cmd_envelope` + ACK correlacionado en `bj/{id}/cmd/ack` **PR3**
+- [x] `MQTT_MAX_PAYLOAD=256` — fix truncamiento silencioso de telemetría (~162 chars > 127) **PR4**
 - [ ] Dashboard Node-RED: overview, detalle, alarmas, control remoto, datalog
 - [ ] Notificaciones PWA (Web Push)
 

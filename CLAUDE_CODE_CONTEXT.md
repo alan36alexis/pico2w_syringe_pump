@@ -89,7 +89,7 @@ bj/{id}/status           QoS 1, retain=true  — ACTIVO (PR1)
 bj/{id}/cmd              QoS 1, sin retain   — ACTIVO (PR1)
 bj/{id}/telemetry        QoS 0, sin retain   — ACTIVO (PR2)
 bj/{id}/event            QoS 1, sin retain   — ACTIVO (PR2, solo transiciones FSM por ahora)
-bj/{id}/cmd/ack          QoS 1, sin retain   — PENDIENTE PR3
+bj/{id}/cmd/ack          QoS 1, sin retain   — ACTIVO (PR3)
 ```
 No quedan literales `syringe_pump/*` en `src/`.
 
@@ -108,24 +108,22 @@ Agregado a `CMakeLists.txt`. Llamado desde `mqtt_client_task()` antes del loop d
 `mqtt_incoming_publish_cb`. El `mqtt_incoming_data_cb` lo copia a `rx_msg.topic` y
 también respeta el flag `MQTT_DATA_FLAG_LAST` para ignorar payloads fragmentados.
 
-**ACK de comandos — PENDIENTE (PR3):** El dashboard no sabe si un comando fue aceptado.
-Solución: capa `cmd_envelope` sobre `cmd_parse_and_execute()` sin modificarlo:
-```
-Dashboard → bj/{id}/cmd  →  {"cid":17,"cmd":"fsm_dispense,10000.0,450.0"}
-Firmware  → bj/{id}/cmd/ack  →  {"cid":17,"result":"accepted"}
-```
-El `cid` (correlation ID) permite request/response sobre pub/sub puro.
+**ACK de comandos — ✅ IMPLEMENTADO (PR3):**
+`mqtt_rx_task` parsea el envelope con `sscanf("{\"cid\":%d,\"cmd\":\"%255[^\"]\"}", ...)`.
+`pump_hmi_parse_and_execute` cambió de `void` a `bool` (true=accepted, false=rejected).
+Publica `{"cid":N,"result":"accepted"|"rejected"}` en `topic_cmd_ack()` QoS 1.
+Fallback a string crudo si no hay envelope (backward compat con CLI/mosquitto_pub).
 
-### 3.6 Buffer de payload de 128 bytes insuficiente
-**Problema:** `char payload[128]` se queda corto cuando el JSON de telemetría crezca.
-El truncamiento es un bug silencioso: JSON inválido que el dashboard descarta sin aviso.
+### 3.6 Buffer de payload — ✅ CORREGIDO (PR4)
+**Bug:** `mqtt_msg_t.payload[128]` truncaba el JSON de telemetría (~162 chars en worst-case).
+**Fix:** `#define MQTT_MAX_PAYLOAD 256` en `mqtt_client.h`; `mqtt_msg_t.payload[MQTT_MAX_PAYLOAD]`.
+Todos los `strncpy`/`memcpy` ya usaban `sizeof(msg.payload)` → se actualizaron automáticamente.
+`sscanf` format string actualizado de `%127[^\"]` → `%255[^\"]` para consistencia.
 
-**Solución:** `#define MQTT_MAX_PAYLOAD 512` en el header del contrato.
-
-### 3.7 QoS 0 fijo en todos los publish
-**Regla a implementar:**
-- Telemetría → QoS 0 (perder una muestra de 2 s es aceptable, la próxima reemplaza)
-- Eventos/alarmas/ACKs → QoS 1 (no se repiten, no deben perderse)
+### 3.7 QoS diferenciado — ✅ IMPLEMENTADO (PR2/PR3)
+- Telemetría → `mqtt_client_publish()` QoS 0
+- Eventos FSM, ACKs, status → `mqtt_client_publish_qos1()` QoS 1
+- Campo `uint8_t qos` en `mqtt_msg_t` propaga el QoS a lwIP `mqtt_publish()`
 
 ---
 
@@ -150,14 +148,17 @@ Cada PR es funcional y testeable de forma independiente. **No mezclar.**
      → nodered/pump_simulator.py: ya usaba bj/{id}/... (sin cambios)
      → json_buf 256→512 y alarm events (type:alarm) quedan para PR futuro
 
-⏳ PR3: cmd_envelope + ACK  [SIGUIENTE]
-     → Parsear {"cid":N,"cmd":"..."} en mqtt_rx_task
-     → Publicar {"cid":N,"result":"accepted"} en topic_cmd_ack() QoS 1
+✅ PR3: cmd_envelope + ACK  [COMPLETADO]
+     → mqtt_rx_task: sscanf parsea {"cid":N,"cmd":"..."}, fallback a string crudo
+     → pump_hmi_parse_and_execute: void→bool, retorna accepted/rejected
+     → Publica {"cid":N,"result":"..."} en topic_cmd_ack() QoS 1
+     → fn_mk_cmd en dashboard: CID incremental + JSON.stringify del envelope
 
-⬜ PR4: Buffers MQTT_MAX_PAYLOAD=512 + QoS diferenciado
-     → #define MQTT_MAX_PAYLOAD 512 en mqtt_client.h
-     → mqtt_client_publish_reliable() para QoS 1 (eventos, ACKs, status)
-     → Telemetría → QoS 0, resto → QoS 1
+✅ PR4: Fix crítico — payload buffer demasiado chico  [COMPLETADO]
+     → #define MQTT_MAX_PAYLOAD 256 en mqtt_client.h
+     → mqtt_msg_t.payload[128] → payload[MQTT_MAX_PAYLOAD]
+     → strncpy/memcpy ya usaban sizeof() — se actualizaron automáticamente
+     → sscanf format: %127[^\"] → %255[^\"] para consistencia
 ```
 
 ---
@@ -390,6 +391,9 @@ bj/{device_id}/cmd/ack       QoS 1  retain 0   firmware → dashboard
 - [x] Entorno Docker: mosquitto + simulador + Node-RED (`docker/docker-compose.yml`)
 - [x] Simulador actualizado al contrato completo: tópicos `bj/{id}/...`, envelope CMD, ACK, eventos
 - [x] Flow inicial Node-RED: Monitor (telemetría, estado, alarmas) + Control (botones) importable
+- [x] PR2: migrar telemetría/eventos a `bj/{id}/...`, QoS diferenciado por tipo
+- [x] PR3: `cmd_envelope` + ACK correlacionado en `bj/{id}/cmd/ack`
+- [x] PR4: `MQTT_MAX_PAYLOAD=256` — fix crítico de truncamiento de telemetría
 
 ### Inmediato — Testear el flow con el simulador Docker
 1. `cd docker && docker compose up`
@@ -398,21 +402,7 @@ bj/{device_id}/cmd/ack       QoS 1  retain 0   firmware → dashboard
 4. Abrir http://localhost:1880/dashboard
 5. Pulsar "▶ Infundir" → verificar que el gauge de caudal y la telemetría se actualicen
 6. Pulsar "⚠ Oclusión" → verificar notificación y badge OCC en rojo
-7. Pulsar "STOP" → verificar ACK en la tabla de eventos
-
-### PR3 — firmware (siguiente)
-- [ ] Parsear envelope `{"cid":N,"cmd":"..."}` en `mqtt_rx_task`
-- [ ] Publicar `{"cid":N,"result":"accepted"}` en `topic_cmd_ack()` QoS 1
-
-### Dashboard — mejoras al flow actual
-- [ ] Nodo de estado global por device (flow context con Map de bombas)
-- [ ] Página Overview: grid de tarjetas para N bombas simultáneas
-- [ ] Página de alarmas: lista priorizada con silenciado y histórico
-- [ ] Persistencia: `node-red-node-sqlite` + datalog descargable
-
-### Después
-- [ ] PR4: `MQTT_MAX_PAYLOAD=512` + `mqtt_client_publish_reliable()` QoS 1 para alarmas/ACK
-- [ ] Notificaciones PWA con `node-red-contrib-web-push`
+7. Pulsar "STOP" → verificar ACK en la tabla de eventos (debe aparecer `#N: accepted`)
 
 ---
 
@@ -421,8 +411,8 @@ bj/{device_id}/cmd/ack       QoS 1  retain 0   firmware → dashboard
 ### Sobre el manejo de memoria en el firmware
 - Heap configurado con `heap_3.c` (malloc estándar de stdlib). `xPortGetFreeHeapSize()`
   no disponible sin `mallinfo`. Monitorear stack HWM por tarea en `task_system_monitor`.
-- El buffer de telemetría está en `core0_main.c` como `char json_buf[256]` (aumentar a 512
-  cuando se implemente el contrato extendido).
+- El buffer de telemetría está en `core0_main.c` como `char json_buf[256]` — suficiente
+  para el contrato actual. `MQTT_MAX_PAYLOAD=256` en la cola es consistente con este tamaño.
 
 ### Sobre el submódulo TFT
 - `lib/tft_touch_module` es submódulo git apuntando a `AleeGallo/ProyectoFinal`
@@ -449,7 +439,92 @@ FLOW_COEFF_MMHG_MLH  = 0.05    # 50 mL/h ≈ +2.5 mmHg
 
 ---
 
-## 11. Recursos y referencias
+## 11. Posibilidades de mejora para sesiones futuras
+
+Esta sección recoge ideas priorizadas por impacto. No son deuda técnica sino oportunidades.
+
+### Firmware — alta prioridad
+
+**A. Alarm events explícitos por MQTT**
+- `LOG_EVENT_PRESSURE_ALERT` (y futuros) deben publicar en `topic_event()` con
+  `{"type":"alarm","code":"pres","level":2}` además de actualizar `alm.occ` en telemetría.
+- Archivos: `src/core0_main.c` (task_logger, switch LOG_EVENT_*) + `src/crosscore_logger.h`.
+- Impacto: el dashboard puede disparar alarma visual/sonora en tiempo real sin esperar al ciclo de 2 s.
+
+**B. ACK con reason field**
+- Cuando `handled && !ok` en `pump_hmi_parse_and_execute`, incluir el estado FSM actual
+  en el ACK: `{"cid":N,"result":"rejected","reason":"invalid_state","state":3}`.
+- Cambio de 3 líneas en `src/mqtt_client.c` (pasar `pump_hmi_get_fsm_state()` al snprintf).
+- Impacto: el dashboard puede mostrar "Rechazado: la bomba está en estado PURGA" en lugar de solo "rejected".
+
+**C. Watchdog multi-thread**
+- FreeRTOS task watchdog via event group: cada tarea setea su bit en un `EventGroupHandle_t`
+  cada ciclo. Una tarea watchdog verifica que todos los bits se hayan seteado dentro de N ms.
+- Si una tarea se bloquea, activa `NVIC_SystemReset()` y publica offline antes de resetear.
+- Archivos nuevos: `src/watchdog_task.c/.h`.
+
+**D. `cmd_parse_and_execute` return value**
+- Actualmente retorna `void` → `pump_hmi_parse_and_execute` asume `true` para comandos de bajo nivel.
+- Cambiar a `bool` en `src/crosscore_cmd.h/.c` para propagar el resultado real al ACK.
+
+### Firmware — mediano plazo
+
+**E. RTC / NTP + timestamps en eventos**
+- El firmware no tiene reloj real; los timestamps de eventos los genera Node-RED (hora del broker).
+- Opción liviana: sincronizar SNTP una vez al arrancar y adjuntar `"ts":epoch_ms` en cada
+  publish de `topic_event()`. SDK lwIP incluye `lwip/apps/sntp.h`.
+- Archivos: `src/core0_main.c`, `src/mqtt_client.c`.
+
+**F. Persistencia de logs en flash (littlefs)**
+- `LOG_EVENT_*` se pierden si el firmware resetea. Usar littlefs sobre la flash interna
+  del RP2350 para guardar últimos N eventos con timestamp.
+- Librería: https://github.com/littlefs-project/littlefs (port RP2040 ya existe).
+
+**G. Reporte de Stack HWM por MQTT**
+- `task_system_monitor` ya imprime el HWM por serial; podría publicarlo periódicamente
+  en `bj/{id}/telemetry` como campo `"stk_min"` o en un tópico de debug separado.
+- Útil para detectar stack overflows antes de que ocurran en producción.
+
+### Dashboard Node-RED — alta prioridad
+
+**H. Página Overview multi-dispositivo**
+- Un `ui-template` con Vue que itere `context.global.get('devices')` (Map keyed by device_id)
+  y muestre una tarjeta por bomba con estado, caudal y alarmas activas.
+- El nodo MQTT activo ya usa wildcard `bj/+/...`; solo falta agregar el device al Map en `fn_telem`.
+
+**I. Alarm history con persistencia**
+- `node-red-node-sqlite` para guardar cada evento en una tabla `events(ts, device_id, type, detail)`.
+- Un nodo `ui-table` en la página de alarmas muestra el histórico con filtros.
+- Export a CSV via endpoint HTTP en Node-RED.
+
+**J. Notificaciones PWA**
+- `node-red-contrib-web-push`: suscribir el browser y enviar push cuando `type=alarm` llega
+  a `fn_event`. Funciona offline si el dashboard está instalado como PWA.
+
+### Dashboard Node-RED — mediano plazo
+
+**K. `fn_fault_topic` dinámico**
+- El nodo de faults del simulador tiene el topic hardcodeado a `bj/bj-deadbeef/sim_fault`.
+- Debería usar `context.global.get('online_device_id')` igual que `fn_mk_cmd`.
+
+**L. Histórico de telemetría (sparklines)**
+- Guardar últimas N muestras de `rate` y `pres` en flow context para mostrar un sparkline
+  en la tarjeta de la bomba sin necesitar SQLite.
+
+### Fuera del alcance inmediato (ideas a largo plazo)
+
+- **Control de lazo cerrado**: integrar el encoder óptico (branch `tft_integration`) en el
+  loop de velocidad del motor PAP para compensar slippage.
+- **OTA firmware update**: publicar binario por MQTT + bootloader custom en RP2350.
+  La flash tiene 4 MB; hay espacio para imagen A/B.
+- **Certificación IEC 60601-2-24**: documentar hazard analysis (FMEA), agregar tests de
+  precisión de dosificación (±2% en todo el rango de caudal).
+- **TFT menus**: branch `tft_integration` WIP — integrar `pump_hmi_execute()` como backend
+  de los menús del display táctil para unificar todas las interfaces en un único dispatcher.
+
+---
+
+## 12. Recursos y referencias
 
 | Recurso | URL / Ubicación |
 |---------|----------------|

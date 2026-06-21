@@ -14,7 +14,7 @@
 // Define struct for queue messages
 typedef struct {
     char topic[64];
-    char payload[128];
+    char payload[MQTT_MAX_PAYLOAD];
     uint8_t qos;
 } mqtt_msg_t;
 
@@ -55,11 +55,32 @@ static void mqtt_incoming_data_cb(void *arg, const u8_t *data, u16_t len, u8_t f
 void mqtt_rx_task(void *params) {
     (void)params;
     mqtt_msg_t msg;
-    
+
     while (1) {
         if (xQueueReceive(mqtt_rx_queue, &msg, portMAX_DELAY) == pdTRUE) {
-            // Reutiliza exitosamente el analizador central del proyecto
-            pump_hmi_parse_and_execute(msg.payload);
+            int  cid = -1;
+            char cmd_buf[128];  // comandos son strings cortos; no usar sizeof(msg.payload)
+
+            // Intentar parsear envelope {"cid":N,"cmd":"..."}
+            if (sscanf(msg.payload,
+                       "{\"cid\":%d,\"cmd\":\"%127[^\"]\"}", &cid, cmd_buf) == 2) {
+                // envelope válido — cmd_buf contiene el comando
+            } else {
+                // string crudo — backward compat con CLI y versiones previas
+                cid = -1;
+                strncpy(cmd_buf, msg.payload, sizeof(cmd_buf) - 1);
+                cmd_buf[sizeof(cmd_buf) - 1] = '\0';
+            }
+
+            bool accepted = pump_hmi_parse_and_execute(cmd_buf);
+
+            if (cid >= 0) {
+                char ack[64];
+                snprintf(ack, sizeof(ack),
+                         "{\"cid\":%d,\"result\":\"%s\"}",
+                         cid, accepted ? "accepted" : "rejected");
+                mqtt_client_publish_qos1(topic_cmd_ack(), ack);
+            }
         }
     }
 }

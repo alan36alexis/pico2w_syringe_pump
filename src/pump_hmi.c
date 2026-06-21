@@ -98,7 +98,7 @@ bool pump_hmi_execute(PumpHMIAction_t action, float param1, float param2) {
     return false;
 }
 
-void pump_hmi_parse_and_execute(const char *str) {
+bool pump_hmi_parse_and_execute(const char *str) {
     bool handled = true;
     bool ok      = false;
 
@@ -144,8 +144,12 @@ void pump_hmi_parse_and_execute(const char *str) {
     if (handled && !ok) {
         printf("[HMI]: Comando rechazado en estado: %s\n",
                get_state_name(pump_hmi_get_fsm_state()));
-    } else if (!handled) {
+        return false;
+    }
+    if (!handled) {
         // Comandos de bajo nivel (nsteps, move_linear, config_*, log_*, etc.)
         cmd_parse_and_execute(str);
+        return true;
     }
+    return ok;
 }
