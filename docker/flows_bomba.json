@@ -24,10 +24,7 @@
     "type": "ui-base",
     "path": "/dashboard",
     "includeClientData": true,
-    "acceptsClientConfig": [
-      "ui-notification",
-      "ui-control"
-    ],
+    "acceptsClientConfig": ["ui-notification", "ui-control"],
     "showPathInSidebar": false,
     "showPageTitle": true,
     "navigationStyle": "icon",
@@ -78,6 +75,19 @@
     "visible": true
   },
   {
+    "id": "pg_sim",
+    "type": "ui-page",
+    "name": "Simulador",
+    "ui": "cf_base",
+    "path": "/simulador",
+    "icon": "mdi-flask-outline",
+    "layout": "notebook",
+    "theme": "cf_theme",
+    "order": 3,
+    "className": "",
+    "visible": true
+  },
+  {
     "id": "grp_dev",
     "type": "ui-group",
     "name": "Dispositivo",
@@ -92,9 +102,9 @@
   {
     "id": "grp_state",
     "type": "ui-group",
-    "name": "Estado FSM",
+    "name": "Estado",
     "page": "pg_mon",
-    "width": 4,
+    "width": 6,
     "height": "1",
     "order": 2,
     "disp": true,
@@ -114,6 +124,18 @@
     "visible": true
   },
   {
+    "id": "grp_alm",
+    "type": "ui-group",
+    "name": "Alarmas",
+    "page": "pg_mon",
+    "width": "12",
+    "height": "1",
+    "order": 4,
+    "disp": true,
+    "className": "",
+    "visible": true
+  },
+  {
     "id": "grp_rate",
     "type": "ui-group",
     "name": "Caudal",
@@ -128,7 +150,7 @@
   {
     "id": "grp_chart",
     "type": "ui-group",
-    "name": "Presión (mmHg)",
+    "name": "Sensor Fuerza (mmHg)",
     "page": "pg_mon",
     "width": "12",
     "height": "1",
@@ -138,23 +160,11 @@
     "visible": true
   },
   {
-    "id": "grp_alm",
+    "id": "grp_fsm_status",
     "type": "ui-group",
-    "name": "Alarmas",
-    "page": "pg_mon",
-    "width": "12",
-    "height": "1",
-    "order": 4,
-    "disp": true,
-    "className": "",
-    "visible": true
-  },
-  {
-    "id": "grp_cmds",
-    "type": "ui-group",
-    "name": "Comandos Bomba",
+    "name": "Estado FSM Motor",
     "page": "pg_ctrl",
-    "width": "6",
+    "width": 12,
     "height": "1",
     "order": 1,
     "disp": true,
@@ -162,13 +172,25 @@
     "visible": true
   },
   {
-    "id": "grp_sim",
+    "id": "grp_fsm_cmds",
     "type": "ui-group",
-    "name": "Simulador",
+    "name": "Control FSM",
+    "page": "pg_ctrl",
+    "width": 12,
+    "height": "1",
+    "order": 2,
+    "disp": true,
+    "className": "",
+    "visible": true
+  },
+  {
+    "id": "grp_cmds",
+    "type": "ui-group",
+    "name": "Emergencia / Movimiento",
     "page": "pg_ctrl",
     "width": "6",
     "height": "1",
-    "order": 2,
+    "order": 3,
     "disp": true,
     "className": "",
     "visible": true
@@ -180,7 +202,19 @@
     "page": "pg_ctrl",
     "width": "12",
     "height": "1",
-    "order": 3,
+    "order": 4,
+    "disp": true,
+    "className": "",
+    "visible": true
+  },
+  {
+    "id": "grp_sim",
+    "type": "ui-group",
+    "name": "Simulador",
+    "page": "pg_sim",
+    "width": "6",
+    "height": "1",
+    "order": 1,
     "disp": true,
     "className": "",
     "visible": true
@@ -200,11 +234,7 @@
     "inputs": 0,
     "x": 120,
     "y": 60,
-    "wires": [
-      [
-        "fn_telem"
-      ]
-    ]
+    "wires": [["fn_telem"]]
   },
   {
     "id": "n_status_in",
@@ -218,11 +248,7 @@
     "inputs": 0,
     "x": 120,
     "y": 120,
-    "wires": [
-      [
-        "fn_status"
-      ]
-    ]
+    "wires": [["fn_status"]]
   },
   {
     "id": "n_event_in",
@@ -236,11 +262,7 @@
     "inputs": 0,
     "x": 120,
     "y": 180,
-    "wires": [
-      [
-        "fn_event"
-      ]
-    ]
+    "wires": [["fn_event"]]
   },
   {
     "id": "n_ack_in",
@@ -254,11 +276,7 @@
     "inputs": 0,
     "x": 120,
     "y": 240,
-    "wires": [
-      [
-        "fn_ack"
-      ]
-    ]
+    "wires": [["fn_ack"]]
   },
   {
     "id": "n_cmd_out",
@@ -301,17 +319,9 @@
     "x": 340,
     "y": 60,
     "wires": [
-      [
-        "w_rate"
-      ],
-      [
-        "w_telem",
-        "w_alm",
-        "w_state"
-      ],
-      [
-        "w_chart"
-      ]
+      ["w_rate"],
+      ["w_telem", "w_alm", "w_state"],
+      ["w_chart"]
     ]
   },
   {
@@ -328,19 +338,15 @@
     "libs": [],
     "x": 340,
     "y": 120,
-    "wires": [
-      [
-        "w_device"
-      ]
-    ]
+    "wires": [["w_device"]]
   },
   {
     "id": "fn_event",
     "type": "function",
     "z": "fl_main",
     "name": "Format Evento",
-    "func": "try {\n  const d = JSON.parse(msg.payload);\n  const t = new Date().toLocaleTimeString('es-MX');\n  const STATES = ['DETENIDA','INFUSANDO','BOLUS','PURGA','KVO','PAUSADA','ALARMA'];\n  let log = context.global.get('event_log') || [];\n  let detail = d.type === 'alarm'\n    ? 'ALARMA ' + (d.code||'').toUpperCase() + ' lvl ' + d.level\n    : d.type === 'state'\n    ? (STATES[d.from] || d.from) + ' → ' + (STATES[d.to] || d.to)\n    : (d.msg || JSON.stringify(d));\n  log.unshift({ time: t, tipo: d.type || 'info', detalle: detail });\n  if (log.length > 25) log = log.slice(0, 25);\n  context.global.set('event_log', log);\n  const notif = d.type === 'alarm'\n    ? { payload: '⚠ ALARMA: ' + (d.code||'').toUpperCase() + ' (nivel ' + d.level + ')', topic: 'error' }\n    : null;\n  return [{ payload: log }, notif];\n} catch(e) {\n  node.error('fn_event ERROR: ' + e.message, msg);\n  return [null, null];\n}",
-    "outputs": 2,
+    "func": "try {\n  const d = JSON.parse(msg.payload);\n  const t = new Date().toLocaleTimeString('es-MX');\n  const CORE1 = [\n    'ESPERANDO','HOMING','REL_LSW_INI','COLOQUE JERINGA',\n    'BUSCANDO JERINGA','JERINGA OK','DISPENSANDO','FIN DE DISPENSADO',\n    'NUEVO_DISP','BUSCANDO_EOT','FRENANDO_EOT','FIN DE RECORRIDO',\n    'FALLA','OCLUSIÓN','OCC_LIBERANDO','OCC_PAUSADO',\n    'MANUAL','INICIANDO CALIBRACIÓN','CALIBRANDO...','FREN_LSW_INI','FREN_LSW_FIN'\n  ];\n  let log = context.global.get('event_log') || [];\n  let detail, fsmMsg = null;\n  if (d.type === 'alarm') {\n    detail = 'ALARMA ' + (d.code||'').toUpperCase() + ' lvl ' + d.level;\n  } else if (d.type === 'state') {\n    const from = CORE1[d.from] !== undefined ? CORE1[d.from] : String(d.from);\n    const to   = CORE1[d.to]   !== undefined ? CORE1[d.to]   : String(d.to);\n    detail = from + ' → ' + to;\n    context.global.set('fsm_state', d.to);\n    fsmMsg = { payload: { fsm_from: d.from, fsm_to: d.to } };\n  } else {\n    detail = d.msg || JSON.stringify(d);\n  }\n  log.unshift({ time: t, tipo: d.type || 'info', detalle: detail });\n  if (log.length > 25) log = log.slice(0, 25);\n  context.global.set('event_log', log);\n  const notif = d.type === 'alarm'\n    ? { payload: '⚠ ALARMA: ' + (d.code||'').toUpperCase() + ' (nivel ' + d.level + ')', topic: 'error' }\n    : null;\n  return [{ payload: log }, notif, fsmMsg];\n} catch(e) {\n  node.error('fn_event: ' + e.message, msg);\n  return [null, null, null];\n}",
+    "outputs": 3,
     "timeout": 0,
     "noerr": 0,
     "initialize": "",
@@ -349,12 +355,9 @@
     "x": 340,
     "y": 180,
     "wires": [
-      [
-        "w_events"
-      ],
-      [
-        "w_notif"
-      ]
+      ["w_events"],
+      ["w_notif"],
+      ["w_state", "w_fsm_state_ctrl"]
     ]
   },
   {
@@ -371,11 +374,7 @@
     "libs": [],
     "x": 340,
     "y": 240,
-    "wires": [
-      [
-        "w_ack"
-      ]
-    ]
+    "wires": [["w_ack"]]
   },
   {
     "id": "fn_mk_cmd",
@@ -391,18 +390,14 @@
     "libs": [],
     "x": 760,
     "y": 500,
-    "wires": [
-      [
-        "n_cmd_out"
-      ]
-    ]
+    "wires": [["n_cmd_out"]]
   },
   {
     "id": "fn_fault_topic",
     "type": "function",
     "z": "fl_main",
     "name": "Fault Topic",
-    "func": "msg.topic = 'bj/bj-deadbeef/sim_fault'; return msg;",
+    "func": "const devId = context.global.get('online_device_id') || 'bj-deadbeef';\nmsg.topic = 'bj/' + devId + '/sim_fault';\nreturn msg;",
     "outputs": 1,
     "timeout": 0,
     "noerr": 0,
@@ -411,11 +406,7 @@
     "libs": [],
     "x": 760,
     "y": 580,
-    "wires": [
-      [
-        "n_fault_out"
-      ]
-    ]
+    "wires": [["n_fault_out"]]
   },
   {
     "id": "w_device",
@@ -441,10 +432,10 @@
     "type": "ui-template",
     "z": "fl_main",
     "group": "grp_state",
-    "name": "Estado FSM",
+    "name": "Estado",
     "order": 1,
-    "width": 4,
-    "height": 1,
+    "width": 6,
+    "height": 3,
     "storeState": true,
     "passthru": false,
     "resendOnReconnect": true,
@@ -453,7 +444,7 @@
     "x": 560,
     "y": 60,
     "wires": [],
-    "format": "<template>\n  <div style=\"text-align:center;padding:16px\">\n    <div :style=\"{fontSize:'22px',fontWeight:'bold',\n      color:['#9e9e9e','#4caf50','#2196f3','#ff9800','#9c27b0','#ffb300','#f44336'][msg.payload && msg.payload.st != null ? msg.payload.st : 0] || '#9e9e9e'}\">\n      {{ ['DETENIDA','INFUSANDO','BOLUS','PURGA','KVO','PAUSADA','ALARMA'][msg.payload && msg.payload.st != null ? msg.payload.st : 0] || '—' }}\n    </div>\n  </div>\n</template>"
+    "format": "<template>\n  <div style=\"padding:10px;text-align:center\">\n    <div style=\"font-size:9px;letter-spacing:.1em;opacity:0.5;margin-bottom:3px\">BOMBA (API)</div>\n    <div :style=\"{fontSize:'18px',fontWeight:'bold',color:pumpColor,transition:'color 0.3s'}\">{{ pumpLabel }}</div>\n    <div style=\"border-top:1px solid #333;margin:8px 0\"></div>\n    <div style=\"font-size:9px;letter-spacing:.1em;opacity:0.5;margin-bottom:3px\">MOTOR (FSM)</div>\n    <div :style=\"{fontSize:'14px',fontWeight:'bold',color:fsmColor,transition:'color 0.3s'}\">{{ fsmLabel }}</div>\n    <div v-if=\"fsmSt !== null\" style=\"font-size:10px;opacity:0.4;margin-top:2px\">#{{ fsmSt }}</div>\n  </div>\n</template>\n<script>\n  const PUMP_LABELS = ['DETENIDA','INFUSANDO','BOLUS','PURGA','KVO','PAUSADA','ALARMA'];\n  const PUMP_COLORS = ['#9e9e9e','#4caf50','#2196f3','#ff9800','#9c27b0','#ffb300','#f44336'];\n  const CORE1_LABELS = [\n    'ESPERANDO','HOMING','REL_LSW_INI','COLOQUE JERINGA',\n    'BUSCANDO JERINGA','JERINGA OK','DISPENSANDO','FIN DE DISPENSADO',\n    'NUEVO DISP','BUSCANDO EOT','FRENANDO EOT','FIN DE RECORRIDO',\n    'FALLA','OCLUSIÓN','OCC LIBERANDO','OCC PAUSADO',\n    'MANUAL','INICIANDO CALIBRACIÓN','CALIBRANDO...','FREN LSW INI','FREN LSW FIN'\n  ];\n  const CORE1_COLORS = [\n    '#9e9e9e','#ffb300','#ffb300','#4caf50',\n    '#2196f3','#2196f3','#4caf50','#9e9e9e',\n    '#9e9e9e','#2196f3','#ffb300','#9e9e9e',\n    '#f44336','#f44336','#ffb300','#ff9800',\n    '#9c27b0','#00bcd4','#00bcd4','#ffb300','#ffb300'\n  ];\n  export default {\n    data() { return { pumpSt: null, fsmSt: null } },\n    computed: {\n      pumpLabel() { return this.pumpSt != null ? (PUMP_LABELS[this.pumpSt] || '—') : '—' },\n      pumpColor() { return this.pumpSt != null ? (PUMP_COLORS[this.pumpSt] || '#9e9e9e') : '#9e9e9e' },\n      fsmLabel()  { return this.fsmSt  != null ? (CORE1_LABELS[this.fsmSt] || String(this.fsmSt)) : 'SIN DATOS' },\n      fsmColor()  { return this.fsmSt  != null ? (CORE1_COLORS[this.fsmSt] || '#9e9e9e') : '#555' }\n    },\n    watch: {\n      'msg.payload': {\n        immediate: true,\n        handler(d) {\n          if (!d) return;\n          if (d.st != null)     this.pumpSt = d.st;\n          if (d.fsm_to != null) this.fsmSt  = d.fsm_to;\n        }\n      }\n    }\n  }\n</script>"
   },
   {
     "id": "w_telem",
@@ -495,18 +486,9 @@
     "styleRounded": true,
     "styleGlow": false,
     "segments": [
-      {
-        "from": 0,
-        "color": "#4caf50"
-      },
-      {
-        "from": 200,
-        "color": "#ffb300"
-      },
-      {
-        "from": 400,
-        "color": "#f44336"
-      }
+      {"from": 0,   "color": "#4caf50"},
+      {"from": 200, "color": "#ffb300"},
+      {"from": 400, "color": "#f44336"}
     ],
     "className": "",
     "x": 560,
@@ -518,8 +500,8 @@
     "type": "ui-chart",
     "z": "fl_main",
     "group": "grp_chart",
-    "name": "Presión",
-    "label": "Presión (mmHg)",
+    "name": "Fuerza ADC",
+    "label": "Fuerza sensor ADC (mmHg)",
     "order": 1,
     "chartType": "line",
     "category": "topic",
@@ -529,10 +511,7 @@
     "removeOlder": 5,
     "removeOlderUnit": "60",
     "removeOlderPoints": "",
-    "colors": [
-      "#1565C0",
-      "#E53935"
-    ],
+    "colors": ["#1565C0", "#E53935"],
     "width": 12,
     "height": 4,
     "className": "",
@@ -558,6 +537,44 @@
     "y": 380,
     "wires": [],
     "format": "<template>\n  <div style=\"display:flex;flex-wrap:wrap;gap:8px;padding:8px\">\n    <span v-for=\"(v,k) in (msg.payload && msg.payload.alm || {})\" :key=\"k\"\n          :style=\"{padding:'4px 14px',borderRadius:'4px',fontWeight:'bold',fontSize:'13px',\n                   background:v?'#b71c1c':'#1b5e20',color:'#fff',transition:'background 0.3s'}\">\n      {{ k.toUpperCase() }}: {{ v ? '⚠' : '✓' }}\n    </span>\n  </div>\n</template>"
+  },
+  {
+    "id": "w_fsm_state_ctrl",
+    "type": "ui-template",
+    "z": "fl_main",
+    "group": "grp_fsm_status",
+    "name": "Estado FSM",
+    "order": 1,
+    "width": 12,
+    "height": 2,
+    "storeState": true,
+    "passthru": false,
+    "resendOnReconnect": true,
+    "templateScope": "local",
+    "className": "",
+    "x": 700,
+    "y": 600,
+    "wires": [],
+    "format": "<template>\n  <div style=\"display:flex;align-items:center;justify-content:center;gap:24px;padding:12px;height:100%\">\n    <div style=\"text-align:center\">\n      <div style=\"font-size:9px;letter-spacing:.12em;opacity:0.4;margin-bottom:6px\">ESTADO MOTOR (Core1 FSM)</div>\n      <div :style=\"{fontSize:'32px',fontWeight:'bold',color:fsmColor,transition:'color 0.4s',letterSpacing:'.02em'}\">{{ fsmLabel }}</div>\n      <div v-if=\"fsmSt !== null\" style=\"font-size:11px;opacity:0.35;margin-top:4px\">estado #{{ fsmSt }}</div>\n    </div>\n    <div :style=\"{width:'14px',height:'14px',borderRadius:'50%',background:fsmColor,boxShadow:'0 0 8px '+fsmColor,transition:'background 0.4s',flexShrink:0}\"></div>\n  </div>\n</template>\n<script>\n  const CORE1_LABELS = [\n    'ESPERANDO','HOMING','REL_LSW_INI','COLOQUE JERINGA',\n    'BUSCANDO JERINGA','JERINGA OK','DISPENSANDO','FIN DE DISPENSADO',\n    'NUEVO DISP','BUSCANDO EOT','FRENANDO EOT','FIN DE RECORRIDO',\n    'FALLA','OCLUSIÓN','OCC LIBERANDO','OCC PAUSADO',\n    'MANUAL','INICIANDO CALIBRACIÓN','CALIBRANDO...','FREN LSW INI','FREN LSW FIN'\n  ];\n  const CORE1_COLORS = [\n    '#9e9e9e','#ffb300','#ffb300','#4caf50',\n    '#2196f3','#2196f3','#4caf50','#9e9e9e',\n    '#9e9e9e','#2196f3','#ffb300','#9e9e9e',\n    '#f44336','#f44336','#ffb300','#ff9800',\n    '#9c27b0','#00bcd4','#00bcd4','#ffb300','#ffb300'\n  ];\n  export default {\n    data() { return { fsmSt: null } },\n    computed: {\n      fsmLabel() { return this.fsmSt != null ? (CORE1_LABELS[this.fsmSt] || String(this.fsmSt)) : 'SIN DATOS' },\n      fsmColor() { return this.fsmSt != null ? (CORE1_COLORS[this.fsmSt] || '#9e9e9e') : '#555' }\n    },\n    watch: {\n      'msg.payload': {\n        immediate: true,\n        handler(d) { if (d && d.fsm_to != null) this.fsmSt = d.fsm_to; }\n      }\n    }\n  }\n</script>"
+  },
+  {
+    "id": "w_fsm_cmds",
+    "type": "ui-template",
+    "z": "fl_main",
+    "group": "grp_fsm_cmds",
+    "name": "Control FSM",
+    "order": 1,
+    "width": 12,
+    "height": 5,
+    "storeState": false,
+    "passthru": false,
+    "resendOnReconnect": false,
+    "templateScope": "local",
+    "className": "",
+    "x": 700,
+    "y": 680,
+    "wires": [["fn_mk_cmd"]],
+    "format": "<template>\n  <div style=\"padding:10px;font-size:13px\">\n    <div style=\"display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:12px\">\n      <!-- Home -->\n      <div style=\"background:#1a1a2e;border:1px solid #2a2a4a;border-radius:6px;padding:10px\">\n        <div style=\"font-size:10px;color:#9e9e9e;margin-bottom:6px;letter-spacing:.05em\">IR A HOME</div>\n        <div style=\"font-size:10px;color:#666;margin-bottom:3px\">Velocidad (µm/s)</div>\n        <input type=\"number\" v-model.number=\"homeVel\" min=\"100\" max=\"5000\" step=\"100\"\n          style=\"width:100%;box-sizing:border-box;background:#111;color:#fff;border:1px solid #444;border-radius:4px;padding:5px 8px;font-size:13px;margin-bottom:8px\"/>\n        <button @click=\"send({payload:'fsm_home,'+homeVel.toFixed(1)})\"\n          style=\"width:100%;padding:7px;background:#1565C0;color:#fff;border:none;border-radius:4px;font-size:12px;cursor:pointer;font-weight:bold\">\n          ↩ Home\n        </button>\n      </div>\n      <!-- Buscar jeringa -->\n      <div style=\"background:#1a1a2e;border:1px solid #2a2a4a;border-radius:6px;padding:10px\">\n        <div style=\"font-size:10px;color:#9e9e9e;margin-bottom:6px;letter-spacing:.05em\">BUSCAR JERINGA</div>\n        <div style=\"font-size:10px;color:#666;margin-bottom:3px\">Velocidad (µm/s)</div>\n        <input type=\"number\" v-model.number=\"searchVel\" min=\"50\" max=\"1000\" step=\"50\"\n          style=\"width:100%;box-sizing:border-box;background:#111;color:#fff;border:1px solid #444;border-radius:4px;padding:5px 8px;font-size:13px;margin-bottom:8px\"/>\n        <button @click=\"send({payload:'fsm_search,'+searchVel.toFixed(1)})\"\n          style=\"width:100%;padding:7px;background:#00838F;color:#fff;border:none;border-radius:4px;font-size:12px;cursor:pointer;font-weight:bold\">\n          🔍 Buscar Jeringa\n        </button>\n      </div>\n      <!-- Dispensar -->\n      <div style=\"background:#1a1a2e;border:1px solid #2a2a4a;border-radius:6px;padding:10px\">\n        <div style=\"font-size:10px;color:#9e9e9e;margin-bottom:6px;letter-spacing:.05em\">DISPENSAR</div>\n        <div style=\"font-size:10px;color:#666;margin-bottom:3px\">Objetivo (µm)</div>\n        <input type=\"number\" v-model.number=\"dispTarget\" min=\"0\" step=\"1000\"\n          style=\"width:100%;box-sizing:border-box;background:#111;color:#fff;border:1px solid #444;border-radius:4px;padding:5px 8px;font-size:13px;margin-bottom:4px\"/>\n        <div style=\"font-size:10px;color:#666;margin-bottom:3px\">Velocidad (µm/s)</div>\n        <input type=\"number\" v-model.number=\"dispVel\" min=\"1\" max=\"5000\" step=\"100\"\n          style=\"width:100%;box-sizing:border-box;background:#111;color:#fff;border:1px solid #444;border-radius:4px;padding:5px 8px;font-size:13px;margin-bottom:8px\"/>\n        <button\n          @click=\"dispTarget>0 && dispVel>0 && send({payload:'fsm_dispense,'+dispTarget.toFixed(1)+','+dispVel.toFixed(1)})\"\n          :style=\"{width:'100%',padding:'7px',background:'#2E7D32',color:'#fff',border:'none',borderRadius:'4px',fontSize:'12px',cursor:'pointer',fontWeight:'bold',opacity:dispTarget>0&&dispVel>0?1:0.4}\">\n          ► Dispensar\n        </button>\n      </div>\n    </div>\n    <!-- Fila de acciones sin parámetros -->\n    <div style=\"display:flex;gap:8px;flex-wrap:wrap\">\n      <button @click=\"send({payload:'fsm_calibrate'})\"\n        style=\"flex:1;min-width:100px;padding:8px;background:#37474F;color:#fff;border:none;border-radius:4px;font-size:12px;cursor:pointer\">\n        Calibrar\n      </button>\n      <button @click=\"send({payload:'fsm_search_eot'})\"\n        style=\"flex:1;min-width:100px;padding:8px;background:#4527A0;color:#fff;border:none;border-radius:4px;font-size:12px;cursor:pointer\">\n        Buscar EOT\n      </button>\n      <button @click=\"send({payload:'fsm_cont'})\"\n        style=\"flex:1;min-width:100px;padding:8px;background:#1B5E20;color:#fff;border:none;border-radius:4px;font-size:12px;cursor:pointer\">\n        Continuar\n      </button>\n      <button @click=\"send({payload:'fsm_occ_rel'})\"\n        style=\"flex:1;min-width:100px;padding:8px;background:#1565C0;color:#fff;border:none;border-radius:4px;font-size:12px;cursor:pointer\">\n        Lib. Oclusión\n      </button>\n      <button @click=\"send({payload:'fsm_resume'})\"\n        style=\"flex:1;min-width:100px;padding:8px;background:#006064;color:#fff;border:none;border-radius:4px;font-size:12px;cursor:pointer\">\n        Reanudar\n      </button>\n      <button @click=\"send({payload:'fsm_reset'})\"\n        style=\"flex:1;min-width:100px;padding:8px;background:#6A1B9A;color:#fff;border:none;border-radius:4px;font-size:12px;cursor:pointer\">\n        Reset FSM\n      </button>\n    </div>\n  </div>\n</template>\n<script>\n  export default {\n    data() { return { homeVel: 1500, searchVel: 200, dispTarget: 30000, dispVel: 500 } }\n  }\n</script>"
   },
   {
     "id": "w_ack",
@@ -596,21 +613,9 @@
     "showSearch": false,
     "selectionType": "none",
     "columns": [
-      {
-        "title": "Hora",
-        "key": "time",
-        "width": ""
-      },
-      {
-        "title": "Tipo",
-        "key": "tipo",
-        "width": ""
-      },
-      {
-        "title": "Detalle",
-        "key": "detalle",
-        "width": ""
-      }
+      {"title": "Hora",    "key": "time",    "width": ""},
+      {"title": "Tipo",    "key": "tipo",    "width": ""},
+      {"title": "Detalle", "key": "detalle", "width": ""}
     ],
     "className": "",
     "x": 560,
@@ -658,11 +663,7 @@
     "className": "",
     "x": 120,
     "y": 480,
-    "wires": [
-      [
-        "fn_mk_cmd"
-      ]
-    ]
+    "wires": [["fn_mk_cmd"]]
   },
   {
     "id": "btn_stop_imm",
@@ -686,123 +687,26 @@
     "className": "",
     "x": 120,
     "y": 520,
-    "wires": [
-      [
-        "fn_mk_cmd"
-      ]
-    ]
+    "wires": [["fn_mk_cmd"]]
   },
   {
-    "id": "btn_pause",
-    "type": "ui-button",
+    "id": "w_move_cmd",
+    "type": "ui-template",
     "z": "fl_main",
     "group": "grp_cmds",
     "order": 3,
-    "width": 3,
-    "height": 1,
-    "name": "",
-    "label": "PAUSAR",
-    "topic": "",
-    "topicType": "str",
-    "buttonColor": "#F57F17",
-    "textColor": "#fff",
-    "iconColor": "#fff",
-    "icon": "",
-    "iconPosition": "left",
-    "payload": "pause",
-    "payloadType": "str",
+    "width": 6,
+    "height": 2,
+    "name": "Mover (um, um/s)",
+    "format": "<template>\n  <div style=\"padding:8px 4px\">\n    <div style=\"font-size:11px;color:#9e9e9e;margin-bottom:8px;letter-spacing:.05em\">MOVIMIENTO LINEAL</div>\n    <div style=\"display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap\">\n      <div style=\"flex:1;min-width:110px\">\n        <div style=\"font-size:10px;color:#9e9e9e;margin-bottom:3px\">Posición (µm) — neg: retroceso</div>\n        <input type=\"number\" v-model.number=\"pos\" step=\"1000\"\n          style=\"width:100%;box-sizing:border-box;background:#1e1e1e;color:#fff;\n                 border:1px solid #555;border-radius:4px;padding:6px 8px;font-size:14px\"/>\n      </div>\n      <div style=\"flex:1;min-width:110px\">\n        <div style=\"font-size:10px;color:#9e9e9e;margin-bottom:3px\">Velocidad (µm/s)</div>\n        <input type=\"number\" v-model.number=\"vel\" min=\"1\" max=\"5000\" step=\"100\"\n          style=\"width:100%;box-sizing:border-box;background:#1e1e1e;color:#fff;\n                 border:1px solid #555;border-radius:4px;padding:6px 8px;font-size:14px\"/>\n      </div>\n      <button\n        @click=\"pos !== 0 && vel > 0 && send({payload: pos.toFixed(1)+','+vel.toFixed(1)})\"\n        :style=\"{opacity: pos!==0 && vel>0 ? 1 : 0.4,\n                 height:'34px',padding:'0 16px',background: pos<0 ? '#6a1b9a' : '#1976d2',\n                 color:'#fff',border:'none',borderRadius:'4px',\n                 fontSize:'13px',cursor:'pointer',whiteSpace:'nowrap'}\"\n      >{{ pos < 0 ? '&#9664; Retroceder' : '&#9654; Mover' }}</button>\n    </div>\n  </div>\n</template>\n<script>\n  export default {\n    data() { return { pos: 30000, vel: 500 } }\n  }\n</script>",
+    "storeState": true,
+    "passthru": false,
     "className": "",
-    "x": 120,
+    "x": 210,
     "y": 560,
-    "wires": [
-      [
-        "fn_mk_cmd"
-      ]
-    ]
-  },
-  {
-    "id": "btn_resume",
-    "type": "ui-button",
-    "z": "fl_main",
-    "group": "grp_cmds",
-    "order": 4,
-    "width": 3,
-    "height": 1,
-    "name": "",
-    "label": "REANUDAR",
-    "topic": "",
-    "topicType": "str",
-    "buttonColor": "#2E7D32",
-    "textColor": "#fff",
-    "iconColor": "#fff",
-    "icon": "",
-    "iconPosition": "left",
-    "payload": "fsm_resume",
-    "payloadType": "str",
-    "className": "",
-    "x": 120,
-    "y": 600,
-    "wires": [
-      [
-        "fn_mk_cmd"
-      ]
-    ]
-  },
-  {
-    "id": "btn_reset",
-    "type": "ui-button",
-    "z": "fl_main",
-    "group": "grp_cmds",
-    "order": 5,
-    "width": 3,
-    "height": 1,
-    "name": "",
-    "label": "RESET FSM",
-    "topic": "",
-    "topicType": "str",
-    "buttonColor": "#4527A0",
-    "textColor": "#fff",
-    "iconColor": "#fff",
-    "icon": "",
-    "iconPosition": "left",
-    "payload": "fsm_reset",
-    "payloadType": "str",
-    "className": "",
-    "x": 120,
-    "y": 640,
-    "wires": [
-      [
-        "fn_mk_cmd"
-      ]
-    ]
-  },
-  {
-    "id": "btn_occ_rel",
-    "type": "ui-button",
-    "z": "fl_main",
-    "group": "grp_cmds",
-    "order": 6,
-    "width": 3,
-    "height": 1,
-    "name": "",
-    "label": "LIB. OCLUSIÓN",
-    "topic": "",
-    "topicType": "str",
-    "buttonColor": "#1565C0",
-    "textColor": "#fff",
-    "iconColor": "#fff",
-    "icon": "",
-    "iconPosition": "left",
-    "payload": "fsm_occ_rel",
-    "payloadType": "str",
-    "className": "",
-    "x": 120,
-    "y": 680,
-    "wires": [
-      [
-        "fn_mk_cmd"
-      ]
-    ]
+    "wires": [["fn_mk_cmd"]],
+    "templateScope": "local",
+    "resendOnReconnect": true
   },
   {
     "id": "btn_sim_infuse",
@@ -825,12 +729,8 @@
     "payloadType": "str",
     "className": "",
     "x": 120,
-    "y": 480,
-    "wires": [
-      [
-        "fn_fault_topic"
-      ]
-    ]
+    "y": 760,
+    "wires": [["fn_fault_topic"]]
   },
   {
     "id": "btn_sim_occ",
@@ -853,12 +753,8 @@
     "payloadType": "str",
     "className": "",
     "x": 120,
-    "y": 520,
-    "wires": [
-      [
-        "fn_fault_topic"
-      ]
-    ]
+    "y": 800,
+    "wires": [["fn_fault_topic"]]
   },
   {
     "id": "btn_sim_bub",
@@ -881,12 +777,8 @@
     "payloadType": "str",
     "className": "",
     "x": 120,
-    "y": 560,
-    "wires": [
-      [
-        "fn_fault_topic"
-      ]
-    ]
+    "y": 840,
+    "wires": [["fn_fault_topic"]]
   },
   {
     "id": "btn_sim_clear",
@@ -909,23 +801,15 @@
     "payloadType": "str",
     "className": "",
     "x": 120,
-    "y": 600,
-    "wires": [
-      [
-        "fn_fault_topic"
-      ]
-    ]
+    "y": 880,
+    "wires": [["fn_fault_topic"]]
   },
   {
     "id": "inject_init_events",
     "type": "inject",
     "z": "fl_main",
     "name": "Init tabla eventos",
-    "props": [
-      {
-        "p": "payload"
-      }
-    ],
+    "props": [{"p": "payload"}],
     "repeat": "",
     "crontab": "",
     "once": true,
@@ -935,11 +819,7 @@
     "payloadType": "json",
     "x": 120,
     "y": 360,
-    "wires": [
-      [
-        "fn_init_events"
-      ]
-    ]
+    "wires": [["fn_init_events"]]
   },
   {
     "id": "fn_init_events",
@@ -955,33 +835,6 @@
     "libs": [],
     "x": 320,
     "y": 360,
-    "wires": [
-      [
-        "w_events"
-      ]
-    ]
-  },
-  {
-    "id": "w_move_cmd",
-    "type": "ui-template",
-    "z": "fl_main",
-    "group": "grp_cmds",
-    "order": 7,
-    "width": 6,
-    "height": 2,
-    "name": "Mover (um, um/s)",
-    "format": "<template>\n  <div style=\"padding:8px 4px\">\n    <div style=\"font-size:11px;color:#9e9e9e;margin-bottom:8px;letter-spacing:.05em\">MOVIMIENTO LINEAL</div>\n    <div style=\"display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap\">\n      <div style=\"flex:1;min-width:110px\">\n        <div style=\"font-size:10px;color:#9e9e9e;margin-bottom:3px\">Posición (um) — neg: retroceso</div>\n        <input type=\"number\" v-model.number=\"pos\" step=\"1000\"\n          style=\"width:100%;box-sizing:border-box;background:#1e1e1e;color:#fff;\n                 border:1px solid #555;border-radius:4px;padding:6px 8px;font-size:14px\"/>\n      </div>\n      <div style=\"flex:1;min-width:110px\">\n        <div style=\"font-size:10px;color:#9e9e9e;margin-bottom:3px\">Velocidad (um/s)</div>\n        <input type=\"number\" v-model.number=\"vel\" min=\"1\" max=\"5000\" step=\"100\"\n          style=\"width:100%;box-sizing:border-box;background:#1e1e1e;color:#fff;\n                 border:1px solid #555;border-radius:4px;padding:6px 8px;font-size:14px\"/>\n      </div>\n      <button\n        @click=\"pos !== 0 && vel > 0 && send({payload: pos.toFixed(1)+','+vel.toFixed(1)})\"\n        :style=\"{opacity: pos!==0 && vel>0 ? 1 : 0.4,\n                 height:'34px',padding:'0 16px',background: pos<0 ? '#6a1b9a' : '#1976d2',\n                 color:'#fff',border:'none',borderRadius:'4px',\n                 fontSize:'13px',cursor:'pointer',whiteSpace:'nowrap'}\"\n      >{{ pos < 0 ? '&#9664; Retroceder' : '&#9654; Mover' }}</button>\n    </div>\n  </div>\n</template>\n<script>\n  export default {\n    data() { return { pos: 30000, vel: 500 } }\n  }\n</script>",
-    "storeState": true,
-    "passthru": false,
-    "className": "",
-    "x": 210,
-    "y": 520,
-    "wires": [
-      [
-        "fn_mk_cmd"
-      ]
-    ],
-    "templateScope": "local",
-    "resendOnReconnect": true
+    "wires": [["w_events"]]
   }
 ]

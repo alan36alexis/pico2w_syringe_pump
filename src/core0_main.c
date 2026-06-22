@@ -3,7 +3,7 @@
 
 // Descomentar o comentar esta linea para habilitar/deshabilitar el monitoreo de
 // salud del sistema
-#define ENABLE_SYS_HEALTH_MONITOR
+// #define ENABLE_SYS_HEALTH_MONITOR
 
 #include "FreeRTOS.h"
 #include "config_manager.h"

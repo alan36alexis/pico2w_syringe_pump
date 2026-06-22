@@ -709,23 +709,23 @@ void core1_main(void) {
 
     // Timeout guard: states that wait for hardware signal must not hang
     // indefinitely
-    static const Core1State_t hw_wait_states[] = {
-        ST_HOMING,          ST_SEARCHING_EOT,       ST_BRAKING_LSW_START,
-        ST_BRAKING_LSW_END, ST_RELEASING_LSW_START, ST_RELEASING_LSW_END};
-    for (int _i = 0;
-         _i < (int)(sizeof(hw_wait_states) / sizeof(hw_wait_states[0])); _i++) {
-      if (current_state == hw_wait_states[_i]) {
-        uint32_t elapsed =
-            to_ms_since_boot(get_absolute_time()) - fsm_state_entry_ms;
-        if (elapsed > LSW_WAIT_TIMEOUT_MS && active_event == EV_NONE) {
-          LOG_DEBUG("[FSM]: Timeout in state %s after %u ms. Transitioning to "
-                    "ST_FAULT.\n",
-                    get_state_name(current_state), elapsed);
-          active_event = iEV_ENCODER_FAULT;
-        }
-        break;
-      }
-    }
+    // static const Core1State_t hw_wait_states[] = {
+    //     ST_HOMING,          ST_SEARCHING_EOT,       ST_BRAKING_LSW_START,
+    //     ST_BRAKING_LSW_END, ST_RELEASING_LSW_START, ST_RELEASING_LSW_END};
+    // for (int _i = 0;
+    //      _i < (int)(sizeof(hw_wait_states) / sizeof(hw_wait_states[0])); _i++) {
+    //   if (current_state == hw_wait_states[_i]) {
+    //     uint32_t elapsed =
+    //         to_ms_since_boot(get_absolute_time()) - fsm_state_entry_ms;
+    //     if (elapsed > LSW_WAIT_TIMEOUT_MS && active_event == EV_NONE) {
+    //       LOG_DEBUG("[FSM]: Timeout in state %s after %u ms. Transitioning to "
+    //                 "ST_FAULT.\n",
+    //                 get_state_name(current_state), elapsed);
+    //       active_event = iEV_ENCODER_FAULT;
+    //     }
+    //     break;
+    //   }
+    // }
 
     // Global fault trap: any motor driver error transitions to ST_FAULT
     // immediately
