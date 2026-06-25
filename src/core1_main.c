@@ -19,7 +19,6 @@
 #include "system_config.h"
 #include "tmc2209.h"
 
-
 // --- DEBUG MODE ---
 // 1 = Activado (printf habilitado), 0 = Desactivado (printf mudo)
 #define DEBUG_MODE 1
@@ -123,7 +122,6 @@ void tmc2209_move_linear_um_dma(TMC2209_t *motor, float target_um,
 
 volatile int32_t calibration_max_encoder_count = 0;
 
-
 void tmc2209_move_linear_um_dma(TMC2209_t *motor, float target_um,
                                 float target_velocity_ums) {
   LOG_DEBUG("[MTR]: Abstraccion de Movimiento Lineal\n");
@@ -200,9 +198,10 @@ void tmc2209_move_linear_um_dma(TMC2209_t *motor, float target_um,
 
   // Consideraciones para perfiles de aceleracion cortos
   if (total_microsteps < 100) {
-    LOG_DEBUG("[MTR]: Advertencia: Movimiento solicitado muy corto (%u micropasos). "
-              "Se enviara en burst.\n",
-              total_microsteps);
+    LOG_DEBUG(
+        "[MTR]: Advertencia: Movimiento solicitado muy corto (%u micropasos). "
+        "Se enviara en burst.\n",
+        total_microsteps);
     float target_freq_hz = target_velocity_ums / um_per_microstep;
     tmc2209_send_nsteps_at_freq(motor, total_microsteps, target_freq_hz);
     return;
@@ -300,6 +299,9 @@ void core1_main(void) {
   int32_t last_encoder_count = 0;
   int32_t last_encoder_a = 0;
   int32_t last_encoder_b = 0;
+  uint32_t last_drv_status = 0;
+  uint32_t last_gstat = 0;
+  uint16_t last_stall = 0;
 
   // Variables para la medicion de velocidad
   int32_t last_speed_encoder_count = 0;
@@ -322,7 +324,8 @@ void core1_main(void) {
 
   if (USE_UART_MODE) {
     // MODO UART: Configuramos los pines como direccion fija (Addr 0: Ambos LOW)
-    LOG_DEBUG("[MTR]: Iniciando en MODO UART (Pines MS usados para direccionamiento 0)\n");
+    LOG_DEBUG("[MTR]: Iniciando en MODO UART (Pines MS usados para "
+              "direccionamiento 0)\n");
     tmc2209_set_uart_address_pins(&motor1, 0);
     LOG_DEBUG("[MTR]: Direccion configurada: %d\n", motor1.addr);
     // Inicializar UART
@@ -713,12 +716,14 @@ void core1_main(void) {
     //     ST_HOMING,          ST_SEARCHING_EOT,       ST_BRAKING_LSW_START,
     //     ST_BRAKING_LSW_END, ST_RELEASING_LSW_START, ST_RELEASING_LSW_END};
     // for (int _i = 0;
-    //      _i < (int)(sizeof(hw_wait_states) / sizeof(hw_wait_states[0])); _i++) {
+    //      _i < (int)(sizeof(hw_wait_states) / sizeof(hw_wait_states[0]));
+    //      _i++) {
     //   if (current_state == hw_wait_states[_i]) {
     //     uint32_t elapsed =
     //         to_ms_since_boot(get_absolute_time()) - fsm_state_entry_ms;
     //     if (elapsed > LSW_WAIT_TIMEOUT_MS && active_event == EV_NONE) {
-    //       LOG_DEBUG("[FSM]: Timeout in state %s after %u ms. Transitioning to "
+    //       LOG_DEBUG("[FSM]: Timeout in state %s after %u ms. Transitioning to
+    //       "
     //                 "ST_FAULT.\n",
     //                 get_state_name(current_state), elapsed);
     //       active_event = iEV_ENCODER_FAULT;
@@ -837,8 +842,9 @@ void core1_main(void) {
                                   : pulse_counter_get_count(pio1, sm_enc_a);
         if (closed_loop_calculate_correction(
                 &scl, current_enc, USE_QUADRATURE_ENCODER, &missing_um)) {
-          LOG_DEBUG("[ENC]: Closed loop: Faltan %.1f um. Aplicando correccion...\n",
-                    missing_um);
+          LOG_DEBUG(
+              "[ENC]: Closed loop: Faltan %.1f um. Aplicando correccion...\n",
+              missing_um);
           tmc2209_move_linear_um_dma(global_motor, missing_um,
                                      scl.expected_target_velocity_ums);
         } else {
@@ -928,9 +934,9 @@ void core1_main(void) {
                                   : pulse_counter_get_count(pio1, sm_enc_a);
         if (closed_loop_calculate_correction(
                 &scl, current_enc, USE_QUADRATURE_ENCODER, &missing_um)) {
-          LOG_DEBUG(
-              "[ENC]: Closed loop manual: Faltan %.1f um. Aplicando correccion...\n",
-              missing_um);
+          LOG_DEBUG("[ENC]: Closed loop manual: Faltan %.1f um. Aplicando "
+                    "correccion...\n",
+                    missing_um);
           tmc2209_move_linear_um_dma(global_motor, missing_um,
                                      scl.expected_target_velocity_ums);
         }
@@ -953,7 +959,10 @@ void core1_main(void) {
 
     uint32_t drv_status = tmc2209_read_drv_status(global_motor);
     uint32_t gstat = tmc2209_read_gstat(global_motor);
-    uint16_t stall = tmc2209_read_sg_result(global_motor);
+    uint16_t stall = 0;
+#ifdef ENABLE_STALLGUARD_LOG
+    stall = tmc2209_read_sg_result(global_motor);
+#endif
 
     // GSTAT bit 1 = UV_CP (charge pump undervoltage), bit 2 = drv_err (driver
     // error)
@@ -969,14 +978,18 @@ void core1_main(void) {
     if (gstat & 0x04)
       tmc2209_clear_gstat(global_motor, 4);
 
-    if (gstat || drv_status || stall) {
+    if (drv_status != last_drv_status || gstat != last_gstat ||
+        stall != last_stall) {
       logger_send_drv_status_error(stall, drv_status, gstat);
+      last_drv_status = drv_status;
+      last_gstat = gstat;
+      last_stall = stall;
     }
 
-    if (counter % 10 == 0) {
-      float pct = tmc2209_get_move_progress_pct(global_motor);
-      logger_send_motor_progress(pct);
-    }
+    // if (counter % 10 == 0) {
+    //   float pct = tmc2209_get_move_progress_pct(global_motor);
+    //   logger_send_motor_progress(pct);
+    // }
 
     if (ENABLE_ENCODER) {
       if (USE_QUADRATURE_ENCODER) {

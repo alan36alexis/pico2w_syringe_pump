@@ -25,13 +25,15 @@ extern "C" {
 
 #define MQTT_BROKER_PORT  1883
 #define MQTT_MAX_PAYLOAD  256  // max bytes de cualquier payload en la cola MQTT
+#define MQTT_TASK_DELAY_MS 5000
 
 void mqtt_client_queue_init(void);
 void mqtt_client_task(void *params);
 void mqtt_rx_task(void *params);
 bool mqtt_client_publish(const char *topic, const char *payload);
 bool mqtt_client_publish_qos1(const char *topic, const char *payload);
-void mqtt_client_force_reconnect(void);
+void     mqtt_client_force_reconnect(void);
+uint32_t mqtt_get_tx_drops(void);
 
 #ifdef __cplusplus
 }

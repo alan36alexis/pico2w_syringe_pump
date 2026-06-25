@@ -3,7 +3,6 @@
 
 #include <stdint.h>
 #include <stdbool.h>
-#include "pico/util/queue.h"
 #include "core1_main.h"
 
 // Log Filter Configuration
@@ -21,9 +20,6 @@ typedef struct {
 
 extern LogFilterConfig_t g_log_filter;
 void log_filter_set(const char *hdr, bool state);
-
-// Define the queue that will pass events from Core 1 to Core 0
-extern queue_t crosscore_log_queue;
 
 // Event IDs
 typedef enum {
@@ -89,9 +85,6 @@ typedef struct {
         const char *msg_str;       // For string messages (pointers)
     } payload;
 } LogMessage_t;
-
-// Initialization function (called by Core 0 before starting scheduler)
-void crosscore_logger_init(void);
 
 // Helper functions for Core 1 (Non-blocking)
 void logger_send_heartbeat(uint32_t count);

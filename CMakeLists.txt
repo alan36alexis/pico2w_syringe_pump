@@ -52,6 +52,12 @@ add_executable(pico2w_syringe_pump
     src/pump_hmi.c
     src/ui_state.c
     src/ui_events.c
+    # EDA Pub-Sub logging infrastructure
+    src/system_queues.c
+    src/event_broker.c
+    src/serial_consumer.c
+    src/mqtt_consumer.c
+    src/hmi_consumer.c
 )
 
 pico_generate_pio_header(pico2w_syringe_pump ${CMAKE_CURRENT_LIST_DIR}/src/quadrature_encoder.pio)

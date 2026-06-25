@@ -10,6 +10,9 @@
 
 #include "FreeRTOS.h"
 #include "queue.h"
+#include "system_queues.h"
+
+static volatile uint32_t s_mqtt_tx_drops = 0;
 
 // Define struct for queue messages
 typedef struct {
@@ -74,6 +77,16 @@ void mqtt_rx_task(void *params) {
 
             bool accepted = pump_hmi_parse_and_execute(cmd_buf);
 
+            DtoManualOp_t op = {
+                .source      = 1,               // 0=CLI, 1=MQTT, 2=TFT
+                .accepted    = accepted ? 1 : 0,
+                .reject_code = accepted ? 0 : 1,
+                .fsm_from    = 0,               // FSM transitions tracked via EV_APP_FSM_STATE
+                .fsm_to      = 0,
+                .action_id   = 0,
+            };
+            CORE0_EMIT(EV_APP_CMD_EXECUTED, manual_op, op);
+
             if (cid >= 0) {
                 char ack[64];
                 snprintf(ack, sizeof(ack),
@@ -94,8 +107,8 @@ static void mqtt_incoming_publish_cb(void *arg, const char *topic, u32_t tot_len
 
 static void mqtt_request_cb(void *arg, err_t err) {
     (void)arg;
-    (void)err;
-    // Callback para operaciones MQTT como publish o subscribe
+    if (err != ERR_OK)
+        s_mqtt_tx_drops++;
 }
 
 static void mqtt_connection_cb(mqtt_client_t *client, void *arg, mqtt_connection_status_t status) {
@@ -103,6 +116,7 @@ static void mqtt_connection_cb(mqtt_client_t *client, void *arg, mqtt_connection
     if (status == MQTT_CONNECT_ACCEPTED) {
         printf("[MQT]: Connected! id=%s\n", g_sys_config.device_id);
         mqtt_connected = true;
+        CORE0_EMIT(EV_NET_MQTT_CONN, param, (uint32_t)0);
 
         mqtt_set_inpub_callback(client, mqtt_incoming_publish_cb, mqtt_incoming_data_cb, NULL);
 
@@ -119,6 +133,7 @@ static void mqtt_connection_cb(mqtt_client_t *client, void *arg, mqtt_connection
     } else {
         printf("[MQT]: Disconnected, status: %d\n", status);
         mqtt_connected = false;
+        CORE0_EMIT(EV_NET_MQTT_DISC, param, (uint32_t)status);
     }
 }
 
@@ -173,11 +188,11 @@ void mqtt_client_task(void *params) {
                     printf("[MQT]: Connection error: %d\n", err);
                 }
             }
-            vTaskDelay(pdMS_TO_TICKS(5000));
+            vTaskDelay(pdMS_TO_TICKS(MQTT_TASK_DELAY_MS));
         } else {
             // Guardián del Transmisor: espera 5s en la cola
             if (mqtt_tx_queue != NULL) {
-                if (xQueueReceive(mqtt_tx_queue, &msg, pdMS_TO_TICKS(5000)) == pdTRUE) {
+                if (xQueueReceive(mqtt_tx_queue, &msg, pdMS_TO_TICKS(MQTT_TASK_DELAY_MS)) == pdTRUE) {
                     if (mqtt_connected) {
                         cyw43_arch_lwip_begin();
                         mqtt_publish(mqtt_client, msg.topic, msg.payload, strlen(msg.payload), msg.qos, 0, mqtt_request_cb, NULL);
@@ -185,7 +200,7 @@ void mqtt_client_task(void *params) {
                     }
                 }
             } else {
-                vTaskDelay(pdMS_TO_TICKS(5000));
+                vTaskDelay(pdMS_TO_TICKS(MQTT_TASK_DELAY_MS));
             }
         }
     }
@@ -204,8 +219,11 @@ bool mqtt_client_publish(const char *topic, const char *payload) {
     msg.payload[sizeof(msg.payload) - 1] = '\0';
     msg.qos = 0;
 
-    // Inyecta en la cola TX (no toma mutex, súper rápido, seguro de enviar desde cualquier tarea)
-    return (xQueueSendToBack(mqtt_tx_queue, &msg, 0) == pdTRUE);
+    if (xQueueSendToBack(mqtt_tx_queue, &msg, 0) != pdTRUE) {
+        s_mqtt_tx_drops++;
+        return false;
+    }
+    return true;
 }
 
 bool mqtt_client_publish_qos1(const char *topic, const char *payload) {
@@ -214,7 +232,15 @@ bool mqtt_client_publish_qos1(const char *topic, const char *payload) {
     strncpy(msg.topic,   topic,   sizeof(msg.topic)   - 1); msg.topic[sizeof(msg.topic)     - 1] = '\0';
     strncpy(msg.payload, payload, sizeof(msg.payload) - 1); msg.payload[sizeof(msg.payload) - 1] = '\0';
     msg.qos = 1;
-    return (xQueueSendToBack(mqtt_tx_queue, &msg, 0) == pdTRUE);
+    if (xQueueSendToBack(mqtt_tx_queue, &msg, 0) != pdTRUE) {
+        s_mqtt_tx_drops++;
+        return false;
+    }
+    return true;
+}
+
+uint32_t mqtt_get_tx_drops(void) {
+    return s_mqtt_tx_drops;
 }
 
 void mqtt_client_force_reconnect(void) {

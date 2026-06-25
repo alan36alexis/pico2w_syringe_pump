@@ -7,12 +7,17 @@
 // Includes de los "mains" divididos
 #include "core0_main.h"
 #include "core1_main.h"
+#include "system_queues.h"
 
 /**
  * @brief Programa principal e inicializador
  */
 int main(void) {
   stdio_init_all();
+
+  // Initialize EDA event queues before Core 1 starts so that
+  // g_crosscore_event_q is ready when Core 1 calls CORE1_EMIT.
+  system_queues_init();
 
   // 1. Arranca el Core 1 (Baremetal)
   multicore_launch_core1(core1_main);

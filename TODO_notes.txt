@@ -15,3 +15,10 @@ y continuar el conteo cuando se reanuda el movimiento de manera que no se pierda
 Interar implementación de virtual_lsw
 
 Analizar manera de reducir uso de stack del MQTT_Rx 
+
+Estrategia para condicion de falla/desconexion de:
+-encoder
+-motor
+-finales de carrera
+-sensor de fuerza ??
+-detector de burbujas ??

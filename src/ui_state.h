@@ -4,6 +4,7 @@
 #include "core1_main.h"
 #include "syringe_pump_api.h"
 #include "crosscore_logger.h"
+#include "system_events.h"
 
 // Snapshot del estado de la bomba para consumo exclusivo de task_tft (LVGL).
 // Se actualiza desde task_logger; se lee desde task_tft via ui_state_get_snapshot().
@@ -20,9 +21,12 @@ typedef struct {
 // Inicializar (llamar antes del scheduler).
 void ui_state_init(void);
 
-// Actualizar el estado a partir de un evento de Core 1.
-// Llamar desde task_logger por cada LogMessage_t recibido.
+// Actualizar el estado a partir de un evento legado (LogMessage_t).
 void ui_state_update_from_event(const LogMessage_t *msg);
+
+// Actualizar el estado a partir de un evento EDA (SystemEvent_t).
+// Llamar desde hmi_consumer por cada evento recibido.
+void ui_state_update_from_system_event(const SystemEvent_t *ev);
 
 // Obtener una copia consistente del estado (thread-safe).
 // Llamar desde task_tft en cada tick LVGL.
