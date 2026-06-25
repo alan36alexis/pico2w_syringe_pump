@@ -118,8 +118,6 @@ static void task_mqtt_consumer(void *arg) {
     TickType_t t_sensors = 0;
     TickType_t t_motion  = 0;
     TickType_t t_session = 0;
-    TickType_t t_drops   = 0;
-    uint32_t   last_drops = 0;
 
     for (;;) {
         // Short timeout drives rate-based cadence without burning CPU
@@ -149,14 +147,7 @@ static void task_mqtt_consumer(void *arg) {
             publish_session();
             t_session = now;
         }
-        if ((now - t_drops) >= pdMS_TO_TICKS(10000)) {
-            uint32_t drops = mqtt_get_tx_drops();
-            if (drops != last_drops) {
-                CORE0_EMIT(EV_NET_MQTT_TX_DROP, param, drops);
-                last_drops = drops;
-            }
-            t_drops = now;
-        }
+
     }
 }
 

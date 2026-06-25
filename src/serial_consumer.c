@@ -93,6 +93,9 @@ static void format_event(const SystemEvent_t *ev, char *buf, size_t len) {
         break;
 
     // Network
+    case EV_NET_WIFI_CONNECTING:
+        snprintf(buf, len, "[%6u] [NET]: Connecting to Wi-Fi...", ev->timestamp_ms);
+        break;
     case EV_NET_WIFI_CONN:
         snprintf(buf, len,
                  "[%6u] [NET]: WiFi conectado RSSI=%d dBm canal=%u",
@@ -168,6 +171,9 @@ static void format_event(const SystemEvent_t *ev, char *buf, size_t len) {
                  ev->payload.calibration.trigger,
                  ev->payload.calibration.success ? "OK" : "FAIL");
         break;
+    case EV_SYS_CALIBRATION_SAVED:
+        snprintf(buf, len, "[%6u] [CFG]: Calibration saved to Flash.", ev->timestamp_ms);
+        break;
 
     // Alarms
     case EV_ALARM_OCCLUSION:
@@ -229,6 +235,9 @@ static void format_event(const SystemEvent_t *ev, char *buf, size_t len) {
         snprintf(buf, len,
                  "[%6u] [SYS]: Core1 heartbeat #%u",
                  ev->timestamp_ms, (unsigned)ev->payload.param);
+        break;
+    case EV_SYS_CLI_READY:
+        snprintf(buf, len, "[%6u] [SYS]: Pico CLI Ready. Waiting for commands...", ev->timestamp_ms);
         break;
 
     default:

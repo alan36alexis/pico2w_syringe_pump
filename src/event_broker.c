@@ -33,7 +33,7 @@ static void task_event_broker(void *arg) {
     if (g_calibration_dirty) {
       g_calibration_dirty = false;
       config_manager_save(true);
-      printf("[CFG]: Calibration saved to Flash.\n");
+      CORE0_EMIT(EV_SYS_CALIBRATION_SAVED, param, 0);
     }
 
     // Drain Core 1 queue (non-blocking; hardware spinlock, safe from FreeRTOS task).
@@ -43,13 +43,14 @@ static void task_event_broker(void *arg) {
       broker_fanout(&ev);
     }
 
-    // Block on Core 0 queue with timeout (acts as sleep period).
+    // Drain Core 0 queue (non-blocking).
     // Core 0 events already carry a timestamp set by the emitter task.
-    if (xQueueReceive(g_core0_event_q, &ev, pdMS_TO_TICKS(BROKER_POLL_MS)) == pdTRUE) {
+    while (xQueueReceive(g_core0_event_q, &ev, 0) == pdTRUE) {
       broker_fanout(&ev);
-      while (xQueueReceive(g_core0_event_q, &ev, 0) == pdTRUE)
-        broker_fanout(&ev);
     }
+
+    // Suspend for a short tick to allow other tasks to run and avoid starvation
+    vTaskDelay(pdMS_TO_TICKS(10));
   }
 }
 

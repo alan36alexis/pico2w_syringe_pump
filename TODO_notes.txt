@@ -22,3 +22,7 @@ Estrategia para condicion de falla/desconexion de:
 -finales de carrera
 -sensor de fuerza ??
 -detector de burbujas ??
+
+Rutina de autochequeo inicial
+posibilidad de resetar a valores de fabrica
+

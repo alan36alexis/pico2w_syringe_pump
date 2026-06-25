@@ -35,11 +35,12 @@ typedef uint16_t SystemEventID_t;
 #define EV_MOT_SPEED_WARN    ((SystemEventID_t)0x0304)  // DtoMotion_t: expected vs actual
 
 // Network and connectivity [0x0400–0x04FF]
-#define EV_NET_WIFI_CONN     ((SystemEventID_t)0x0400)  // DtoWifi_t: rssi_dbm, channel
-#define EV_NET_WIFI_DISC     ((SystemEventID_t)0x0401)  // payload.param: reason code
-#define EV_NET_MQTT_CONN     ((SystemEventID_t)0x0402)  // payload.param = 0
-#define EV_NET_MQTT_DISC     ((SystemEventID_t)0x0403)  // payload.param = 0
-#define EV_NET_MQTT_TX_DROP  ((SystemEventID_t)0x0404)  // payload.param: cumulative drops
+#define EV_NET_WIFI_CONN       ((SystemEventID_t)0x0400)  // DtoWifi_t: rssi_dbm, channel
+#define EV_NET_WIFI_DISC       ((SystemEventID_t)0x0401)  // payload.param: reason code
+#define EV_NET_MQTT_CONN       ((SystemEventID_t)0x0402)  // payload.param = 0
+#define EV_NET_MQTT_DISC       ((SystemEventID_t)0x0403)  // payload.param = 0
+#define EV_NET_MQTT_TX_DROP    ((SystemEventID_t)0x0404)  // payload.param: cumulative drops
+#define EV_NET_WIFI_CONNECTING ((SystemEventID_t)0x0405)  // payload.param = 0
 
 // Application / FSM [0x0500–0x05FF]
 #define EV_APP_FSM_STATE     ((SystemEventID_t)0x0500)  // DtoFsm_t
@@ -47,7 +48,8 @@ typedef uint16_t SystemEventID_t;
 #define EV_APP_SESSION_END   ((SystemEventID_t)0x0502)  // DtoSession_t
 #define EV_APP_SESSION_UPD   ((SystemEventID_t)0x0503)  // DtoSession_t: periodic update (2s)
 #define EV_APP_CMD_EXECUTED  ((SystemEventID_t)0x0504)  // DtoManualOp_t
-#define EV_APP_CALIBRATION   ((SystemEventID_t)0x0505)  // DtoCalibration_t
+#define EV_APP_CALIBRATION       ((SystemEventID_t)0x0505)  // DtoCalibration_t
+#define EV_SYS_CALIBRATION_SAVED ((SystemEventID_t)0x0506)  // payload.param = 0
 
 // Alarms [0x0600–0x06FF]
 // IMPORTANT: these are logging notifications, NOT control signals.
@@ -66,6 +68,7 @@ typedef uint16_t SystemEventID_t;
 // System health [0x0800–0x08FF]
 #define EV_SYS_HEAP_UPD      ((SystemEventID_t)0x0800)  // DtoSysHealth_t
 #define EV_SYS_HEARTBEAT     ((SystemEventID_t)0x0801)  // payload.param: counter (Core 1)
+#define EV_SYS_CLI_READY     ((SystemEventID_t)0x0802)  // payload.param = 0
 
 // Domain range markers for consumer filtering
 #define EV_DOMAIN_ALARM_MIN  ((SystemEventID_t)0x0600)
