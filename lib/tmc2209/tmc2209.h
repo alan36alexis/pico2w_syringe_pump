@@ -559,4 +559,25 @@ void tmc2209_abort_profile_dma(TMC2209_t *motor);
  */
 float tmc2209_get_move_progress_pct(TMC2209_t *motor);
 
+// ---------------------------------------------------------------------------
+// GSTAT (0x01) bit masks
+// ---------------------------------------------------------------------------
+#define TMC_GSTAT_RESET   (1u << 0)  // IC reset desde última lectura (sticky)
+#define TMC_GSTAT_DRV_ERR (1u << 1)  // Driver apagado por OT o cortocircuito
+#define TMC_GSTAT_UV_CP   (1u << 2)  // Undervoltage en charge pump
+
+// ---------------------------------------------------------------------------
+// DRV_STATUS (0x6F) bit masks
+// ---------------------------------------------------------------------------
+#define TMC_DRV_OTPW    (1u << 0)   // Sobretemperatura prewarning (~120°C)
+#define TMC_DRV_OT      (1u << 1)   // Sobretemperatura — driver apagado
+#define TMC_DRV_S2GA    (1u << 2)   // Cortocircuito a GND fase A
+#define TMC_DRV_S2GB    (1u << 3)   // Cortocircuito a GND fase B
+#define TMC_DRV_S2VSA   (1u << 4)   // Cortocircuito a VS fase A
+#define TMC_DRV_S2VSB   (1u << 5)   // Cortocircuito a VS fase B
+#define TMC_DRV_OLA     (1u << 6)   // Open load fase A (activo solo en marcha)
+#define TMC_DRV_OLB     (1u << 7)   // Open load fase B
+#define TMC_DRV_STST    (1u << 24)  // Motor en standstill
+#define TMC_DRV_STEALTH (1u << 30)  // StealthChop activo
+
 #endif // TMC2209_H

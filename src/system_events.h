@@ -97,12 +97,19 @@ typedef struct {
     float   correction_um;
 } DtoMotion_t;
 
+// Bit positions for DtoTmcStatus_t.flags (parsed from GSTAT + DRV_STATUS)
+#define TMC_FLAG_OT_WARN (1u << 0)  // drv_status: OTPW  — prewarning ~120°C
+#define TMC_FLAG_OT_SHUT (1u << 1)  // drv_status: OT    — shutdown activo
+#define TMC_FLAG_SHORT_A (1u << 2)  // drv_status: S2GA | S2VSA
+#define TMC_FLAG_SHORT_B (1u << 3)  // drv_status: S2GB | S2VSB
+#define TMC_FLAG_OPEN_A  (1u << 4)  // drv_status: OLA
+#define TMC_FLAG_OPEN_B  (1u << 5)  // drv_status: OLB
+#define TMC_FLAG_UV_CP   (1u << 6)  // gstat: uv_cp — undervoltage charge pump
+#define TMC_FLAG_DRV_ERR (1u << 7)  // gstat: drv_err — driver apagado
+
 typedef struct {
-    uint32_t drv_status_raw;
-    uint32_t gstat_raw;
-    uint16_t stall_count;
-    uint8_t  flags;
-    // bit 0: OT_WARN, 1: OT_SHUT, 2: SHORT_A, 3: SHORT_B, 4: OPEN_A, 5: OPEN_B
+    uint16_t stall_count;  // solo válido con ENABLE_STALLGUARD_LOG
+    uint8_t  flags;        // bitmask TMC_FLAG_*
 } DtoTmcStatus_t;
 
 typedef struct {

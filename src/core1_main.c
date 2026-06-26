@@ -17,6 +17,7 @@
 #include "pulse_counter.pio.h"
 #include "quadrature_encoder.pio.h"
 #include "system_config.h"
+#include "system_events.h"
 #include "tmc2209.h"
 
 // --- DEBUG MODE ---
@@ -299,9 +300,7 @@ void core1_main(void) {
   int32_t last_encoder_count = 0;
   int32_t last_encoder_a = 0;
   int32_t last_encoder_b = 0;
-  uint32_t last_drv_status = 0;
-  uint32_t last_gstat = 0;
-  uint16_t last_stall = 0;
+  uint8_t last_tmc_flags = 0;
 
   // Variables para la medicion de velocidad
   int32_t last_speed_encoder_count = 0;
@@ -701,11 +700,6 @@ void core1_main(void) {
     // 3. Evaluate FSM (State transitions based on events)
     static Core1State_t previous_state = ST_UNHOMED;
     if (current_state != previous_state) {
-      if (g_log_filter.show_fsm) {
-        LOG_DEBUG("[FSM]: State changed: %s -> %s\n",
-                  get_state_name(previous_state),
-                  get_state_name(current_state));
-      }
       fsm_state_entry_ms = to_ms_since_boot(get_absolute_time());
       previous_state = current_state;
     }
@@ -964,26 +958,33 @@ void core1_main(void) {
     stall = tmc2209_read_sg_result(global_motor);
 #endif
 
-    // GSTAT bit 1 = UV_CP (charge pump undervoltage), bit 2 = drv_err (driver
-    // error)
-    if (gstat & 0x06) {
+    // GSTAT bit 1 = drv_err (driver shutdown), bit 2 = uv_cp (charge pump UV)
+    if (gstat & (TMC_GSTAT_DRV_ERR | TMC_GSTAT_UV_CP)) {
       if (active_event == EV_NONE && current_state != ST_FAULT) {
         active_event = iEV_ENCODER_FAULT;
       }
     }
-    if (gstat & 0x01)
+    if (gstat & TMC_GSTAT_RESET)
       tmc2209_clear_gstat(global_motor, 1);
-    if (gstat & 0x02)
+    if (gstat & TMC_GSTAT_DRV_ERR)
       tmc2209_clear_gstat(global_motor, 2);
-    if (gstat & 0x04)
+    if (gstat & TMC_GSTAT_UV_CP)
       tmc2209_clear_gstat(global_motor, 4);
 
-    if (drv_status != last_drv_status || gstat != last_gstat ||
-        stall != last_stall) {
-      logger_send_drv_status_error(stall, drv_status, gstat);
-      last_drv_status = drv_status;
-      last_gstat = gstat;
-      last_stall = stall;
+    uint8_t tmc_flags = 0;
+    if (drv_status & TMC_DRV_OTPW)                          tmc_flags |= TMC_FLAG_OT_WARN;
+    if (drv_status & TMC_DRV_OT)                            tmc_flags |= TMC_FLAG_OT_SHUT;
+    if (drv_status & (TMC_DRV_S2GA | TMC_DRV_S2VSA))       tmc_flags |= TMC_FLAG_SHORT_A;
+    if (drv_status & (TMC_DRV_S2GB | TMC_DRV_S2VSB))       tmc_flags |= TMC_FLAG_SHORT_B;
+    if (drv_status & TMC_DRV_OLA)                           tmc_flags |= TMC_FLAG_OPEN_A;
+    if (drv_status & TMC_DRV_OLB)                           tmc_flags |= TMC_FLAG_OPEN_B;
+    if (gstat & TMC_GSTAT_UV_CP)                            tmc_flags |= TMC_FLAG_UV_CP;
+    if (gstat & TMC_GSTAT_DRV_ERR)                          tmc_flags |= TMC_FLAG_DRV_ERR;
+
+    if (tmc_flags != last_tmc_flags) {
+      DtoTmcStatus_t dto = { .stall_count = 0, .flags = tmc_flags };
+      CORE1_EMIT(EV_TMC_DRV_STATUS, tmc, dto);
+      last_tmc_flags = tmc_flags;
     }
 
     // if (counter % 10 == 0) {

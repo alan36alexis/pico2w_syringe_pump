@@ -44,6 +44,7 @@ add_executable(pico2w_syringe_pump
     src/closed_loop.c
     src/crosscore_logger.c
     src/crosscore_cmd.c
+    src/cmd_dispatcher.c
     src/test_modes.c
     src/mqtt_client.c
     src/mqtt_topics.c
@@ -81,8 +82,13 @@ target_link_libraries(pico2w_syringe_pump
     hardware_flash
 )
 
+# Suppress CYW43 arch-level debug prints (e.g. "connect status: link up")
+target_compile_definitions(pico2w_syringe_pump PRIVATE
+    PICO_CYW43_ARCH_DEBUG_ENABLED=0
+)
+
 # Provide include directories for lwIP and others
-target_include_directories(pico2w_syringe_pump PRIVATE 
+target_include_directories(pico2w_syringe_pump PRIVATE
     ${CMAKE_CURRENT_LIST_DIR}/src
 )
 

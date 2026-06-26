@@ -26,3 +26,22 @@ Estrategia para condicion de falla/desconexion de:
 Rutina de autochequeo inicial
 posibilidad de resetar a valores de fabrica
 
+"[156273] [MOT]: vel=45.7 um/s target=0.0 um/s
+[156273] [ENC]: count=-5414 pos=0.00 mm
+[157013] [MOT]: vel=45.7 um/s target=0.0 um/s
+[157013] [ENC]: count=-5354 pos=0.00 mm
+[157103] [FSM]: ST_RELEASING_LSW_START -> ST_READY_AT_HOME  sid=0
+[159727] [NET]: MQTT desconectado"
+
+"[ 49603] [FSM]: ST_UNHOMED -> ST_MANUAL_OVERRIDE  sid=0
+[ 49755] [NET]: MQTT desconectado
+[ 50303] [MOT]: vel=198.1 um/s target=0.0 um/s
+[ 50303] [ENC]: count=198 pos=0.00 mm"
+
+"fsm_home,200
+[MTR]: Abstraccion de Movimiento Lineal
+[TGT]: Target: -105000.0 um a 200.0 um/s
+[102664] [APP]: Cmd src=0 action=0 ACEPTADO"
+
+
+

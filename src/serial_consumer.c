@@ -12,21 +12,28 @@ static void format_event(const SystemEvent_t *ev, char *buf, size_t len) {
     switch (ev->id) {
 
     // TMC2209 Driver
-    case EV_TMC_DRV_STATUS:
-        snprintf(buf, len,
-                 "[%6u] [TMC]: DRV=0x%08X GSTAT=0x%08X stall=%u flags=0x%02X",
-                 ev->timestamp_ms,
-                 (unsigned)ev->payload.tmc.drv_status_raw,
-                 (unsigned)ev->payload.tmc.gstat_raw,
-                 ev->payload.tmc.stall_count,
-                 ev->payload.tmc.flags);
+    case EV_TMC_DRV_STATUS: {
+        uint8_t f = ev->payload.tmc.flags;
+        if (f == 0) {
+            snprintf(buf, len, "[%6u] [TMC]: OK", ev->timestamp_ms);
+        } else {
+            snprintf(buf, len, "[%6u] [TMC]:%s%s%s%s%s%s%s%s",
+                     ev->timestamp_ms,
+                     (f & TMC_FLAG_OT_WARN) ? " OT_WARN"  : "",
+                     (f & TMC_FLAG_OT_SHUT) ? " OT_SHUT"  : "",
+                     (f & TMC_FLAG_SHORT_A) ? " SHORT_A"  : "",
+                     (f & TMC_FLAG_SHORT_B) ? " SHORT_B"  : "",
+                     (f & TMC_FLAG_OPEN_A)  ? " OPEN_A"   : "",
+                     (f & TMC_FLAG_OPEN_B)  ? " OPEN_B"   : "",
+                     (f & TMC_FLAG_UV_CP)   ? " UV_CP"    : "",
+                     (f & TMC_FLAG_DRV_ERR) ? " DRV_ERR"  : "");
+        }
         break;
+    }
     case EV_TMC_STALL:
         snprintf(buf, len,
-                 "[%6u] [TMC]: Stall count=%u DRV=0x%08X",
-                 ev->timestamp_ms,
-                 ev->payload.tmc.stall_count,
-                 (unsigned)ev->payload.tmc.drv_status_raw);
+                 "[%6u] [TMC]: Stall count=%u",
+                 ev->timestamp_ms, ev->payload.tmc.stall_count);
         break;
     case EV_TMC_OVERTEMP:
         snprintf(buf, len,

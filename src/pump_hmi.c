@@ -3,9 +3,6 @@
 #include "core1_main.h"
 #include "FreeRTOS.h"
 #include "semphr.h"
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
 
 // Velocidades por defecto para comandos que no reciben param1
 #define HMI_DEFAULT_HOME_VEL_UMS    1500.0f
@@ -98,58 +95,3 @@ bool pump_hmi_execute(PumpHMIAction_t action, float param1, float param2) {
     return false;
 }
 
-bool pump_hmi_parse_and_execute(const char *str) {
-    bool handled = true;
-    bool ok      = false;
-
-    if (strncmp(str, "stop_imm", 8) == 0 || strncmp(str, "STOP_IMM", 8) == 0 ||
-        strncmp(str, "stop", 4)    == 0 || strncmp(str, "STOP", 4)    == 0) {
-        ok = pump_hmi_execute(HMI_ACTION_STOP, 0.0f, 0.0f);
-
-    } else if (strncmp(str, "fsm_home,", 9) == 0) {
-        ok = pump_hmi_execute(HMI_ACTION_HOME, (float)atof(str + 9), 0.0f);
-
-    } else if (strncmp(str, "fsm_search,", 11) == 0) {
-        ok = pump_hmi_execute(HMI_ACTION_SEARCH_SYRINGE, (float)atof(str + 11), 0.0f);
-
-    } else if (strncmp(str, "fsm_dispense,", 13) == 0) {
-        float target = 0.0f, vel = 0.0f;
-        if (sscanf(str + 13, "%f,%f", &target, &vel) == 2)
-            ok = pump_hmi_execute(HMI_ACTION_START_DISPENSE, target, vel);
-        else
-            printf("[HMI]: Error: uso -> fsm_dispense,TARGET_UM,VELOCITY_UMS\n");
-
-    } else if (strncmp(str, "fsm_search_eot", 14) == 0) {
-        ok = pump_hmi_execute(HMI_ACTION_SEARCH_EOT, 0.0f, 0.0f);
-
-    } else if (strncmp(str, "fsm_reset", 9) == 0) {
-        ok = pump_hmi_execute(HMI_ACTION_RESET, 0.0f, 0.0f);
-
-    } else if (strncmp(str, "fsm_cont", 8) == 0) {
-        ok = pump_hmi_execute(HMI_ACTION_CONTINUE_DISPENSE, 0.0f, 0.0f);
-
-    } else if (strncmp(str, "fsm_occ_rel", 11) == 0) {
-        ok = pump_hmi_execute(HMI_ACTION_OCC_RELEASE, 0.0f, 0.0f);
-
-    } else if (strncmp(str, "fsm_resume", 10) == 0) {
-        ok = pump_hmi_execute(HMI_ACTION_RESUME, 0.0f, 0.0f);
-
-    } else if (strncmp(str, "fsm_calibrate", 13) == 0) {
-        ok = pump_hmi_execute(HMI_ACTION_CALIBRATE, 0.0f, 0.0f);
-
-    } else {
-        handled = false;
-    }
-
-    if (handled && !ok) {
-        printf("[HMI]: Comando rechazado en estado: %s\n",
-               get_state_name(pump_hmi_get_fsm_state()));
-        return false;
-    }
-    if (!handled) {
-        // Comandos de bajo nivel (nsteps, move_linear, config_*, log_*, etc.)
-        cmd_parse_and_execute(str);
-        return true;
-    }
-    return ok;
-}

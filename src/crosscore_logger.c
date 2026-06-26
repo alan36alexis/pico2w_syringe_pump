@@ -77,12 +77,8 @@ void logger_send_motor_stall(uint16_t stall) {
 }
 
 void logger_send_drv_status_error(uint16_t stall, uint32_t drv_status, uint32_t gstat) {
-    DtoTmcStatus_t dto = {
-        .drv_status_raw = drv_status,
-        .gstat_raw      = gstat,
-        .stall_count    = stall
-    };
-    CORE1_EMIT(EV_TMC_DRV_STATUS, tmc, dto);
+    (void)stall; (void)drv_status; (void)gstat;
+    // Replaced by direct CORE1_EMIT with parsed flags in core1_main.c
 }
 
 void logger_send_uart_init_ok(uint32_t ioin)          { (void)ioin;   /* startup diagnostic */ }

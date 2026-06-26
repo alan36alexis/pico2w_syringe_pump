@@ -90,7 +90,5 @@ bool cmd_send_occ_release(void);
 bool cmd_send_resume_dispense(void);
 bool cmd_send_calibrate(void);
 
-// Parse and execute a string command (used by MQTT and CLI)
-void cmd_parse_and_execute(const char *payload_str);
 
 #endif // CROSSCORE_CMD_H

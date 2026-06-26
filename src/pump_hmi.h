@@ -37,10 +37,5 @@ Core1State_t pump_hmi_get_fsm_state(void);
 // Retorna el contexto de la bomba (delega a Pump_GetContext).
 const PumpContext_t *pump_hmi_get_context(void);
 
-// Punto de entrada unificado para CLI y MQTT.
-// Comandos fsm_* se validan contra el estado actual antes de ejecutar.
-// Comandos de bajo nivel (nsteps, move_linear, config_*) pasan directo a
-// cmd_parse_and_execute para mantener compatibilidad.
-bool pump_hmi_parse_and_execute(const char *str);
 
 #endif // PUMP_HMI_H

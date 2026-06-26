@@ -1,7 +1,7 @@
 #include "mqtt_client.h"
 #include "mqtt_topics.h"
 #include "lwip/apps/mqtt.h"
-#include "pump_hmi.h"
+#include "cmd_dispatcher.h"
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -75,23 +75,13 @@ void mqtt_rx_task(void *params) {
                 cmd_buf[sizeof(cmd_buf) - 1] = '\0';
             }
 
-            bool accepted = pump_hmi_parse_and_execute(cmd_buf);
-
-            DtoManualOp_t op = {
-                .source      = 1,               // 0=CLI, 1=MQTT, 2=TFT
-                .accepted    = accepted ? 1 : 0,
-                .reject_code = accepted ? 0 : 1,
-                .fsm_from    = 0,               // FSM transitions tracked via EV_APP_FSM_STATE
-                .fsm_to      = 0,
-                .action_id   = 0,
-            };
-            CORE0_EMIT(EV_APP_CMD_EXECUTED, manual_op, op);
+            CmdDispatchResult_t r = cmd_dispatch_string(cmd_buf, CMD_SRC_MQTT, cid);
 
             if (cid >= 0) {
                 char ack[64];
                 snprintf(ack, sizeof(ack),
                          "{\"cid\":%d,\"result\":\"%s\"}",
-                         cid, accepted ? "accepted" : "rejected");
+                         cid, r.accepted ? "accepted" : "rejected");
                 mqtt_client_publish_qos1(topic_cmd_ack(), ack);
             }
         }
@@ -114,7 +104,6 @@ static void mqtt_request_cb(void *arg, err_t err) {
 static void mqtt_connection_cb(mqtt_client_t *client, void *arg, mqtt_connection_status_t status) {
     (void)arg;
     if (status == MQTT_CONNECT_ACCEPTED) {
-        printf("[MQT]: Connected! id=%s\n", g_sys_config.device_id);
         mqtt_connected = true;
         CORE0_EMIT(EV_NET_MQTT_CONN, param, (uint32_t)0);
 
@@ -131,7 +120,6 @@ static void mqtt_connection_cb(mqtt_client_t *client, void *arg, mqtt_connection
             "{\"state\":\"online\",\"id\":\"%s\",\"fw\":\"v1.0.0\"}", g_sys_config.device_id);
         mqtt_publish(client, topic_status(), online, strlen(online), 1, 1, mqtt_request_cb, NULL);
     } else {
-        printf("[MQT]: Disconnected, status: %d\n", status);
         mqtt_connected = false;
         CORE0_EMIT(EV_NET_MQTT_DISC, param, (uint32_t)status);
     }
@@ -178,8 +166,6 @@ void mqtt_client_task(void *params) {
             
             int link_status = cyw43_tcpip_link_status(&cyw43_state, CYW43_ITF_STA);
             if (link_status == CYW43_LINK_UP) {
-                printf("[MQT]: Attempting connection to %s:%d...\n", g_sys_config.mqtt_ip, g_sys_config.mqtt_port);
-                
                 cyw43_arch_lwip_begin();
                 err_t err = mqtt_client_connect(mqtt_client, &broker_ip, g_sys_config.mqtt_port, mqtt_connection_cb, NULL, &ci);
                 cyw43_arch_lwip_end();

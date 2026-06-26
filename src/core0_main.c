@@ -17,6 +17,7 @@
 #include "pico/cyw43_arch.h"
 #include "pico/multicore.h"
 #include "pico/stdlib.h"
+#include "cmd_dispatcher.h"
 #include "pump_hmi.h"
 #include "ui_events.h"
 #include "ui_state.h"
@@ -162,7 +163,7 @@ static void task_cli(void *params) {
         if (cli_idx > 0) {
           cli_buf[cli_idx] = '\0';
           printf("\n"); // Echo newline
-          pump_hmi_parse_and_execute(cli_buf);
+          cmd_dispatch_string(cli_buf, CMD_SRC_SERIAL, -1);
           cli_idx = 0;
         }
       } else if (c == '\b' || c == 127) { // backspace
