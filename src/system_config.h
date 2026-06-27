@@ -58,8 +58,29 @@
 #define TMC2209_UART_BAUD           57600
 #define SENSOR_INIT_DELAY_MS        200
 
-// --- FSM Timeouts ---
-#define LSW_WAIT_TIMEOUT_MS         5000
+// --- FSM Fault-detection layers (replaces the commented-out LSW_WAIT_TIMEOUT_MS) ---
+//
+// Layer 2 — Encoder stall window:
+//   At the minimum operating speed (300 µm/s ≈ 0.53 encoder counts/s in
+//   quadrature mode), a true stall produces Δcount == 0 within ~200 ms.
+//   300 ms leaves a comfortable margin above measurement noise.
+//   Only active while a DMA profile is running (motor_is_moving == true).
+#define ENCODER_STALL_WINDOW_MS     300u
+
+// Layer 3 — Derived deadline (per-move, not fixed):
+//   deadline_ms = now_ms + DEADLINE_K * t_nominal_ms + DEADLINE_FLOOR_MS
+//   where t_nominal_ms = |dist_um| / vel_ums * 1000.
+//   DEADLINE_K = 3  ← allows 3× the expected duration before faulting.
+//   DEADLINE_FLOOR_MS = 500 ← minimum timeout regardless of move duration.
+//   Only covers the pathological case of a step-generator that stops pulsing
+//   without emitting iEV_TARGET_REACHED or moving the encoder.
+#define DEADLINE_K                  3u
+#define DEADLINE_FLOOR_MS           500u
+
+// LSW_WAIT_TIMEOUT_MS kept for reference; do NOT reuse as a fixed timeout.
+// The single-value approach could not cover both homing (~350 s @ 300 µm/s)
+// and braking (~2 s) simultaneously.  Use the three-layer scheme above.
+#define LSW_WAIT_TIMEOUT_MS_DEPRECATED  5000
 
 // --- Kinematics Helper ---
 static inline float calc_um_per_pulse(bool use_quadrature) {

@@ -11,6 +11,7 @@
 #include "closed_loop.h"
 #include "config_manager.h"
 #include "core1_main.h"
+#include "fsm_table.h"
 #include "crosscore_cmd.h"
 #include "crosscore_logger.h"
 #include "hardware/pio.h"
@@ -122,6 +123,17 @@ void tmc2209_move_linear_um_dma(TMC2209_t *motor, float target_um,
                                 float target_velocity_ums);
 
 volatile int32_t calibration_max_encoder_count = 0;
+
+/* Called by act_abort_brake_end (fsm_table.c) when a calibration sequence
+ * reaches LSW_END.  Mirrors the inline save at the iEV_LSW_END_HIT handler. */
+static void calibration_complete_callback(int32_t max_encoder_count) {
+    calibration_max_encoder_count = max_encoder_count;
+    g_sys_config.calibrated_max_encoder_count = max_encoder_count;
+    g_sys_config.calibration_valid = 1;
+    g_calibration_dirty = true;
+    LOG_DEBUG("[CFG]: Calibration Complete (FSM table)! Max Encoder Count: %d\n",
+              max_encoder_count);
+}
 
 void tmc2209_move_linear_um_dma(TMC2209_t *motor, float target_um,
                                 float target_velocity_ums) {
@@ -402,6 +414,24 @@ void core1_main(void) {
   float fsm_home_velocity_ums = FSM_HOME_VELOCITY_UMS;
   float fsm_search_velocity_ums = FSM_SEARCH_VELOCITY_UMS;
   uint32_t fsm_state_entry_ms = 0;
+
+#ifdef ENABLE_FSM_TABLE
+  FsmCtx_t fsm_ctx = {0};
+  fsm_ctx.motor                      = &motor1;
+  fsm_ctx.move_linear_fn             = tmc2209_move_linear_um_dma;
+  fsm_ctx.pio_enc                    = pio1;
+  fsm_ctx.sm_enc_q                   = sm_enc_q;
+  fsm_ctx.sm_enc_a                   = sm_enc_a;
+  fsm_ctx.sm_enc_b                   = sm_enc_b;
+  fsm_ctx.use_quadrature             = USE_QUADRATURE_ENCODER;
+  fsm_ctx.last_encoder_count         = &last_encoder_count;
+  fsm_ctx.last_encoder_a             = &last_encoder_a;
+  fsm_ctx.last_encoder_b             = &last_encoder_b;
+  fsm_ctx.last_speed_encoder_count   = &last_speed_encoder_count;
+  fsm_ctx.scl                        = &scl;
+  fsm_ctx.on_calibration_complete_fn = calibration_complete_callback;
+  fsm_audit_coverage();
+#endif
 
   while (true) {
 #define RESET_ENCODER_COUNTS()                                                 \
@@ -726,6 +756,89 @@ void core1_main(void) {
     //   }
     // }
 
+#ifdef ENABLE_FSM_TABLE
+    /* ---- Per-dispatch context update ---- */
+    {
+      int32_t enc_now = 0;
+      if (ENABLE_ENCODER) {
+        enc_now = USE_QUADRATURE_ENCODER
+                      ? quadrature_encoder_get_count(pio1, sm_enc_q)
+                      : pulse_counter_get_count(pio1, sm_enc_a);
+      }
+      fsm_ctx.current_encoder_count = enc_now;
+      fsm_ctx.motor_is_moving       = is_moving;
+
+      /* Load command payload into context fields for the current event */
+      if (have_cmd) {
+        switch (cmd.id) {
+        case CMD_HOME:
+          fsm_ctx.cmd_velocity_ums = fsm_home_velocity_ums;
+          break;
+        case CMD_SEARCH_SYRINGE:
+          fsm_ctx.cmd_velocity_ums = fsm_search_velocity_ums;
+          break;
+        case CMD_START_DISPENSE:
+          fsm_ctx.cmd_target_um    = cmd.payload.start_dispense.target_um;
+          fsm_ctx.cmd_velocity_ums = cmd.payload.start_dispense.target_velocity_ums;
+          break;
+        default:
+          break;
+        }
+      }
+
+      /* Layer 2: encoder stall — motor moving but encoder count unchanged */
+      if (fsm_ctx.deadline_active && is_moving) {
+        if (enc_now != fsm_ctx.last_stall_encoder_count) {
+          fsm_ctx.last_stall_encoder_count = enc_now;
+          fsm_ctx.stall_window_start_ms    = to_ms_since_boot(get_absolute_time());
+          fsm_ctx.stall_window_active      = true;
+        } else if (fsm_ctx.stall_window_active) {
+          uint32_t stall_now = to_ms_since_boot(get_absolute_time());
+          if (stall_now - fsm_ctx.stall_window_start_ms > ENCODER_STALL_WINDOW_MS
+              && active_event == EV_NONE) {
+            LOG_DEBUG("[FSM]: Layer-2 stall in state %d\n", (int)current_state);
+            active_event = iEV_ENCODER_STALL;
+            fsm_ctx.stall_window_active = false;
+          }
+        }
+      } else {
+        fsm_ctx.last_stall_encoder_count = enc_now;
+        fsm_ctx.stall_window_start_ms    = to_ms_since_boot(get_absolute_time());
+        fsm_ctx.stall_window_active      = false;
+      }
+
+      /* Layer 3: derived deadline */
+      if (fsm_ctx.deadline_active && active_event == EV_NONE) {
+        uint32_t dl_now = to_ms_since_boot(get_absolute_time());
+        if (dl_now > fsm_ctx.deadline_ms) {
+          LOG_DEBUG("[FSM]: Layer-3 deadline exceeded in state %d\n",
+                    (int)current_state);
+          active_event = iEV_TIMEOUT;
+        }
+      }
+
+      /* CL correction interception: if motor stopped during a dispense state,
+       * check whether another correction move is needed before letting
+       * iEV_TARGET_REACHED propagate to the FSM. */
+      if (active_event == iEV_TARGET_REACHED
+          && (current_state == ST_DISPENSING
+              || current_state == ST_MANUAL_OVERRIDE)) {
+        float missing_um = 0.0f;
+        if (closed_loop_calculate_correction(&scl, enc_now, USE_QUADRATURE_ENCODER,
+                                             &missing_um)) {
+          LOG_DEBUG("[FSM]: CL correction %.1f um; suppressing iEV_TARGET_REACHED.\n",
+                    missing_um);
+          tmc2209_move_linear_um_dma(global_motor, missing_um,
+                                     scl.expected_target_velocity_ums);
+          active_event = EV_NONE;
+        }
+      }
+
+      current_state = fsm_dispatch(&fsm_ctx, current_state, active_event);
+    }
+
+#else /* original switch-based FSM */
+
     // Global fault trap: any motor driver error transitions to ST_FAULT
     // immediately
     if (active_event == iEV_ENCODER_FAULT && current_state != ST_FAULT) {
@@ -947,6 +1060,8 @@ void core1_main(void) {
     default:
       break;
     }
+
+#endif /* ENABLE_FSM_TABLE */
 
     // Fallbacks globales removidos en favor de la FSM y logica nativa de
     // ST_MANUAL_OVERRIDE

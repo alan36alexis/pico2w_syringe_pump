@@ -22,7 +22,8 @@ typedef enum {
     ST_CALIB_SEEK_START,
     ST_CALIB_SEEK_END,
     ST_BRAKING_LSW_START,
-    ST_BRAKING_LSW_END
+    ST_BRAKING_LSW_END,
+    ST_COUNT  /* sentinel — fsm_table.c uses this for _Static_assert and audit */
 } Core1State_t;
 
 typedef enum {
@@ -48,7 +49,13 @@ typedef enum {
     iEV_ENCODER_FAULT,
     iEV_OCCLUSION_DETECTED,
     iEV_OCC_RELEASED,
-    iEV_LSW_END_CONTINUE
+    iEV_LSW_END_CONTINUE,  /* dead event — no active handlers; remove in Commit 6 */
+
+    /* Fault-detection events (Commit 3) */
+    iEV_ENCODER_STALL,  /* Layer 2: encoder count unchanged while DMA active   */
+    iEV_TIMEOUT,        /* Layer 3: deadline exceeded (calc'd from dist/vel)   */
+
+    EV_COUNT  /* sentinel — keep in sync with fsm_table.c _Static_assert */
 } Core1Event_t;
 
 /**

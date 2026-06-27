@@ -53,6 +53,7 @@ add_executable(pico2w_syringe_pump
     src/pump_hmi.c
     src/ui_state.c
     src/ui_events.c
+    src/fsm_table.c
     # EDA Pub-Sub logging infrastructure
     src/system_queues.c
     src/event_broker.c
@@ -85,6 +86,7 @@ target_link_libraries(pico2w_syringe_pump
 # Suppress CYW43 arch-level debug prints (e.g. "connect status: link up")
 target_compile_definitions(pico2w_syringe_pump PRIVATE
     PICO_CYW43_ARCH_DEBUG_ENABLED=0
+    ENABLE_FSM_TABLE
 )
 
 # Provide include directories for lwIP and others
