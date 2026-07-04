@@ -1,5 +1,5 @@
 #include "ui_state.h"
-#include "pump_hmi.h"
+#include "cmd_gate.h"
 #include "FreeRTOS.h"
 #include "semphr.h"
 #include "system_events.h"
@@ -23,7 +23,7 @@ void ui_state_update_from_event(const LogMessage_t *msg) {
     case LOG_EVENT_FSM_STATE:
         s_state.fsm_state = msg->payload.fsm_state;
         // Sincronizar con la capa HMI para que valide comandos correctamente
-        pump_hmi_update_fsm_state(msg->payload.fsm_state);
+        cmd_gate_update_fsm_state(msg->payload.fsm_state);
         break;
     case LOG_EVENT_PRESSURE_UPDATE:
         s_state.pressure_mmhg = msg->payload.pressure_psi * 51.7149f;
@@ -54,7 +54,7 @@ void ui_state_update_from_system_event(const SystemEvent_t *ev) {
     switch (ev->id) {
     case EV_APP_FSM_STATE:
         s_state.fsm_state = (Core1State_t)ev->payload.fsm.state_to;
-        pump_hmi_update_fsm_state((Core1State_t)ev->payload.fsm.state_to);
+        cmd_gate_update_fsm_state((Core1State_t)ev->payload.fsm.state_to);
         break;
     case EV_ACT_PRESSURE:
     case EV_ACT_PRESSURE_OCC:

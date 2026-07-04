@@ -82,6 +82,10 @@ static void act_reset_to_unhomed(FsmCtx_t *ctx) {
 /* ---- Global handlers ---- */
 
 static void act_abort_brake_start(FsmCtx_t *ctx) {
+    /* During calibration, LSW_START_HIT is the position reference — reset encoder
+     * before braking so the count is zero at the known start point. */
+    if (ctx->is_calibrating)
+        RESET_ENCODER_VIA_CTX(ctx);
     tmc2209_abort_profile_dma(ctx->motor);
     ctx->deadline_active = false;
 }
@@ -98,6 +102,8 @@ static void act_abort_brake_end(FsmCtx_t *ctx) {
 
 /* Motor was already stopped when LSW_START fired (e.g. at startup). */
 static void act_release_lsw_start(FsmCtx_t *ctx) {
+    if (ctx->is_calibrating)
+        RESET_ENCODER_VIA_CTX(ctx);
     tmc2209_stop(ctx->motor);
     tmc2209_send_nsteps_at_freq(ctx->motor, 1000000, 2000.0f);
 }
@@ -118,6 +124,8 @@ static void act_fault_stop(FsmCtx_t *ctx) {
 
 static void act_home_start(FsmCtx_t *ctx) {
     RESET_ENCODER_VIA_CTX(ctx);
+    closed_loop_init_move(ctx->scl, -105000.0f, ctx->cmd_velocity_ums,
+                          ctx->current_encoder_count);
     ctx->move_linear_fn(ctx->motor, -105000.0f, ctx->cmd_velocity_ums);
     SET_DEADLINE(ctx, -105000.0f, ctx->cmd_velocity_ums);
 }
@@ -125,23 +133,32 @@ static void act_home_start(FsmCtx_t *ctx) {
 /* Begin calibration: seek toward LSW_START. Sets is_calibrating flag used by
  * the guard in ST_RELEASING_LSW_START to bifurcate toward ST_CALIB_SEEK_END. */
 static void act_calib_seek_start(FsmCtx_t *ctx) {
+    float vel = (ctx->calib_move_vel_ums > 0.0f) ? ctx->calib_move_vel_ums
+                                                 : CALIBRATION_MOVE_SPEED;
     ctx->is_calibrating = true;
-    ctx->move_linear_fn(ctx->motor, -105000.0f, CALIBRATION_MOVE_SPEED);
-    SET_DEADLINE(ctx, -105000.0f, CALIBRATION_MOVE_SPEED);
+    closed_loop_init_move(ctx->scl, -105000.0f, vel, ctx->current_encoder_count);
+    ctx->move_linear_fn(ctx->motor, -105000.0f, vel);
+    SET_DEADLINE(ctx, -105000.0f, vel);
 }
 
-/* Normal homing complete (non-calibration path). */
+/* Normal homing complete (non-calibration path).  ST_READY_AT_HOME defines
+ * the position reference: encoder count (and therefore position in mm) is
+ * zero here, valid until the next homing. */
 static void act_stop_at_home(FsmCtx_t *ctx) {
     tmc2209_stop(ctx->motor);
+    RESET_ENCODER_VIA_CTX(ctx);
     ctx->is_calibrating  = false;
     ctx->deadline_active = false;
 }
 
 /* Calibration phase 2: after LSW_START released, seek LSW_END. */
 static void act_seek_calib_end(FsmCtx_t *ctx) {
+    float vel = (ctx->calib_seek_vel_ums > 0.0f) ? ctx->calib_seek_vel_ums
+                                                 : CALIBRATION_SEEK_SPEED;
     tmc2209_stop(ctx->motor);
-    ctx->move_linear_fn(ctx->motor, 105000.0f, CALIBRATION_SEEK_SPEED);
-    SET_DEADLINE(ctx, 105000.0f, CALIBRATION_SEEK_SPEED);
+    closed_loop_init_move(ctx->scl, 105000.0f, vel, ctx->current_encoder_count);
+    ctx->move_linear_fn(ctx->motor, 105000.0f, vel);
+    SET_DEADLINE(ctx, 105000.0f, vel);
 }
 
 /* After braking on LSW_START: begin controlled release. */
@@ -155,6 +172,8 @@ static void act_send_nsteps_release_end(FsmCtx_t *ctx) {
 }
 
 static void act_search_syringe(FsmCtx_t *ctx) {
+    closed_loop_init_move(ctx->scl, 105000.0f, ctx->cmd_velocity_ums,
+                          ctx->current_encoder_count);
     ctx->move_linear_fn(ctx->motor, 105000.0f, ctx->cmd_velocity_ums);
     SET_DEADLINE(ctx, 105000.0f, ctx->cmd_velocity_ums);
 }
@@ -184,6 +203,7 @@ static void act_abort_occlusion(FsmCtx_t *ctx) {
 }
 
 static void act_search_eot(FsmCtx_t *ctx) {
+    closed_loop_init_move(ctx->scl, 105000.0f, 1200.0f, ctx->current_encoder_count);
     ctx->move_linear_fn(ctx->motor, 105000.0f, 1200.0f);
     SET_DEADLINE(ctx, 105000.0f, 1200.0f);
 }
@@ -194,6 +214,7 @@ static void act_stop_at_eot(FsmCtx_t *ctx) {
 }
 
 static void act_occ_release_move(FsmCtx_t *ctx) {
+    closed_loop_init_move(ctx->scl, -105000.0f, 200.0f, ctx->current_encoder_count);
     ctx->move_linear_fn(ctx->motor, -105000.0f, 200.0f);
     SET_DEADLINE(ctx, -105000.0f, 200.0f);
 }

@@ -1,5 +1,7 @@
 #include "crosscore_logger.h"
 #include "system_events.h"
+#include <stdarg.h>
+#include <stdio.h>
 #include <string.h>
 
 #define PSI_TO_MMHG 51.7149f
@@ -90,12 +92,17 @@ void logger_send_uart_init_fail(void) {
     CORE1_EMIT(EV_ALARM_DRV_FAULT, alarm, dto);
 }
 
-void logger_send_string(const char *str) {
-    (void)str; /* strings not allowed in EDA queue — call site to be removed */
+void logger_send_string(const char *fmt, ...) {
+    DtoDebugStr_t dto = {0};
+    va_list args;
+    va_start(args, fmt);
+    vsnprintf(dto.buf, sizeof(dto.buf), fmt, args);
+    va_end(args);
+    CORE1_EMIT(EV_DBG_STRING, dbg_str, dto);
 }
 
-void logger_send_encoder_count(int32_t count) {
-    DtoMotion_t dto = { .encoder_count = count };
+void logger_send_encoder_count(int32_t count, float position_mm) {
+    DtoMotion_t dto = { .encoder_count = count, .position_mm = position_mm };
     CORE1_EMIT(EV_MOT_ENCODER, motion, dto);
 }
 
@@ -103,8 +110,8 @@ void logger_send_encoder_indep_counts(int32_t count_a, int32_t count_b) {
     (void)count_a; (void)count_b; /* no EDA event for independent channel counts */
 }
 
-void logger_send_encoder_speed(float ums) {
-    DtoMotion_t dto = { .encoder_speed_ums = ums };
+void logger_send_encoder_speed(float actual_ums, float target_ums) {
+    DtoMotion_t dto = { .encoder_speed_ums = actual_ums, .target_speed_ums = target_ums };
     CORE1_EMIT(EV_MOT_SPEED, motion, dto);
 }
 

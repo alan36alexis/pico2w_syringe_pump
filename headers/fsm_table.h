@@ -91,6 +91,13 @@ typedef struct {
      * guard_not_calibrating to select the correct post-release state. */
     bool       is_calibrating;
 
+    /* ---- Calibration velocities ----
+     * Set by core1_main.c when CMD_CALIBRATE arrives (payload or defaults).
+     * seek vel must persist in the ctx: act_seek_calib_end fires cycles later
+     * (on iEV_LSW_START_RELEASED), when cmd_velocity_ums is no longer valid. */
+    float      calib_move_vel_ums;   /* Fase 1: hacia LSW_START */
+    float      calib_seek_vel_ums;   /* Fase 2: hacia LSW_END   */
+
     /* ---- Layer 2: encoder stall detection ----
      * Populated/checked by the polling section in core1_main.c.
      * When stall is detected, core1_main.c injects iEV_ENCODER_STALL

@@ -38,10 +38,8 @@
 #define MOTOR_CURRENT_MID_A         1.0f
 #define MOTOR_CURRENT_HIGH_A        1.5f
 
-// --- Trapezoidal Profile Fractions ---
-#define PROFILE_ACCEL_FRACTION      0.01f    // 1% of steps for acceleration
-#define PROFILE_CRUISE_FRACTION     0.80f    // 80% at cruise speed
-#define PROFILE_RAMP_MIN_FRACTION   0.15f    // Minimum fraction for trapezoidal vs triangular
+// --- Trapezoidal Profile ---
+#define PROFILE_ACCEL_UMS2          10000.0f // Aceleración constante en µm/s² (independiente de distancia y velocidad)
 
 // --- Occlusion Thresholds (mmHg) ---
 #define OCC_THRESHOLD_L0_MMHG       225.0f
@@ -53,6 +51,20 @@
 #define PURGE_FLOW_RATE_MLH         1000.0f
 #define PURGE_VOLUME_ML             1.0f
 #define KVO_FLOW_RATE_MLH           1.0f
+
+// --- Hardware Pins ---
+#define MOTOR_STEP_PIN             3
+#define MOTOR_DIR_PIN              2
+#define MOTOR_ENA_PIN              8
+#define UART_TX_PIN                4
+#define UART_RX_PIN                5
+#define LIMIT_SW_START_PIN        10
+#define LIMIT_SW_END_PIN          11
+#define ADC_PIN                   28
+#define ADC_CHANNEL                2   // GPIO28 = ADC channel 2
+#define ENCODER_PIN_A              6
+#define ENCODER_PIN_B              7
+#define USE_UART_MODE           true
 
 // --- Hardware Init Constants ---
 #define TMC2209_UART_BAUD           57600

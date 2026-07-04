@@ -60,6 +60,10 @@ typedef struct {
             float target_um;
             float target_velocity_ums;
         } start_dispense;
+        struct {
+            float move_velocity_ums;  /* Fase 1: buscar LSW_START (0 = default) */
+            float seek_velocity_ums;  /* Fase 2: buscar LSW_END   (0 = default) */
+        } calibrate;
         uint32_t raw_data; // For arbitrary data
     } payload;
 } Core1CmdMessage_t;
@@ -88,7 +92,7 @@ bool cmd_send_reset(void);
 bool cmd_send_continue_dispense(void);
 bool cmd_send_occ_release(void);
 bool cmd_send_resume_dispense(void);
-bool cmd_send_calibrate(void);
+bool cmd_send_calibrate(float move_velocity_ums, float seek_velocity_ums);
 
 
 #endif // CROSSCORE_CMD_H

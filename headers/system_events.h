@@ -69,6 +69,7 @@ typedef uint16_t SystemEventID_t;
 #define EV_SYS_HEAP_UPD      ((SystemEventID_t)0x0800)  // DtoSysHealth_t
 #define EV_SYS_HEARTBEAT     ((SystemEventID_t)0x0801)  // payload.param: counter (Core 1)
 #define EV_SYS_CLI_READY     ((SystemEventID_t)0x0802)  // payload.param = 0
+#define EV_DBG_STRING        ((SystemEventID_t)0x0803)  // DtoDebugStr_t: Core 1 debug log
 
 // Domain range markers for consumer filtering
 #define EV_DOMAIN_ALARM_MIN  ((SystemEventID_t)0x0600)
@@ -79,8 +80,10 @@ typedef uint16_t SystemEventID_t;
 
 // ---------------------------------------------------------------------------
 // DTOs — Data Transfer Objects
-// Invariant: NO char[] fields. Strings only exist in task_serial_consumer's
-// lookup table. Strings never travel through queues.
+// General invariant: no char[] fields — strings never travel through queues.
+// Exception: DtoDebugStr_t carries a fixed-size string for Core 1 debug logs
+// emitted via LOG_DEBUG (EV_DBG_STRING). Payload is 56 bytes to keep
+// sizeof(SystemEvent_t) == 64.
 // ---------------------------------------------------------------------------
 
 typedef struct {
@@ -169,6 +172,10 @@ typedef struct {
     uint8_t success;
 } DtoCalibration_t;
 
+typedef struct {
+    char buf[56];
+} DtoDebugStr_t;
+
 // ---------------------------------------------------------------------------
 // SystemEvent_t — universal event structure
 // ---------------------------------------------------------------------------
@@ -197,6 +204,7 @@ typedef struct {
         DtoPower_t       power;
         DtoSysHealth_t   sys_health;
         DtoCalibration_t calibration;
+        DtoDebugStr_t    dbg_str;
     } payload;
 } SystemEvent_t;
 

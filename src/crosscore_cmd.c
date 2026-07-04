@@ -138,9 +138,10 @@ bool cmd_send_resume_dispense(void) {
     return queue_try_add(&crosscore_cmd_queue, &msg);
 }
 
-bool cmd_send_calibrate(void) {
+bool cmd_send_calibrate(float move_velocity_ums, float seek_velocity_ums) {
     Core1CmdMessage_t msg;
     msg.id = CMD_CALIBRATE;
-    msg.payload.raw_data = 0;
+    msg.payload.calibrate.move_velocity_ums = move_velocity_ums;
+    msg.payload.calibrate.seek_velocity_ums = seek_velocity_ums;
     return queue_try_add(&crosscore_cmd_queue, &msg);
 }

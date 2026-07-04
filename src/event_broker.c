@@ -2,17 +2,22 @@
 #include "system_queues.h"
 #include "config_manager.h"
 #include "syringe_pump_api.h"
+#include "cmd_gate.h"
 #include <stdio.h>
 
 #define BROKER_PRIORITY    4
 #define BROKER_STACK_WORDS (configMINIMAL_STACK_SIZE * 4)
 #define BROKER_POLL_MS     500
 
-// Pre-fanout side effects: update clinical API state before distributing.
-// The broker is the only place that sees every event, so these fit here.
+// Pre-fanout side effects: update shared state before distributing to consumers.
+// The broker sees every event unconditionally (no #ifdef guards), so state
+// mirrors that all command sources need must be updated here — never inside
+// a consumer that may not be running (e.g. hmi_consumer requires ENABLE_TFT).
 static void broker_side_effects(const SystemEvent_t *ev) {
   if (ev->id == EV_ACT_PRESSURE || ev->id == EV_ACT_PRESSURE_OCC)
     Pump_UpdatePressure(ev->payload.force.mmhg);
+  if (ev->id == EV_APP_FSM_STATE)
+    cmd_gate_update_fsm_state((Core1State_t)ev->payload.fsm.state_to);
 }
 
 // Uniform fan-out to all consumer queues.

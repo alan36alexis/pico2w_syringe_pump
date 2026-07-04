@@ -50,7 +50,7 @@ add_executable(pico2w_syringe_pump
     src/mqtt_topics.c
     src/syringe_pump_api.c
     src/config_manager.c
-    src/pump_hmi.c
+    src/cmd_gate.c
     src/ui_state.c
     src/ui_events.c
     src/fsm_table.c
@@ -92,6 +92,7 @@ target_compile_definitions(pico2w_syringe_pump PRIVATE
 # Provide include directories for lwIP and others
 target_include_directories(pico2w_syringe_pump PRIVATE
     ${CMAKE_CURRENT_LIST_DIR}/src
+    ${CMAKE_CURRENT_LIST_DIR}/headers
 )
 
 # Additional output formats

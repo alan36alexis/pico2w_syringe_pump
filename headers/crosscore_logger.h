@@ -1,6 +1,7 @@
 #ifndef CROSSCORE_LOGGER_H
 #define CROSSCORE_LOGGER_H
 
+#include <stdarg.h>
 #include <stdint.h>
 #include <stdbool.h>
 #include "core1_main.h"
@@ -102,10 +103,10 @@ void logger_send_uart_init_ok(uint32_t ioin);
 void logger_send_uart_init_fail(void);
 void logger_send_uart_init_microsteps_read(uint16_t msteps);
 void logger_send_pins_init_mode(void);
-void logger_send_string(const char *str);
-void logger_send_encoder_count(int32_t count);
+void logger_send_string(const char *fmt, ...);
+void logger_send_encoder_count(int32_t count, float position_mm);
 void logger_send_encoder_indep_counts(int32_t count_a, int32_t count_b);
-void logger_send_encoder_speed(float ums);
+void logger_send_encoder_speed(float actual_ums, float target_ums);
 void logger_send_speed_warning(float expected_ums, float actual_ums);
 void logger_send_correction_applied(float correction_um);
 void logger_send_motor_progress(float pct);

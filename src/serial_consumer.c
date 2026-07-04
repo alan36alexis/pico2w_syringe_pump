@@ -1,6 +1,7 @@
 #include "serial_consumer.h"
 #include "system_queues.h"
 #include "core1_main.h"
+#include "system_config.h"
 #include <stdio.h>
 
 #define SERIAL_PRIORITY    1
@@ -69,10 +70,12 @@ static void format_event(const SystemEvent_t *ev, char *buf, size_t len) {
     // Motion
     case EV_MOT_ENCODER:
         snprintf(buf, len,
-                 "[%6u] [ENC]: count=%d pos=%.2f mm",
+                 "[%6u] [ENC]: count=%d pos=%.2f mm / %.2f mm total",
                  ev->timestamp_ms,
                  ev->payload.motion.encoder_count,
-                 ev->payload.motion.position_mm);
+                 ev->payload.motion.position_mm,
+                 calibration_max_encoder_count *
+                     calc_um_per_pulse(USE_QUADRATURE_ENCODER) / 1000.0f);
         break;
     case EV_MOT_SPEED:
         snprintf(buf, len,
@@ -245,6 +248,10 @@ static void format_event(const SystemEvent_t *ev, char *buf, size_t len) {
         break;
     case EV_SYS_CLI_READY:
         snprintf(buf, len, "[%6u] [SYS]: Pico CLI Ready. Waiting for commands...", ev->timestamp_ms);
+        break;
+
+    case EV_DBG_STRING:
+        snprintf(buf, len, "[%6u] [DBG]: %s", ev->timestamp_ms, ev->payload.dbg_str.buf);
         break;
 
     default:

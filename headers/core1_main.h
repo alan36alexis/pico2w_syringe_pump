@@ -1,6 +1,8 @@
 #ifndef CORE1_MAIN_H
 #define CORE1_MAIN_H
 
+#include <stdint.h>
+
 typedef enum {
     ST_UNHOMED = 0,
     ST_HOMING,
@@ -57,6 +59,15 @@ typedef enum {
 
     EV_COUNT  /* sentinel — keep in sync with fsm_table.c _Static_assert */
 } Core1Event_t;
+
+/**
+ * @brief Active total-travel calibration in encoder counts (LSW_START to
+ * LSW_END).  Defined in core1_main.c.  Updated by a completed calibration
+ * routine; restored from Flash by Core 0 at boot (task_init) since Core 1
+ * starts before the config is loaded.  Falls back to
+ * MAX_TRAVEL_ENCODER_COUNT when no stored calibration is valid.
+ */
+extern volatile int32_t calibration_max_encoder_count;
 
 /**
  * @brief Entry point function for Core 1 (Baremetal)

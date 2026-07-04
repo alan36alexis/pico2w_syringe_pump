@@ -11,6 +11,8 @@
 
 #include "FreeRTOS.h"
 #include "config_manager.h"
+#include "core1_main.h"
+#include "system_config.h"
 #include "crosscore_cmd.h"
 #include "mqtt_client.h"
 #include "mqtt_topics.h"
@@ -18,7 +20,7 @@
 #include "pico/multicore.h"
 #include "pico/stdlib.h"
 #include "cmd_dispatcher.h"
-#include "pump_hmi.h"
+#include "cmd_gate.h"
 #include "ui_events.h"
 #include "ui_state.h"
 
@@ -69,6 +71,20 @@ static void wifi_keepalive_task(void *params) {
  */
 static void task_init(void *params) {
   config_manager_init();
+
+  // Restaurar la calibracion persistida como valor activo. Core 1 arranca
+  // antes de que la config este cargada, asi que se publica desde aqui
+  // (escritura de 32 bits alineada — atomica entre cores).
+  calibration_max_encoder_count = g_sys_config.calibration_valid
+                                      ? g_sys_config.calibrated_max_encoder_count
+                                      : MAX_TRAVEL_ENCODER_COUNT;
+  CORE0_EMIT(EV_APP_CALIBRATION, calibration,
+             ((DtoCalibration_t){
+                 .max_encoder_count = calibration_max_encoder_count,
+                 .travel_mm = calibration_max_encoder_count *
+                              calc_um_per_pulse(USE_QUADRATURE_ENCODER) / 1000.0f,
+                 .trigger = 0,
+                 .success = g_sys_config.calibration_valid}));
 
   // Inicializacion de GPIO y Wi-Fi chip (CYW43)
   if (cyw43_arch_init_with_country(CYW43_COUNTRY_WORLDWIDE)) {
@@ -171,7 +187,7 @@ static void task_cli(void *params) {
           cli_idx--;
           printf("\b \b");
         }
-      } else if (cli_idx < sizeof(cli_buf) - 1) {
+      } else if (c != '\0' && cli_idx < sizeof(cli_buf) - 1) {
         cli_buf[cli_idx++] = (char)c;
         putchar(c); // Echo character
       }
@@ -306,7 +322,7 @@ void core0_main_setup(void) {
 
   crosscore_cmd_init();
   mqtt_client_queue_init();
-  pump_hmi_init();
+  cmd_gate_init();
   ui_events_init();
   ui_state_init();
 
