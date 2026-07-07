@@ -89,6 +89,18 @@
 #define DEADLINE_K                  3u
 #define DEADLINE_FLOOR_MS           500u
 
+// Deadlines fijos para frenado/liberación de LSW (no hay par distancia/velocidad
+// del cual derivarlos). Frenar desde <=1500 um/s a PROFILE_ACCEL_UMS2 toma
+// <200 ms; la liberación a 2000 Hz (~50 um/s) puede tardar decenas de segundos
+// en salir de la histéresis del switch.
+#define BRAKE_DEADLINE_MS           3000u
+#define LSW_RELEASE_DEADLINE_MS     60000u
+
+// Dead-time entre el freno y el movimiento inverso de release sobre un LSW.
+// Evita el golpe mecánico a la caja reductora al invertir sin pausa.
+// El lanzamiento diferido lo hace fsm_service_release_deadtime().
+#define LSW_REVERSAL_DEAD_TIME_MS   200u
+
 // LSW_WAIT_TIMEOUT_MS kept for reference; do NOT reuse as a fixed timeout.
 // The single-value approach could not cover both homing (~350 s @ 300 µm/s)
 // and braking (~2 s) simultaneously.  Use the three-layer scheme above.

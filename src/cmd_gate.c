@@ -41,8 +41,9 @@ bool cmd_gate_execute(PumpAction_t action, float param1, float param2) {
     switch (action) {
 
     case PUMP_ACTION_HOME:
+        /* Desde ST_FAULT se exige fsm_reset primero (la tabla ignora HOME ahí). */
         if (st == ST_UNHOMED || st == ST_READY_AT_HOME ||
-            st == ST_DISPENSE_COMPLETED || st == ST_END_OF_TRAVEL || st == ST_FAULT)
+            st == ST_DISPENSE_COMPLETED || st == ST_END_OF_TRAVEL)
             return cmd_send_home(param1 > 0.0f ? param1 : DEFAULT_HOME_VEL_UMS);
         break;
 
@@ -83,7 +84,8 @@ bool cmd_gate_execute(PumpAction_t action, float param1, float param2) {
         break;
 
     case PUMP_ACTION_CALIBRATE:
-        if (st == ST_UNHOMED || st == ST_READY_AT_HOME || st == ST_FAULT)
+        /* Desde ST_FAULT se exige fsm_reset primero (la tabla ignora CALIBRATE ahí). */
+        if (st == ST_UNHOMED || st == ST_READY_AT_HOME)
             return cmd_send_calibrate(param1, param2);
         break;
 

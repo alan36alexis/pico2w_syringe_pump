@@ -1,41 +1,157 @@
-calibracion: agregar a fsm diagrama y que vaya de punta a punta y guarde el valor del conteo de encoder
-luego ese conteo se use para posicionamiento relativo durante el proceso
+================================================================
+TODO - pico2w_syringe_pump          (refactorizado 2026-07-06)
+================================================================
 
-posibilidad de activar modo KVO previo a infusion: agregar a fsmdiagrama y 
-posibilidad de setear parametros de desplazamiento de kvo
+---------------------------------------------------------------
+PENDIENTE - Funcionalidad de bomba
+---------------------------------------------------------------
+[ ] KVO configurable y previo a infusion
+    - Hoy: Pump_Mode_KVO() solo se activa automaticamente al terminar
+      la infusion, con tasa fija KVO_FLOW_RATE_MLH (1.0 ml/h).
+    - Falta: poder activarlo ANTES de la infusion, parametros de
+      desplazamiento/tasa configurables, y reflejarlo en la FSM de
+      Core 1 (hoy no existe estado KVO en Core1State_t).
 
-logica 3 finales de carrera: LSW (limite fisico), final 100um antes de LSW y 10% final
+[ ] Pausas/tiempos muertos en cambios de direccion sobre los LSW
+    - La caja reductora hace ruido al invertir sin pausa.
+    - Los actions de release (act_send_nsteps_release_*) lanzan el
+      movimiento inverso inmediatamente despues del frenado.
+    - Agregar dead-time configurable entre freno y release.
 
-desdoblar en ST_READY_AT_HOME -> _VIRTUAL_READY_AT_HOME
-		ST_END_OF_TRAVEL -> _VIRTUAL_END_OF_TRA
+[ ] Sesiones por usuario
+    - Historial de configuraciones, drogas, jeringas y dosis dadas,
+      asociado a un usuario/sesion.
+    - Ya existe session_id en los eventos (payload.session, sid en
+      alarmas): usarlo como clave del historial.
+    - Depende de: littlefs (almacenamiento) y RTC DS3231 (timestamps
+      reales para las dosis).
 
-el conteo del encoder no se debe reiniciar en cada ciclo de movimiento, se debe pausar cuando se deteiene el movimiento
-y continuar el conteo cuando se reanuda el movimiento de manera que no se pierda la posicion relativa
+---------------------------------------------------------------
+PENDIENTE - Robustez / seguridad
+---------------------------------------------------------------
+[ ] Estrategia de falla/desconexion por sensor
+    - Cubierto (indirecto): stall de encoder (Layer 2), deadline de
+      movimiento (Layer 3), timeout de release de LSW.
+    - Falta:
+      * sensor de fuerza: detectar desconexion (cable cortado lee
+        ~0 V y pasa desapercibido) -> validar rango ADC plausible
+        (cubrir dentro de la libreria del sensor de fuerza)
+      * distinguir encoder desconectado vs motor trabado (hoy ambos
+        caen como stall generico)
+      * LSW: deteccion de switch pegado/cortado fuera de movimiento
+      * detector de burbujas: falla/desconexion del sensor (ver
+        libreria en seccion Hardware/drivers)
 
-Interar implementación de virtual_lsw
+[ ] Rutina de autochequeo inicial (POST)
+    - Al boot: verificar comunicacion TMC2209, respuesta del encoder,
+      estado de LSW coherente, lectura ADC en rango, CRC de config.
+    - Resultado publicado como evento y visible en HMI.
 
-Analizar manera de reducir uso de stack del MQTT_Rx 
+[ ] Reset a valores de fabrica
+    - Hoy solo hay fallback a defaults cuando la Flash es invalida.
+    - Falta comando explicito (CLI/MQTT/HMI) que borre la config
+      y restaure defaults a demanda.
 
-Estrategia para condicion de falla/desconexion de:
--encoder
--motor
--finales de carrera
--sensor de fuerza ??
--detector de burbujas ??
+---------------------------------------------------------------
+PENDIENTE - Hardware / drivers nuevos
+---------------------------------------------------------------
+[ ] Libreria sensor de fuerza: ADC -> presion (mmHg)
+    - Lectura via ADC con traduccion a presion en mmHg.
+    - Hoy: umbrales crudos en volts hardcodeados en core1_main.c
+      (2.0 V contacto, 3.0 V oclusion); las alarmas ya reportan
+      "presion mmHg" pero sin conversion real detras.
+    - Incluir: calibracion offset/ganancia persistida, umbrales de
+      oclusion configurables en unidades de presion, y deteccion de
+      desconexion por rango ADC implausible.
+    - Absorbe la sugerencia "umbrales de oclusion configurables".
 
-Rutina de autochequeo inicial
-posibilidad de resetar a valores de fabrica
+[ ] Libreria detector de burbujas + integracion a FSM
+    - Driver del sensor + nuevo evento (iEV_BUBBLE_DETECTED) en la
+      FSM de Core 1, con estado/accion de pausa segura.
+    - Conectar con el flag bubble_in_line ya definido en
+      syringe_pump_api y con alarma via event broker.
+    - Actualizar tabla golden y auditoria de cobertura al agregar
+      el evento.
 
-FSM notas:
--la unica condicion que debe poner a cero la cuenta del encoder es un reset/inicio del microcontrolador
- el stop no debe poner a cero el encoder, se debe mantener el conteo y posicion
+[ ] RTC DS3231 por I2C
+    - Fecha/hora real para: timestamps del log persistente, registro
+      de dosis en sesiones, y sellado de eventos de alarma (hoy solo
+      hay ms desde boot).
 
--la etapa final de calibracion: la liberacion del LSW_END funciona mal
+---------------------------------------------------------------
+PENDIENTE - Infraestructura
+---------------------------------------------------------------
+[ ] Migrar uso de Flash a littlefs
+    - Hoy: escritura cruda de un sector con magic+CRC en
+      config_manager.c (requiere lockout de Core 1 e IRQs off).
+    - littlefs da wear-leveling y robustez ante cortes de energia,
+      y habilita multiples archivos: config, calibracion, log de
+      eventos, sesiones/historiales.
+    - Prerequisito natural de: sesiones por usuario y registro de
+      eventos persistente.
 
--avanzar con la FSM luego de la oclusion
+[ ] Reducir uso de stack de MQTT_Rx
+    - Sigue en configMINIMAL_STACK_SIZE * 8 (la mas grande despues
+      de la TFT). SysMon ya imprime high water marks por tarea:
+      usar esos datos para dimensionar.
 
--al alcanzar los LSW poner pausas/tiempos muertos entre el cambio de direccion porque la caja reductora produce ruido
+[ ] Migracion EDA pub-sub logging: completar pasos 3-6
+    - Pasos 1+2 ya hechos (jun-2026).
 
+---------------------------------------------------------------
+SUGERENCIAS NUEVAS (a evaluar/priorizar)
+---------------------------------------------------------------
+[ ] Watchdog de hardware
+    - No hay ningun watchdog activo. Con dos cores (FreeRTOS en
+      Core 0, loop de control en Core 1) un cuelgue de cualquiera
+      deja el motor en el ultimo estado. Alimentarlo desde ambos
+      cores (p.ej. flags cruzados + watchdog_update en uno solo).
 
+[ ] Integrar syringe_pump_api con la FSM real de Core 1
+    - Pump_SelectSyringe(), alarmas near_end/syringe_empty y el
+      calculo diametro->velocidad viven en una capa que hoy corre
+      en paralelo a la FSM de Core 1. Unificar para que la seleccion
+      de jeringa gobierne realmente la conversion ml/h -> um/s del
+      movimiento.
 
+[ ] Persistir seleccion de jeringa en Flash
+    - diametro/capacidad no estan en SystemConfig_t; tras un reset
+      se pierde la jeringa configurada.
 
+[ ] Fuentes reales para alarmas de energia
+    - EV_ALARM_BATTERY_LOW y EV_ALARM_MAINS_LOST estan definidos y
+      tienen consumidores (serial/HMI) pero NADIE los emite. Definir
+      hardware de sensado (ADC en VSYS?) y tarea que los publique.
+
+[ ] Banners de alarma en HMI TFT
+    - TODOs pendientes en hmi_consumer.c (lineas 35 y 43): banner de
+      oclusion y banner generico por severidad.
+
+[ ] Registro de eventos persistente (trazabilidad IEC 62304)
+    - Alarmas/transiciones criticas con timestamp, consultable
+      post-mortem. Se apoya en littlefs (storage) y RTC DS3231
+      (fecha/hora real).
+
+[ ] Validacion de limites duros en comandos
+    - Velocidad y volumen maximos de seguridad validados en el
+      dispatcher antes de llegar a Core 1 (independiente de lo que
+      pida MQTT/CLI/HMI).
+
+[ ] Extender test golden de FSM + build de host en CI
+    - Ya existe tools/fsm_test; agregar los estados/eventos nuevos a
+      medida que se sumen (KVO, POST) y correrlo automaticamente.
+
+---------------------------------------------------------------
+HECHO (referencia rapida)
+---------------------------------------------------------------
+[x] Calibracion punta a punta con guardado del conteo de encoder
+    en Flash y recarga al boot (CMD_CALIBRATE, on_calibration_
+    complete_fn, g_calibration_dirty).
+[x] FSM avanza luego de la oclusion (STOPPING -> RELEASE -> PAUSED
+    -> RESUME a DISPENSING).
+[x] El STOP no resetea el encoder. Fuentes de reset: boot,
+    CMD_ENC_RESET y hit de LSW_START (referencia de posicion).
+[x] Timeouts en releases de LSW y deteccion de stall por encoder.
+
+Descartado: feature de LSW virtuales (3 finales de carrera,
+estados _VIRTUAL_, posicionamiento relativo por conteo calibrado).

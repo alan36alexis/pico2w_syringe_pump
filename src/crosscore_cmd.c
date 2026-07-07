@@ -138,6 +138,13 @@ bool cmd_send_resume_dispense(void) {
     return queue_try_add(&crosscore_cmd_queue, &msg);
 }
 
+bool cmd_send_enc_reset(void) {
+    Core1CmdMessage_t msg;
+    msg.id = CMD_ENC_RESET;
+    msg.payload.raw_data = 0;
+    return queue_try_add(&crosscore_cmd_queue, &msg);
+}
+
 bool cmd_send_calibrate(float move_velocity_ums, float seek_velocity_ums) {
     Core1CmdMessage_t msg;
     msg.id = CMD_CALIBRATE;

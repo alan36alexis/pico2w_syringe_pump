@@ -26,6 +26,7 @@ typedef enum {
     CMD_OCC_RELEASE,
     CMD_RESUME_DISPENSE,
     CMD_CALIBRATE,
+    CMD_ENC_RESET,
     // Add more commands here as needed
 } Core1CmdID_t;
 
@@ -93,6 +94,7 @@ bool cmd_send_continue_dispense(void);
 bool cmd_send_occ_release(void);
 bool cmd_send_resume_dispense(void);
 bool cmd_send_calibrate(float move_velocity_ums, float seek_velocity_ums);
+bool cmd_send_enc_reset(void);
 
 
 #endif // CROSSCORE_CMD_H

@@ -20,6 +20,26 @@ static void broker_side_effects(const SystemEvent_t *ev) {
     cmd_gate_update_fsm_state((Core1State_t)ev->payload.fsm.state_to);
 }
 
+// Flash persistence pauses Core 1 (multicore lockout) for the whole sector
+// erase+program. If that lands mid-motion it starves the DMA/PIO step
+// generation (the LSW_END brake/release dies and the FSM hangs), so the
+// calibration save must wait until the FSM sits in a motor-idle state.
+static bool fsm_state_is_motion_idle(Core1State_t st) {
+  switch (st) {
+  case ST_UNHOMED:
+  case ST_READY_AT_HOME:
+  case ST_SYRINGE_ENGAGED:
+  case ST_DISPENSE_COMPLETED:
+  case ST_SET_NEW_DISPENSE:
+  case ST_END_OF_TRAVEL:
+  case ST_OCCLUSION_PAUSED:
+  case ST_FAULT:
+    return true;
+  default:
+    return false;
+  }
+}
+
 // Uniform fan-out to all consumer queues.
 // Drop silently if a consumer queue is full — acceptable for a logging system.
 static void broker_fanout(const SystemEvent_t *ev) {
@@ -34,8 +54,11 @@ static void task_event_broker(void *arg) {
   SystemEvent_t ev;
 
   for (;;) {
-    // Persist calibration if Core 1 flagged a new result
-    if (g_calibration_dirty) {
+    // Persist calibration if Core 1 flagged a new result. The dirty flag is
+    // set the instant LSW_END hits (before braking/release finish), so the
+    // write is deferred until the FSM reaches a motor-idle state.
+    if (g_calibration_dirty &&
+        fsm_state_is_motion_idle(cmd_gate_get_fsm_state())) {
       g_calibration_dirty = false;
       config_manager_save(true);
       CORE0_EMIT(EV_SYS_CALIBRATION_SAVED, param, 0);

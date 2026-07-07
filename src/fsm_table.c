@@ -63,6 +63,25 @@ _Static_assert(EV_COUNT == 22,
     (ctx)->deadline_active = true;                                              \
 } while (0)
 
+/* Fixed deadline for brake/release phases, where there is no distance to
+ * derive one from.  Keeping deadline_active true here also keeps the Layer-2
+ * encoder-stall watchdog armed — otherwise a brake that dies mid-way leaves
+ * the FSM waiting forever in ST_BRAKING_LSW_*. */
+#define SET_DEADLINE_FIXED(ctx, ms) do {                                        \
+    (ctx)->deadline_ms    = to_ms_since_boot(get_absolute_time()) + (ms);       \
+    (ctx)->deadline_active = true;                                              \
+} while (0)
+
+/* Programa el release de LSW diferido: el lanzamiento real lo hace
+ * fsm_service_release_deadtime() al vencer LSW_REVERSAL_DEAD_TIME_MS.
+ * El dead-time deja asentar la caja reductora antes de invertir el giro. */
+static void schedule_release(FsmCtx_t *ctx, int32_t steps) {
+    ctx->release_pending = true;
+    ctx->release_steps   = steps;
+    ctx->release_due_ms  = to_ms_since_boot(get_absolute_time())
+                         + LSW_REVERSAL_DEAD_TIME_MS;
+}
+
 /* -------------------------------------------------------------------------
  * Action functions (Commit 4 — real driver calls)
  * ------------------------------------------------------------------------- */
@@ -82,36 +101,50 @@ static void act_reset_to_unhomed(FsmCtx_t *ctx) {
 /* ---- Global handlers ---- */
 
 static void act_abort_brake_start(FsmCtx_t *ctx) {
-    /* During calibration, LSW_START_HIT is the position reference — reset encoder
-     * before braking so the count is zero at the known start point. */
-    if (ctx->is_calibrating)
-        RESET_ENCODER_VIA_CTX(ctx);
+    /* LSW_START_HIT is THE position reference (calibrating or not): reset the
+     * encoder before braking so count zero sits at the switch actuation point.
+     * This is one of only three reset sources (boot and fsm_enc_reset are the
+     * other two). */
+    RESET_ENCODER_VIA_CTX(ctx);
     tmc2209_abort_profile_dma(ctx->motor);
-    ctx->deadline_active = false;
+    SET_DEADLINE_FIXED(ctx, BRAKE_DEADLINE_MS);
 }
 
 /* For LSW_END hit during calibration, save the max encoder count before
- * braking.  core1_main.c sets on_calibration_complete_fn in Commit 5. */
+ * braking.  core1_main.c sets on_calibration_complete_fn in Commit 5.
+ * is_calibrating is cleared here: the capture completes the calibration, and
+ * leaving the flag set would make the NEXT homing bifurcate back into
+ * ST_CALIB_SEEK_END at the ST_RELEASING_LSW_START guard. */
 static void act_abort_brake_end(FsmCtx_t *ctx) {
     if (ctx->is_calibrating && ctx->on_calibration_complete_fn) {
         ctx->on_calibration_complete_fn(ctx->current_encoder_count);
     }
+    ctx->is_calibrating = false;
     tmc2209_abort_profile_dma(ctx->motor);
-    ctx->deadline_active = false;
+    SET_DEADLINE_FIXED(ctx, BRAKE_DEADLINE_MS);
 }
 
-/* Motor was already stopped when LSW_START fired (e.g. at startup). */
+/* Motor was already stopped when LSW_START fired (e.g. at startup).
+ * Same position-reference reset as act_abort_brake_start. */
 static void act_release_lsw_start(FsmCtx_t *ctx) {
-    if (ctx->is_calibrating)
-        RESET_ENCODER_VIA_CTX(ctx);
+    RESET_ENCODER_VIA_CTX(ctx);
     tmc2209_stop(ctx->motor);
-    tmc2209_send_nsteps_at_freq(ctx->motor, 1000000, 2000.0f);
+    schedule_release(ctx, 1000000);
+    SET_DEADLINE_FIXED(ctx, LSW_RELEASE_DEADLINE_MS);
 }
 
-/* Motor was already stopped when LSW_END fired. */
+/* Motor was already stopped when LSW_END fired.  Same calibration capture as
+ * act_abort_brake_end: if the debounced hit lands with the motor already
+ * stopped mid-calibration, the max count must still be saved (parity with the
+ * pre-table inline handler, which captured on state alone). */
 static void act_release_lsw_end(FsmCtx_t *ctx) {
+    if (ctx->is_calibrating && ctx->on_calibration_complete_fn) {
+        ctx->on_calibration_complete_fn(ctx->current_encoder_count);
+    }
+    ctx->is_calibrating = false;
     tmc2209_stop(ctx->motor);
-    tmc2209_send_nsteps_at_freq(ctx->motor, -1000000, 2000.0f);
+    schedule_release(ctx, -1000000);
+    SET_DEADLINE_FIXED(ctx, LSW_RELEASE_DEADLINE_MS);
 }
 
 /* Layer 1 / ENCODER_FAULT / stall / timeout: safe stop. */
@@ -123,7 +156,6 @@ static void act_fault_stop(FsmCtx_t *ctx) {
 /* ---- Local (per-state) handlers ---- */
 
 static void act_home_start(FsmCtx_t *ctx) {
-    RESET_ENCODER_VIA_CTX(ctx);
     closed_loop_init_move(ctx->scl, -105000.0f, ctx->cmd_velocity_ums,
                           ctx->current_encoder_count);
     ctx->move_linear_fn(ctx->motor, -105000.0f, ctx->cmd_velocity_ums);
@@ -141,12 +173,12 @@ static void act_calib_seek_start(FsmCtx_t *ctx) {
     SET_DEADLINE(ctx, -105000.0f, vel);
 }
 
-/* Normal homing complete (non-calibration path).  ST_READY_AT_HOME defines
- * the position reference: encoder count (and therefore position in mm) is
- * zero here, valid until the next homing. */
+/* Normal homing complete (non-calibration path).  The position reference was
+ * already zeroed at the LSW_START hit (act_abort_brake_start /
+ * act_release_lsw_start); the count here reflects brake + release travel from
+ * the actuation point — do NOT reset it again. */
 static void act_stop_at_home(FsmCtx_t *ctx) {
     tmc2209_stop(ctx->motor);
-    RESET_ENCODER_VIA_CTX(ctx);
     ctx->is_calibrating  = false;
     ctx->deadline_active = false;
 }
@@ -163,12 +195,14 @@ static void act_seek_calib_end(FsmCtx_t *ctx) {
 
 /* After braking on LSW_START: begin controlled release. */
 static void act_send_nsteps_release_start(FsmCtx_t *ctx) {
-    tmc2209_send_nsteps_at_freq(ctx->motor, 1000000, 2000.0f);
+    schedule_release(ctx, 1000000);
+    SET_DEADLINE_FIXED(ctx, LSW_RELEASE_DEADLINE_MS);
 }
 
 /* After braking on LSW_END: begin controlled release. */
 static void act_send_nsteps_release_end(FsmCtx_t *ctx) {
-    tmc2209_send_nsteps_at_freq(ctx->motor, -1000000, 2000.0f);
+    schedule_release(ctx, -1000000);
+    SET_DEADLINE_FIXED(ctx, LSW_RELEASE_DEADLINE_MS);
 }
 
 static void act_search_syringe(FsmCtx_t *ctx) {
@@ -320,6 +354,11 @@ static const Transition_t TRANSITIONS[] = {
     /* ST_READY_AT_HOME */
     { ST_READY_AT_HOME, EV_CMD_SEARCH_SYRINGE, ST_SEARCHING_SYRINGE,
       act_search_syringe, NULL },
+    /* Re-home from home: re-zeroes the encoder at the LSW_START hit. */
+    { ST_READY_AT_HOME, EV_CMD_HOME, ST_HOMING, act_home_start, NULL },
+    /* Calibrate from home: seek LSW_START first, same as from ST_UNHOMED. */
+    { ST_READY_AT_HOME, EV_CMD_CALIBRATE, ST_CALIB_SEEK_START,
+      act_calib_seek_start, NULL },
 
     /* ST_SEARCHING_SYRINGE */
     { ST_SEARCHING_SYRINGE, iEV_CONTACT_DETECTED, ST_SYRINGE_ENGAGED,
@@ -339,6 +378,7 @@ static const Transition_t TRANSITIONS[] = {
     { ST_DISPENSE_COMPLETED, EV_CMD_RESET,             ST_UNHOMED,          act_reset_to_unhomed, NULL },
     { ST_DISPENSE_COMPLETED, EV_CMD_CONTINUE_DISPENSE, ST_SET_NEW_DISPENSE, act_stub,             NULL },
     { ST_DISPENSE_COMPLETED, EV_CMD_SEARCH_EOT,        ST_SEARCHING_EOT,    act_search_eot,       NULL },
+    { ST_DISPENSE_COMPLETED, EV_CMD_HOME,              ST_HOMING,           act_home_start,       NULL },
 
     /* ST_SET_NEW_DISPENSE */
     { ST_SET_NEW_DISPENSE, EV_CMD_START_DISPENSE, ST_DISPENSING,
@@ -361,6 +401,10 @@ static const Transition_t TRANSITIONS[] = {
 
     /* ST_END_OF_TRAVEL */
     { ST_END_OF_TRAVEL, EV_CMD_RESET, ST_UNHOMED, act_reset_to_unhomed, NULL },
+    /* Post-calibration flow: carriage sits at end of travel; homing from here
+     * re-zeroes the encoder at the LSW_START hit.  The gate already accepted
+     * HOME in this state — without this row the command was silently ignored. */
+    { ST_END_OF_TRAVEL, EV_CMD_HOME, ST_HOMING, act_home_start, NULL },
 
     /* ST_OCCLUSION_STOPPING */
     { ST_OCCLUSION_STOPPING, EV_CMD_OCC_RELEASE, ST_OCCLUSION_RELEASE,
@@ -419,6 +463,27 @@ Core1State_t fsm_dispatch(FsmCtx_t *ctx, Core1State_t state, Core1Event_t event)
                (int)state, (int)event);
     }
     return state; /* POL_IGNORE or POL_ILLEGAL stub: stay in current state */
+}
+
+/* -------------------------------------------------------------------------
+ * fsm_service_release_deadtime — lanzamiento diferido del release de LSW.
+ * Llamado cada ciclo del loop de Core 1 antes de fsm_dispatch().
+ * ------------------------------------------------------------------------- */
+void fsm_service_release_deadtime(FsmCtx_t *ctx, Core1State_t state)
+{
+    if (!ctx->release_pending) return;
+
+    /* La FSM salió del estado de release (STOP, fault, reset o el switch se
+     * liberó solo durante el dead-time): cancelar el lanzamiento. */
+    if (state != ST_RELEASING_LSW_START && state != ST_RELEASING_LSW_END) {
+        ctx->release_pending = false;
+        return;
+    }
+
+    if (to_ms_since_boot(get_absolute_time()) >= ctx->release_due_ms) {
+        ctx->release_pending = false;
+        tmc2209_send_nsteps_at_freq(ctx->motor, ctx->release_steps, 2000.0f);
+    }
 }
 
 /* -------------------------------------------------------------------------

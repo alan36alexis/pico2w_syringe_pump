@@ -113,6 +113,15 @@ typedef struct {
     uint32_t   deadline_ms;
     bool       deadline_active;
 
+    /* ---- Dead-time de release en LSW ----
+     * Programado por las actions de release (schedule_release); el lanzamiento
+     * real lo hace fsm_service_release_deadtime() al vencer
+     * LSW_REVERSAL_DEAD_TIME_MS, solo si el estado sigue siendo
+     * ST_RELEASING_LSW_*. Si la FSM salió de ahí, el pending se auto-cancela. */
+    bool       release_pending;
+    uint32_t   release_due_ms;
+    int32_t    release_steps;    /* +1000000 (LSW_START) / -1000000 (LSW_END) */
+
     /* ---- Current encoder snapshot ----
      * core1_main.c reads the encoder and stores it here immediately before
      * calling fsm_dispatch().  Action functions that need the encoder count
@@ -172,6 +181,15 @@ Core1State_t fsm_dispatch(FsmCtx_t *ctx, Core1State_t state, Core1Event_t event)
  * Commit 6 refines this with the full classification.
  */
 FsmPolicy_t fsm_default_policy(Core1State_t state, Core1Event_t event);
+
+/**
+ * @brief Lanza el release diferido de LSW cuando vence el dead-time.
+ *
+ * Llamar cada ciclo del loop de Core 1 (antes de fsm_dispatch). Si hay un
+ * release pendiente y el estado ya no es ST_RELEASING_LSW_*, lo cancela
+ * (cubre STOP, fault, reset y release espontáneo del switch).
+ */
+void fsm_service_release_deadtime(FsmCtx_t *ctx, Core1State_t state);
 
 /**
  * @brief Audit FSM table coverage over the full ST_COUNT × EV_COUNT matrix.

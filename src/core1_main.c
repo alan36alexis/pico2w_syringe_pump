@@ -97,6 +97,12 @@ void core1_main(void) {
         }
     }
 
+    // Cero de encoder en el encendido. Después de esto la cuenta SOLO se
+    // resetea en el HIT de LSW_START o por el comando fsm_enc_reset.
+    reset_encoder_counts(pio1, sm_enc_q, sm_enc_a, sm_enc_b,
+        &last_encoder_count, &last_encoder_a, &last_encoder_b,
+        &last_speed_encoder_count, &scl);
+
     adc_init();
     adc_gpio_init(ADC_PIN);
     adc_select_input(ADC_CHANNEL);
@@ -192,16 +198,14 @@ void core1_main(void) {
             // Raw / debug commands — bypass FSM, execute immediately
             case CMD_MOVE_LINEAR_UM:
                 current_state = ST_MANUAL_OVERRIDE;
-                reset_encoder_counts(pio1, sm_enc_q, sm_enc_a, sm_enc_b,
-                    &last_encoder_count, &last_encoder_a, &last_encoder_b,
-                    &last_speed_encoder_count, &scl);
                 logger_send_motor_moving();
                 tmc2209_move_linear_um_dma(global_motor,
                     cmd.payload.move_linear.target_um,
                     cmd.payload.move_linear.target_velocity_ums);
                 closed_loop_init_move(&scl,
                     cmd.payload.move_linear.target_um,
-                    cmd.payload.move_linear.target_velocity_ums, 0);
+                    cmd.payload.move_linear.target_velocity_ums,
+                    read_encoder_count(pio1, sm_enc_q, sm_enc_a));
                 break;
 
             case CMD_STOP_MOTOR:
@@ -216,9 +220,6 @@ void core1_main(void) {
 
             case CMD_MOVE_2PART_PROFILE:
                 current_state = ST_MANUAL_OVERRIDE;
-                reset_encoder_counts(pio1, sm_enc_q, sm_enc_a, sm_enc_b,
-                    &last_encoder_count, &last_encoder_a, &last_encoder_b,
-                    &last_speed_encoder_count, &scl);
                 logger_send_motor_moving();
                 tmc2209_move_2part_profile_dma(
                     global_motor,
@@ -231,33 +232,25 @@ void core1_main(void) {
                     float um_per_ustep = LEAD_SCREW_PITCH_UM /
                         (MOTOR_STEPS_PER_REV * REAL_GEARBOX_RATIO * MOTOR_MICROSTEPS_VAL);
                     closed_loop_init_move(&scl, 0.0f,
-                        cmd.payload.move_2part.f_target * um_per_ustep, 0);
+                        cmd.payload.move_2part.f_target * um_per_ustep,
+                        read_encoder_count(pio1, sm_enc_q, sm_enc_a));
                 }
                 break;
 
             case CMD_HOME_START:
                 current_state = ST_MANUAL_OVERRIDE;
-                reset_encoder_counts(pio1, sm_enc_q, sm_enc_a, sm_enc_b,
-                    &last_encoder_count, &last_encoder_a, &last_encoder_b,
-                    &last_speed_encoder_count, &scl);
                 logger_send_motor_moving();
                 tmc2209_move_linear_um_dma(global_motor, -105000.0f, 1500.0f);
                 break;
 
             case CMD_HOME_END:
                 current_state = ST_MANUAL_OVERRIDE;
-                reset_encoder_counts(pio1, sm_enc_q, sm_enc_a, sm_enc_b,
-                    &last_encoder_count, &last_encoder_a, &last_encoder_b,
-                    &last_speed_encoder_count, &scl);
                 logger_send_motor_moving();
                 tmc2209_move_linear_um_dma(global_motor, 105000.0f, 1500.0f);
                 break;
 
             case CMD_MOVE_NSTEPS:
                 current_state = ST_MANUAL_OVERRIDE;
-                reset_encoder_counts(pio1, sm_enc_q, sm_enc_a, sm_enc_b,
-                    &last_encoder_count, &last_encoder_a, &last_encoder_b,
-                    &last_speed_encoder_count, &scl);
                 logger_send_motor_moving();
                 if (cmd.payload.move_nsteps.nsteps < 0) {
                     tmc2209_set_direction(global_motor, false);
@@ -275,6 +268,14 @@ void core1_main(void) {
             case CMD_STOP_IMMEDIATE:
                 current_state = ST_UNHOMED;
                 tmc2209_stop(global_motor);
+                break;
+
+            case CMD_ENC_RESET:
+                // Cero manual de la cuenta del encoder; no toca la FSM ni el motor
+                reset_encoder_counts(pio1, sm_enc_q, sm_enc_a, sm_enc_b,
+                    &last_encoder_count, &last_encoder_a, &last_encoder_b,
+                    &last_speed_encoder_count, &scl);
+                LOG_DEBUG("[ENC]: Cuenta de encoder reseteada por comando\n");
                 break;
 
             default:
@@ -379,6 +380,11 @@ void core1_main(void) {
             int32_t enc_now = read_encoder_count(pio1, sm_enc_q, sm_enc_a);
             fsm_ctx.current_encoder_count = enc_now;
             fsm_ctx.motor_is_moving       = is_moving;
+
+            // Dead-time de release en LSW: lanza el nsteps diferido al vencer
+            // LSW_REVERSAL_DEAD_TIME_MS (auto-cancela si la FSM salió del
+            // estado de release)
+            fsm_service_release_deadtime(&fsm_ctx, current_state);
 
             // Load command payload for states that need it
             if (have_cmd) {

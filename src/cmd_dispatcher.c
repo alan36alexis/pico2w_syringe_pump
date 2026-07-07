@@ -100,6 +100,12 @@ CmdDispatchResult_t cmd_dispatch_string(const char *str, CmdSource_t src, int32_
         if (!ok) printf("[CMD]: Rechazado en estado: %s\n", get_state_name(cmd_gate_get_fsm_state()));
         return dispatch_result(ok, ok ? "ok" : "invalid_state", src, (uint8_t)PUMP_ACTION_CALIBRATE);
     }
+    if (strncmp(str, "fsm_enc_reset", 13) == 0) {
+        // Utilitario: pone en cero la cuenta del encoder. No pasa por el gate
+        // ni cambia el estado de la FSM.
+        bool ok = cmd_send_enc_reset();
+        return dispatch_result(ok, ok ? "ok" : "queue_full", src, CMD_ACTION_LOWLEVEL);
+    }
 
     // ------------------------------------------------------------------
     // Low-level motor commands (bypass FSM state validation)
