@@ -11,31 +11,68 @@ Para garantizar estabilidad, respuesta en tiempo real (hard real-time) y funcion
 ### **Core 1: Baremetal (Tiempo Real)**
 El núcleo 1 se ejecuta **sin sistema operativo (Baremetal)** impulsado completamente por interrupciones de hardware, temporizadores dedicados, DMA (Direct Memory Access) y algoritmos bloqueantes controlados.
 - **Responsabilidades:**
+  - **Máquina de estados de movimiento table-driven** (`src/fsm_table.c`): dos tablas de transiciones (`GLOBAL[]` de alta prioridad + `TRANSITIONS[]` por estado) con guards, actions y una política por defecto sin `default: break` silencioso. Incluye auditoría de cobertura de la matriz completa estado × evento (trazabilidad IEC 62304).
+  - **Tres capas de detección de falla**: finales de carrera físicos (Layer 1), stall por encoder — cuenta sin cambio con DMA activo (Layer 2), y deadline derivado de distancia/velocidad (Layer 3). *StallGuard del TMC2209 no se usa como mecanismo de seguridad* (poco confiable a baja velocidad); queda como telemetría diagnóstica opcional.
   - Comunicación SPI1 ultrarrápida (1 MHz) con el sensor de presión Honeywell para monitorear sobrepresiones con lecturas deterministas cada 500 ms.
   - Generación de pulsos para el motor usando la abstracción en C hacia el componente PIO y perfiles trapezoidales de 2 segmentos en DMA para aceleración/desaceleración suave del TMC2209.
-  - Configuración UART bidireccional asíncrona dedicada (57600 baudios) para programar microstepping, corriente del motor dinámicamente, y sensar pasivamente *StallGuard* (choques sin final de carrera físico) leyendo registros del TMC2209.
-  - Lectura en alta frecuencia en modo "polling" (mientras las transferencias DMA operan en paralelo) de los finales de carrera pasivos mediante GPIO (`START_PIN` / `END_PIN`).
+  - Lectura de encoder de cuadratura por PIO (semi-lazo cerrado de posición durante el dispensado, `src/closed_loop.c`).
+  - Configuración UART bidireccional asíncrona dedicada (57600 baudios) para programar microstepping y corriente del motor dinámicamente en el TMC2209.
+  - Polling de alta frecuencia de los finales de carrera (`START_PIN` / `END_PIN`), con rampa de frenado al impacto y **dead-time de 200 ms** entre el freno y el movimiento de release en dirección opuesta.
 
 ### **Core 0: FreeRTOS (Procesamiento Concurrente Asíncrono)**
 El núcleo 0 ejecuta un kernel de **FreeRTOS** y centraliza todas las entradas, salidas globales del usuario (puerto serie / WiFi CYW43), temporizadores relajados y telemetría general.
 - **Responsabilidades:**
-  - Inicialización del subsistema Wi-Fi e interacción asíncrona por redes.
-  - Parpadeo dinámico del LED nativo de la placa por intermedio de tareas RTOS (latidos de estado).
-  - Tarea central `task_logger` para despachar, formatear e imprimir (`printf`) los eventos diagnosticados previamente en el Core 1.
+  - Inicialización del subsistema Wi-Fi, cliente MQTT sobre lwIP y reconexión automática.
+  - **Event broker central** (`task_event_broker`) que distribuye los eventos del sistema a consumidores independientes (serial, MQTT, HMI) — ver sección siguiente.
+  - Pipeline unificado de comandos (CLI / MQTT / HMI) con validación de estado FSM antes de despachar a Core 1.
+  - CLI por consola serie, persistencia de configuración en Flash, monitor de salud del sistema (stack high-water-marks) y tareas de UI TFT (gated por `ENABLE_TFT`).
 
 ---
 
-## Comunicación Inter-Núcleo (Cross-Core Logging)
+## Arquitectura de Eventos Pub-Sub (EDA)
 
-El núcleo 1 está forzado a operar en plazos estrictos de microsegundos para preservar la pureza de los perfiles de velocidad del motor y la seguridad ante sobrepresión de la jeringa. Sin embargo, en el SDK de C/C++ de Pico, llamar a constantes funciones como `printf()` para diagnosticar o reportar la presión implica un serio cuello de botella y riesgo de *Kernel Panic*.
-**¿Por qué?** Porque `printf()` sobre el puerto serie/USB protege sus flujos a través de *mutexes/spinlocks* globales de hardware. Si el Core 0 se encuentra imprimiendo o demorado en una rutina del CYW43, el intento de hacer `printf()` en el Core 1 bloqueará al Core 1 completamente por una cantidad impredecible de tiempo.
+Toda notificación del sistema (sensores, transiciones FSM, red, alarmas, salud) viaja como un evento tipado `SystemEvent_t` (máx. 64 bytes, sin strings — garantizado por `_Static_assert`) hacia un **broker central** que lo replica a consumidores desacoplados:
 
-### La Solución: Hardware Spinlock Queues (Cola de hardware del SDK de Pico)
-El proyecto mitiga por completo este problema valiéndose de la librería estándar `pico/util/queue.h`, creando así el componente `crosscore_logger`:
+```
+Core 1 ── CORE1_EMIT ──► g_crosscore_event_q (queue_t SDK, no bloqueante) ──┐
+                                                                            ├─► task_event_broker
+Core 0 ── CORE0_EMIT ──► g_core0_event_q (FreeRTOS) ────────────────────────┘        │
+                                                                                     ├─► serial_consumer → printf
+                                                                                     ├─► mqtt_consumer   → publish multi-rate
+                                                                                     └─► hmi_consumer    → TFT/LVGL
+```
 
-1. **`LogMessage_t` (Payload optimizado):** Una estructura `union` optimizada permite empacar en la memoria RAM el identificador numérico de qué evento ocurrió (ej: `LOG_EVENT_PRESSURE_ALERT`) adjunto de una porción pura de solo 4 bytes del valor en el momento del evento (ej: `float pressure_psi`).
-2. **Transferencia No-Bloqueante (`queue_try_add()`):** Cuando ocurre una falla crítica o una lectura correcta en el *Baremetal* (Core 1), invoca rápidamente funciones como `logger_send_pressure_update(float psi)`. Internamente sólo intentan insertarse asíncronamente en la cola RAM inter-núcleo en nanosegundos y regresan inmediatamente a mover el motor, incluso si la cola se saturó de mensajes y los datos se pierden.
-3. **Impresión Asíncrona (FreeRTOS `task_logger`):** En el Core 0, el FreeRTOS ejecuta un ciclo cada `10ms` que explora la cola. Extrae (*pop*) todos los eventos acumulados y se hace cargo del retardo bloqueante de utilizar `printf()`, convirtiendo los crudos `floats` y `uint_32` transmitidos por el Core 1 a extensos renglones entendibles para el operador de diagnóstico en el monitor serie, sin obstaculizar la maquinaria.
+**¿Por qué?** `printf()` (y cualquier primitiva que comparta spinlocks con el driver CYW43) puede bloquear al Core 1 un tiempo impredecible y arruinar los plazos de microsegundos del control de motor. Por eso el Core 1 **jamás imprime**: emite eventos con `CORE1_EMIT` sobre una cola de hardware no-bloqueante (`pico/util/queue.h`) y sigue moviendo el motor; si la cola está llena el evento se descarta en silencio. El broker (prioridad máxima en FreeRTOS) sella el timestamp y hace fanout uniforme sin interpretar el contenido; cada consumidor decide qué eventos le interesan (p. ej. filtro de alarmas `EV_IS_ALARM`).
+
+Los IDs de evento están organizados por dominio en `headers/system_events.h` (driver TMC `0x01xx`, sensores `0x02xx`, motor `0x03xx`, red `0x04xx`, aplicación/FSM `0x05xx`, alarmas `0x06xx`, energía `0x07xx`, sistema `0x08xx`), con DTOs tipados por dominio (`DtoMotion_t`, `DtoAlarm_t`, `DtoSession_t`, ...).
+
+---
+
+## Pipeline de Comandos
+
+Todos los comandos, vengan de donde vengan, atraviesan la misma cadena:
+
+```
+CLI / MQTT / HMI → cmd_dispatch_string() → cmd_gate_execute() → crosscore_cmd_queue → FSM Core 1
+                   (parser único)          (valida estado FSM)   (queue_t no bloqueante)
+```
+
+- `cmd_dispatcher.c` es el **único parser** de comandos string; retorna `accepted/reason` para que cada interfaz arme su ACK (MQTT usa el correlation ID).
+- `cmd_gate.c` mantiene un espejo del estado FSM de Core 1 (actualizado solo por el broker vía `EV_APP_FSM_STATE`) y rechaza acciones inválidas para el estado actual **antes** de encolarlas.
+- **STOP / STOP_IMM nunca se validan contra el estado FSM** — se aceptan siempre (invariante de seguridad).
+
+---
+
+## Test de la FSM en Host (Golden Table)
+
+`tools/fsm_test/` compila la tabla FSM real en una PC (sin Pico SDK ni toolchain ARM) y verifica cada transición contra una tabla de referencia dorada:
+
+```bash
+cd tools/fsm_test
+gcc -Wall -Wextra -o test_golden test_fsm_golden.c && ./test_golden
+```
+
+Correrlo es obligatorio tras cualquier cambio en `fsm_table.c` o en los estados/eventos de `core1_main.h`.
 
 ---
 
@@ -44,6 +81,8 @@ El proyecto mitiga por completo este problema valiéndose de la librería están
 El sistema soporta el envío de comandos de movimiento y la configuración dinámica de credenciales mediante *dos interfaces unificadas*:
 1. **MQTT**: Mediante la subscripción al tópico de comandos definido y publicando payloads de texto.
 2. **CLI (Puerto Serial)**: Abriendo la consola UART/USB de la Pico y tecleando los comandos directamente.
+
+Ambas interfaces convergen en el mismo parser (`cmd_dispatch_string`) y la misma validación de estado (`cmd_gate`): un comando `fsm_*` inválido para el estado actual se rechaza con `invalid_state` (y el ACK MQTT lo refleja). Los comandos de bajo nivel (`home_start`, `nsteps`, movimiento lineal) bypasean la validación FSM — son para banco de pruebas, no para operación clínica.
 
 ### Comandos de Operación Disponibles (Vía CLI o MQTT payload)
 
@@ -59,8 +98,8 @@ El sistema soporta el envío de comandos de movimiento y la configuración diná
 | `fsm_cont` | FSM: Continuar | Continúa la dosificación previamente pausada. |
 | `fsm_occ_rel` | FSM: Liberar Oclusión | Retrocede el motor para liberar presión tras una oclusión. |
 | `fsm_resume` | FSM: Reanudar | Reanuda la operación después de resolver un evento. |
-| `fsm_calibrate` | FSM: Calibrar Encoder | Secuencia de ida y vuelta a los topes para medir el recorrido máximo en encoder counts. El resultado se persiste automáticamente en Flash. |
-| `fsm_virtual_lsw,<ENA>,<START>,<END>` | FSM: Finales de carrera virtuales | Activa (`ENA=1`) o desactiva (`ENA=0`) límites de software basados en encoder counts. Ej: `fsm_virtual_lsw,1,100,148000` |
+| `fsm_calibrate[,<VEL_MOVE>[,<VEL_SEEK>]]` | FSM: Calibrar Encoder | Secuencia de ida y vuelta a los topes para medir el recorrido máximo en encoder counts. Velocidades opcionales (0 o ausente = default). El resultado se persiste automáticamente en Flash y se recarga al boot. Ej: `fsm_calibrate,1500,800` |
+| `fsm_enc_reset` | Reset de encoder | Pone en cero la cuenta del encoder. No pasa por el gate ni cambia el estado FSM. |
 | `home_start,<VEL>` | Homing manual (Atrás) | Motor se mueve en dirección negativa a velocidad constante hasta hallar el tope físico. Ej: `home_start,1200` |
 | `home_end,<VEL>` | Homing manual (Adelante) | Motor se mueve en dirección positiva a velocidad constante hasta hallar el tope físico. Ej: `home_end,1200` |
 | `nsteps,<pasos>,<freq_hz>` | Movimiento por pasos puros | Inyecta N pasos a una frecuencia fija (Hz). Ej: `nsteps,3200,500.0` |
@@ -112,10 +151,13 @@ Ver `MQTT_CONTRACT.md` en la raíz del repo para el contrato completo (esquemas 
 | Tópico | QoS | Retain | Descripción |
 |--------|-----|--------|-------------|
 | `bj/{id}/status` | 1 | Sí | Online/Offline. LWT configurado: el broker publica `offline` si se pierde el keepalive (60 s). |
-| `bj/{id}/cmd` | 1 | No | Comandos desde el dashboard (payload: string crudo; PR3 agrega envelope `{"cid":N,"cmd":"..."}`) |
-| `bj/{id}/telemetry` | 0 | No | JSON de telemetría clínica cada 2 s |
-| `bj/{id}/event` | 1 | No | Transiciones de estado FSM `{"type":"state","from":N,"to":N}` (alarmas en PR futuro) |
-| `bj/{id}/cmd/ack` | 1 | No | Confirmación de comandos con correlation ID *(PR3)* |
+| `bj/{id}/cmd` | 1 | No | Comandos con envelope `{"cid":N,"cmd":"..."}` (fallback a string crudo para debug) |
+| `bj/{id}/cmd/ack` | 1 | No | Confirmación de comandos con correlation ID `{"cid":N,"result":"accepted"\|"rejected"}` |
+| `bj/{id}/telemetry` | 0 | No | JSON de telemetría clínica cada 2 s *(legacy — convive con los sub-tópicos hasta validar en hardware)* |
+| `bj/{id}/telemetry/sensors` | 0 | No | Presión (psi/mmHg) cada 500 ms — publicado por `mqtt_consumer` |
+| `bj/{id}/telemetry/motion` | 0 | No | Encoder, posición, velocidad, progreso cada 1 s — publicado por `mqtt_consumer` |
+| `bj/{id}/telemetry/session` | 0 | No | Sesión de infusión (volúmenes, tasa, tiempo) cada 2 s — publicado por `mqtt_consumer` |
+| `bj/{id}/event` | 1 | No | Transiciones de estado FSM `{"type":"state","from":N,"to":N}` (eventos de alarma: pendiente) |
 
 **Suscripción recomendada en Node-RED:**
 ```
@@ -153,14 +195,29 @@ Los tópicos `syringe_pump/*` fueron eliminados del firmware. No usar en integra
 - [ ] Notificaciones PWA (Web Push)
 
 #### Firmware
+- [x] Implementar CLI para control del sistema.
+- [x] Arquitectura de eventos pub-sub (broker + consumers serial/MQTT/HMI).
+- [x] FSM table-driven con auditoría de cobertura + test golden en host (`tools/fsm_test`).
+- [x] Pipeline unificado de comandos con validación de estado FSM (`cmd_dispatcher` + `cmd_gate`).
+- [x] Calibración punta a punta con persistencia en Flash y recarga al boot.
+- [x] Detección de fallas por capas: stall de encoder, deadline de movimiento, timeouts de release de LSW.
 - [ ] Implementar libreria de control de TFT+Touch y lógica de menues. **WIP** *(submodulo integrado en branch `tft_integration`)*
 - [ ] Implementar control lazo cerrado (driver+motor PAP, encoder). **WIP** *(lazo de desplazamiento activo; lazo de velocidad pendiente)*
-- [x] Implementar CLI para control del sistema.
-- [ ] Implementar watchdog multi-thread (event group o challenge-response).
-- [ ] Implementar librería para manejo de memoria no volátil (analizar littlefs sobre flash nativa).
-- [ ] Implementar mini database para datos de uso, estado del sistema y logs.
-- [ ] Implementar sincronización con hora actual + RTC.
-- [ ] Implementar lectura de sensor de fuerza y lógica de seguridad asociada.
-- [ ] Implementar control de modo bajo consumo (modo sleep).
-- [ ] Implementar sistema de alarma (buzzer, led, logs) en base a salud y estado de sistema. **WIP**
-- [ ] Implementar monitoreo y actuación sobre estado de energía (modo batería, nivel de carga, etc.)
+- [ ] Implementar watchdog de hardware alimentado desde ambos cores.
+- [ ] Librería sensor de fuerza: ADC → presión (mmHg), calibración persistida, detección de desconexión.
+- [ ] Detector de burbujas + integración a FSM.
+- [ ] Migrar Flash a littlefs (config, calibración, log de eventos, sesiones).
+- [ ] RTC DS3231 + timestamps reales en eventos y sesiones.
+- [ ] Rutina de autochequeo inicial (POST) al boot.
+- [ ] Modo bajo consumo y monitoreo de energía (batería/red).
+
+> El backlog completo, priorizado y con contexto de cada item vive en [`TODO_notes.txt`](TODO_notes.txt).
+
+### Documentación
+
+| Documento | Contenido |
+|---|---|
+| [`CLAUDE_CODE_CONTEXT.md`](CLAUDE_CODE_CONTEXT.md) | **Arquitectura y reglas invariantes** — punto de entrada para desarrolladores y asistentes LLM |
+| [`MQTT_CONTRACT.md`](MQTT_CONTRACT.md) | Contrato MQTT: tópicos, esquemas JSON, QoS, envelope cmd/ack |
+| [`MEMORY_CONTRACT.md`](MEMORY_CONTRACT.md) | Layout de flash y reglas de persistencia |
+| [`UI_BJ_CONTRACT.md`](UI_BJ_CONTRACT.md) | Integración del módulo TFT/touch en Core 0 |

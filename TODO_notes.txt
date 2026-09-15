@@ -12,12 +12,6 @@ PENDIENTE - Funcionalidad de bomba
       desplazamiento/tasa configurables, y reflejarlo en la FSM de
       Core 1 (hoy no existe estado KVO en Core1State_t).
 
-[ ] Pausas/tiempos muertos en cambios de direccion sobre los LSW
-    - La caja reductora hace ruido al invertir sin pausa.
-    - Los actions de release (act_send_nsteps_release_*) lanzan el
-      movimiento inverso inmediatamente despues del frenado.
-    - Agregar dead-time configurable entre freno y release.
-
 [ ] Sesiones por usuario
     - Historial de configuraciones, drogas, jeringas y dosis dadas,
       asociado a un usuario/sesion.
@@ -152,6 +146,12 @@ HECHO (referencia rapida)
 [x] El STOP no resetea el encoder. Fuentes de reset: boot,
     CMD_ENC_RESET y hit de LSW_START (referencia de posicion).
 [x] Timeouts en releases de LSW y deteccion de stall por encoder.
+[x] Dead-time entre freno y release en los LSW (2026-07-07).
+    LSW_REVERSAL_DEAD_TIME_MS (200 ms, system_config.h); release
+    diferido via ctx (schedule_release + fsm_service_release_
+    deadtime), auto-cancela en STOP/fault/reset. Pendiente solo
+    validacion en banco (pausa audible en home/eot/calibrate y
+    stop durante el dead-time).
 
 Descartado: feature de LSW virtuales (3 finales de carrera,
 estados _VIRTUAL_, posicionamiento relativo por conteo calibrado).

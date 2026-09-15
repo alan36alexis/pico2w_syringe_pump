@@ -1,9 +1,14 @@
-# Contexto del Proyecto — Bomba de Infusión a Jeringa IoT
-## Handoff para Claude Code / VSCode
+# Contexto de Arquitectura — Bomba de Infusión a Jeringa IoT
 
-> **Propósito de este documento:** Transferir todo el contexto de diseño, decisiones arquitectónicas
-> y tareas pendientes discutidas en la sesión de arquitectura previa. Leer completo antes de tocar
-> cualquier archivo del repositorio.
+> **Propósito:** Este documento es el punto de entrada para **cualquier asistente LLM**
+> (Claude, GPT, Gemini, u otro) que trabaje sobre este repositorio. Resume la arquitectura,
+> los flujos de datos y las **reglas invariantes** que deben respetarse en cada cambio,
+> sin necesidad de leer todo el código.
+>
+> **Leer completo antes de tocar cualquier archivo.** La sección 9 (Reglas invariantes)
+> es de cumplimiento obligatorio: un cambio que las viole se considera incorrecto aunque compile.
+
+**Última actualización:** 2026-07-07 (rama `tft_integration`)
 
 ---
 
@@ -12,528 +17,331 @@
 **Nombre:** Bomba de Infusión a Jeringa con Monitoreo y Control IoT
 **Institución:** UTN FRA — Proyecto Final, Ingeniería Electrónica
 **Equipo:** Beherens Braian, Fernandez Pablo, Gallo Alejandro, Velazquez Alan
-**Norma de referencia:** IEC 60601-2-24 (bombas de infusión)
+**Normas de referencia:** IEC 60601-2-24 (bombas de infusión), IEC 62304 (software), IEC 60601-1-8 (alarmas)
 
-### Descripción en una línea
-Sistema embebido sobre Raspberry Pi Pico W2 que controla una bomba jeringa de precisión
-con motor PAP (NEMA 17 + caja reductora + TMC2209), detección de oclusión por presión,
-detección de burbujas, y conectividad IoT vía MQTT/WiFi con dashboard en Node-RED.
+Sistema embebido sobre Raspberry Pi Pico 2W (RP2350) que controla una bomba jeringa de
+precisión con motor PAP (NEMA 17 + reductora + driver TMC2209), encoder de posición,
+sensor de presión/fuerza para detección de oclusión, display TFT táctil, y conectividad
+IoT vía MQTT/WiFi con dashboard en Node-RED.
 
-### Stack tecnológico definido
-| Capa | Tecnología | Estado |
-|------|-----------|--------|
-| MCU | RP2350 (Pico W2), FreeRTOS v11, Pico SDK v2.2.0 | En desarrollo |
-| Driver motor | TMC2209 UART, perfil trapezoidal, semi-lazo cerrado con encoder | Implementado |
-| Broker MQTT | Mosquitto (local / RPi / VM) | A configurar |
-| Dashboard | Node-RED + Dashboard 2.0 (FlowFuse) | **Próximo trabajo** |
-| Simulador | Python + paho-mqtt | **Entregado — ver sección 5** |
-| Persistencia | SQLite vía node-red-node-sqlite | Pendiente |
-| Notificaciones | PWA Web Push | Pendiente |
+| Capa | Tecnología |
+|------|-----------|
+| MCU | RP2350 (Pico 2W), dual-core: FreeRTOS v11 (Core 0) + baremetal (Core 1), Pico SDK v2.2.0 |
+| Motor | TMC2209 por UART, pulsos por PIO, perfiles trapezoidales 2 segmentos por DMA |
+| Encoder | Cuadratura por PIO (semi-lazo cerrado de posición) |
+| HMI local | TFT 4" + touch (submódulo `lib/tft_touch_module`, LVGL) — gated por `ENABLE_TFT` |
+| IoT | MQTT sobre lwIP (CYW43), broker Mosquitto, dashboard Node-RED + Dashboard 2.0 |
+| Persistencia | Flash interna (sector raw con magic+CRC); littlefs planificado |
+| Simulador | `nodered/pump_simulator.py` (Python + paho-mqtt), entorno Docker completo en `docker/` |
 
 ---
 
-## 2. Repositorio
+## 2. Layout del repositorio
 
 ```
-URL:    https://github.com/alan36alexis/pico2w_syringe_pump
-Rama activa: tft_integration
-```
-
-### Estructura relevante del repo (rama tft_integration)
-```
-src/
-  core0_main.c          ← Tareas FreeRTOS: telemetría, CLI, reconexión, system_health
-  core1_main.c          ← Control de motor baremetal (hard real-time, sin RTOS)
-  syringe_pump_api.c/h  ← Modelo clínico: PumpContext_t, Pump_Tick(), Pump_GetTelemetryJSON()
-  mqtt_client.c/h       ← Cliente MQTT sobre lwIP, colas TX/RX FreeRTOS-safe
-  crosscore_cmd.c/h     ← Parser de comandos + queue Pico SDK entre cores
-  crosscore_logger.c/h  ← Logger asíncrono Core1→Core0 via queue no-bloqueante
-  config_manager.c/h    ← Persistencia en flash: SystemConfig_t con CRC + magic
-  system_config.h       ← Constantes de hardware y clínicas (#define centralizados)
+src/                    ← .c del firmware
+  main.c                ← entry: system_queues_init() → lanza Core 1 → arranca FreeRTOS
+  core0_main.c          ← creación de tareas FreeRTOS, CLI, telemetría legacy, SysMon
+  core1_main.c          ← loop baremetal: polling sensores/LSW, inyección de eventos, FSM
+  fsm_table.c           ← FSM table-driven de Core 1 (GLOBAL[] + TRANSITIONS[] + policy)
+  cmd_dispatcher.c      ← parser único de comandos string (CLI/MQTT/HMI)
+  cmd_gate.c            ← validación FSM de acciones de bomba (único acceso a Core 1)
+  crosscore_cmd.c       ← cola de comandos Core 0 → Core 1 (queue_t del SDK)
+  crosscore_logger.c    ← filtro de categorías de log + helpers de emisión de Core 1
+  event_broker.c        ← tarea broker: drena colas de eventos y hace fanout a consumers
+  system_queues.c       ← definición de todas las colas de eventos
+  serial_consumer.c     ← consumer: eventos → printf (tabla de lookup de strings)
+  mqtt_consumer.c       ← consumer: eventos → publicaciones MQTT multi-rate
+  hmi_consumer.c        ← consumer: eventos → ui_state / LVGL (no-op sin ENABLE_TFT)
+  mqtt_client.c         ← cliente MQTT lwIP, colas TX/RX, LWT, envelope cmd/ack
+  mqtt_topics.c         ← accessors de tópicos bj/{id}/... (sin literales en el código)
+  config_manager.c      ← persistencia SystemConfig_t en flash (magic + CRC)
+  syringe_pump_api.c    ← modelo clínico: PumpContext_t, conversión mL/h ↔ um/s
+  closed_loop.c         ← corrección de posición por encoder durante dispensado
+  ui_state.c / ui_events.c ← estado compartido y eventos de la UI TFT
+headers/                ← TODOS los .h del firmware (no hay headers en src/)
+  system_events.h       ← SystemEventID_t, DTOs, SystemEvent_t, CORE1_EMIT
+  system_queues.h       ← colas + CORE0_EMIT
+  system_config.h       ← constantes de hardware y clínicas (#define centralizados)
+  ...(un .h por cada .c de src/)
 lib/
-  tft_touch_module/     ← Submódulo git (repo AleeGallo/ProyectoFinal) — Display TFT 4"
+  tmc2209/              ← driver TMC2209 (UART + PIO)
+  honeywell/            ← sensor de presión SPI
+  tft_touch_module/     ← submódulo git (AleeGallo/ProyectoFinal)
+tools/fsm_test/         ← test golden de la FSM, compilable en host (sin Pico SDK)
+docker/                 ← mosquitto + Node-RED + simulador (desarrollo offline)
+nodered/                ← pump_simulator.py + flows
 ```
 
-### Arquitectura dual-core (IMPORTANTE para entender el firmware)
-```
-Core 0  ──── FreeRTOS ────  WiFi/MQTT · CLI · Telemetría · Logger · Config
-                │
-         queue_t (Pico SDK, non-blocking, thread-safe)
-                │
-Core 1  ──── Baremetal ───  Motor PAP · Encoder · Sensor fuerza · FSM motion
-```
-**Razón de diseño:** `printf()` desde Core 1 bloquea spinlocks compartidos con el driver CYW43.
-Todo logging de Core 1 va por `crosscore_logger` (queue no-bloqueante) hacia Core 0.
+**Documentos de contrato (raíz del repo) — consultarlos antes de tocar el área correspondiente:**
 
----
-
-## 3. Problemas identificados en el firmware (estado por PR)
-
-### 3.1 Sin identidad de dispositivo — ✅ IMPLEMENTADO (PR1)
-`device_id[17]` agregado a `SystemConfig_t` en `config_manager.h`.
-`config_manager.c` lo popula con `pico_get_unique_board_id_string()` en el bloque de defaults.
-`CONFIG_MAGIC_WORD` bumpeado a `0xA1B2C3D5` → flash vieja se detecta y se regeneran defaults.
-`mqtt_client.c` usa `g_sys_config.device_id` como `ci.client_id`.
-
-### 3.2 Tópicos MQTT planos sin jerarquía de ID — ✅ IMPLEMENTADO (PR2)
-Módulo `src/mqtt_topics.h/.c` creado (PR1). Suscripción a `topic_cmd()` activa.
-PR2 completado: eliminados todos los literales `syringe_pump/*` del código.
-- `task_pump_telemetry`: `"syringe_pump/telemetry"` → `topic_telemetry()` (QoS 0)
-- `task_logger`: segundo switch de topics eliminado; `LOG_EVENT_FSM_STATE` → `topic_event()` QoS 1 con formato `{"type":"state","from":N,"to":N}`; demás logs son solo serial
-- `task_system_monitor`: publish de `system_health` eliminado (no estaba en el contrato)
-- `mqtt_client_publish_qos1()` agregada: propaga `msg.qos` a `mqtt_publish()` via `mqtt_msg_t.qos`
-
-Estructura activa:
-```
-bj/{id}/status           QoS 1, retain=true  — ACTIVO (PR1)
-bj/{id}/cmd              QoS 1, sin retain   — ACTIVO (PR1)
-bj/{id}/telemetry        QoS 0, sin retain   — ACTIVO (PR2)
-bj/{id}/event            QoS 1, sin retain   — ACTIVO (PR2, solo transiciones FSM por ahora)
-bj/{id}/cmd/ack          QoS 1, sin retain   — ACTIVO (PR3)
-```
-No quedan literales `syringe_pump/*` en `src/`.
-
-### 3.3 Sin Last Will Testament (LWT) — ✅ IMPLEMENTADO (PR1)
-`mqtt_client.c` configura `ci.will_topic/will_msg/will_qos/will_retain` antes de conectar.
-Al conectar exitosamente publica `{"state":"online","id":"bj-XXXXXXXX","fw":"v1.0.0"}` con retain=1.
-Verificar: `mosquitto_sub -t "bj/+/status" -v` debe mostrar el online al arrancar.
-
-### 3.4 Sin módulo de tópicos — ✅ IMPLEMENTADO (PR1)
-`src/mqtt_topics.h` y `src/mqtt_topics.c` creados. `topics_init()` + 5 accessors `topic_*()`.
-Agregado a `CMakeLists.txt`. Llamado desde `mqtt_client_task()` antes del loop de conexión.
-
-### 3.5 Sin ACK de comandos + bug en recepción de tópico
-**Bug topic RX — ✅ CORREGIDO (PR1):**
-`mqtt_client.c` ahora guarda el topic en `static char s_rx_topic[64]` dentro de
-`mqtt_incoming_publish_cb`. El `mqtt_incoming_data_cb` lo copia a `rx_msg.topic` y
-también respeta el flag `MQTT_DATA_FLAG_LAST` para ignorar payloads fragmentados.
-
-**ACK de comandos — ✅ IMPLEMENTADO (PR3):**
-`mqtt_rx_task` parsea el envelope con `sscanf("{\"cid\":%d,\"cmd\":\"%255[^\"]\"}", ...)`.
-`pump_hmi_parse_and_execute` cambió de `void` a `bool` (true=accepted, false=rejected).
-Publica `{"cid":N,"result":"accepted"|"rejected"}` en `topic_cmd_ack()` QoS 1.
-Fallback a string crudo si no hay envelope (backward compat con CLI/mosquitto_pub).
-
-### 3.6 Buffer de payload — ✅ CORREGIDO (PR4)
-**Bug:** `mqtt_msg_t.payload[128]` truncaba el JSON de telemetría (~162 chars en worst-case).
-**Fix:** `#define MQTT_MAX_PAYLOAD 256` en `mqtt_client.h`; `mqtt_msg_t.payload[MQTT_MAX_PAYLOAD]`.
-Todos los `strncpy`/`memcpy` ya usaban `sizeof(msg.payload)` → se actualizaron automáticamente.
-`sscanf` format string actualizado de `%127[^\"]` → `%255[^\"]` para consistencia.
-
-### 3.7 QoS diferenciado — ✅ IMPLEMENTADO (PR2/PR3)
-- Telemetría → `mqtt_client_publish()` QoS 0
-- Eventos FSM, ACKs, status → `mqtt_client_publish_qos1()` QoS 1
-- Campo `uint8_t qos` en `mqtt_msg_t` propaga el QoS a lwIP `mqtt_publish()`
-
----
-
-## 4. Plan de PRs para el firmware (secuencia recomendada)
-
-Cada PR es funcional y testeable de forma independiente. **No mezclar.**
-
-```
-✅ MQTT_CONTRACT.md creado en raíz del repo (pre-condición cumplida)
-
-✅ PR1: device_id + mqtt_topics + status/LWT  [COMPLETADO]
-     → device_id en SystemConfig_t, magic 0xA1B2C3D5
-     → src/mqtt_topics.h/.c con topics_init() + 5 accessors
-     → LWT configurado, online publicado con retain al conectar
-     → Suscripción a topic_cmd() QoS 1
-     → Fix s_rx_topic en callbacks RX + MQTT_DATA_FLAG_LAST
-
-✅ PR2: Migrar telemetría y eventos a bj/{id}/...  [COMPLETADO]
-     → core0_main.c: "syringe_pump/telemetry" → topic_telemetry()
-     → core0_main.c: task_logger legacy switch eliminado; FSM → topic_event() QoS 1
-     → mqtt_client.c: mqtt_msg_t.qos + mqtt_client_publish_qos1()
-     → nodered/pump_simulator.py: ya usaba bj/{id}/... (sin cambios)
-     → json_buf 256→512 y alarm events (type:alarm) quedan para PR futuro
-
-✅ PR3: cmd_envelope + ACK  [COMPLETADO]
-     → mqtt_rx_task: sscanf parsea {"cid":N,"cmd":"..."}, fallback a string crudo
-     → pump_hmi_parse_and_execute: void→bool, retorna accepted/rejected
-     → Publica {"cid":N,"result":"..."} en topic_cmd_ack() QoS 1
-     → fn_mk_cmd en dashboard: CID incremental + JSON.stringify del envelope
-
-✅ PR4: Fix crítico — payload buffer demasiado chico  [COMPLETADO]
-     → #define MQTT_MAX_PAYLOAD 256 en mqtt_client.h
-     → mqtt_msg_t.payload[128] → payload[MQTT_MAX_PAYLOAD]
-     → strncpy/memcpy ya usaban sizeof() — se actualizaron automáticamente
-     → sscanf format: %127[^\"] → %255[^\"] para consistencia
-```
-
----
-
-## 5. Entorno Docker de Desarrollo — ✅ IMPLEMENTADO
-
-**Motivación:** Red corporativa sin acceso al hardware ni al broker de laboratorio.
-Permite desarrollar y probar el dashboard Node-RED completamente offline.
-
-### Estructura
-```
-docker/
-├── docker-compose.yml          ← orquesta los 3 servicios
-├── mosquitto/config/
-│   └── mosquitto.conf          ← listener TCP 1883 + WebSocket 9001, anónimo
-├── simulator/
-│   ├── Dockerfile              ← python:3.11-slim + paho-mqtt==1.6.1
-│   └── requirements.txt
-└── flows_bomba.json            ← flow Node-RED importable (ver sección 6)
-nodered/
-└── pump_simulator.py           ← simulador Python (montado read-only en el contenedor)
-```
-
-### Levantar el entorno
-```bash
-cd docker
-docker compose up          # la primera vez descarga las imágenes (~1-2 min)
-docker compose up -d       # en background
-docker compose down        # detener y eliminar contenedores
-```
-
-### Accesos
-| Servicio | URL / Puerto |
+| Documento | Área |
 |---|---|
-| Node-RED editor | http://localhost:1880 |
-| Dashboard 2.0 | http://localhost:1880/dashboard |
-| Broker MQTT TCP | localhost:1883 |
-| Broker MQTT WebSocket | localhost:9001 |
-
-### Dentro de Docker, los servicios se ven entre sí por hostname
-- Simulador conecta al broker como `mosquitto:1883`
-- Node-RED conecta al broker como `mosquitto:1883`
-- Desde el host (para debug) usar `localhost:1883`
+| `MQTT_CONTRACT.md` | Tópicos, esquemas JSON, QoS, envelope cmd/ack |
+| `MEMORY_CONTRACT.md` | Layout de flash, SystemConfig_t, reglas de escritura |
+| `UI_BJ_CONTRACT.md` | Integración TFT/touch/encoder/teclas en Core 0 |
+| `TODO_notes.txt` | Backlog priorizado y decisiones descartadas |
 
 ---
 
-## 6. Simulador Python — ✅ ACTUALIZADO AL CONTRATO MQTT
+## 3. Arquitectura dual-core (fundamento de todo el diseño)
 
-**Archivo:** `nodered/pump_simulator.py`
-
-### Estado actual (post sesión 2026-06-12)
-- ✅ Tópicos actualizados a `bj/{device_id}/...` (contrato completo)
-- ✅ Maneja envelope JSON del comando: `{"cid":N,"cmd":"..."}` con fallback a string crudo
-- ✅ Publica ACK a `bj/{id}/cmd/ack`: `{"cid":N,"result":"accepted"/"rejected","reason":"..."}`
-- ✅ Cola de eventos `pop_events()` + hilo `_event_loop` que publica a `bj/{id}/event`
-- ✅ Eventos de transición de estado (`{"type":"state","from":N,"to":M}`)
-- ✅ Eventos de alarma (`{"type":"alarm","code":"occ","level":2}`)
-- ✅ `parse_and_execute()` retorna `("accepted"|"rejected", reason)` en vez de `None`
-
-### Tópicos activos
 ```
-bj/{id}/telemetry   ← publica JSON cada 2 s (QoS 0)
-bj/{id}/cmd         ← suscribe comandos con envelope JSON (QoS 1)
-bj/{id}/cmd/ack     ← publica ACK correlacionado (QoS 1)
-bj/{id}/event       ← publica transiciones de estado y alarmas (QoS 1)
-bj/{id}/status      ← online/offline con retain (QoS 1)
-bj/{id}/sim_fault   ← inyección de fallas exclusiva del simulador (QoS 0)
+Core 0 ── FreeRTOS ──  WiFi/MQTT · CLI · Event Broker · Consumers · Config · TFT
+              │                                    ▲
+   crosscore_cmd_queue (comandos ↓)     g_crosscore_event_q (eventos ↑)
+              │         [ambas: queue_t del Pico SDK, lock-free, no bloqueantes]
+              ▼                                    │
+Core 1 ── Baremetal ──  FSM motion · Motor PAP/DMA · Encoder PIO · Sensor presión · LSW
 ```
 
-### ID del simulador en Docker
-El contenedor arranca con `--id bj-deadbeef`. Para cambiar el device ID:
-- Editar la línea `command:` en `docker/docker-compose.yml`
+**Razón de diseño:** Core 1 opera con plazos de microsegundos (perfiles de velocidad,
+seguridad ante sobrepresión). `printf()` y cualquier primitiva que comparta spinlocks
+con el driver CYW43 pueden bloquear Core 1 un tiempo impredecible. Por eso **Core 1
+jamás imprime ni llama servicios de Core 0**: solo emite eventos por cola no-bloqueante
+y recibe comandos por cola no-bloqueante.
 
-### Comandos via mosquitto_pub (desde el host)
+---
+
+## 4. Core 1 — FSM table-driven (`fsm_table.c`)
+
+La FSM de movimiento **no es un switch**: son dos tablas de transiciones + una política
+por defecto. Estados y eventos en `headers/core1_main.h` (`Core1State_t`, `Core1Event_t`).
+
+```
+fsm_dispatch(ctx, state, event):
+  1. GLOBAL[]        — filas con from == ST_COUNT ("cualquier estado"). Prioridad máxima
+                       (LSW hit, fault, stall, timeout). Se SALTEA si state == ST_FAULT.
+  2. TRANSITIONS[]   — primera fila con (from == state, trigger == event, guard OK).
+                       La action se ejecuta ANTES del cambio de estado.
+  3. fsm_default_policy() — celda no cubierta → POL_IGNORE o POL_ILLEGAL (→ ST_FAULT).
+                       No existe el "default: break" silencioso.
+```
+
+- **`FsmCtx_t`** (en `fsm_table.h`): todo el estado mutable que actions/guards pueden tocar.
+  `core1_main.c` lo puebla antes de cada `fsm_dispatch()` (snapshot de encoder,
+  `motor_is_moving`, payload del comando). Las actions **no acceden al hardware PIO
+  directamente**: leen el ctx.
+- **Estados principales:** UNHOMED → HOMING → RELEASING_LSW_START → READY_AT_HOME →
+  SEARCHING_SYRINGE → SYRINGE_ENGAGED → DISPENSING → DISPENSE_COMPLETED; ramas de
+  oclusión (OCCLUSION_STOPPING/RELEASE/PAUSED), calibración (CALIB_SEEK_START/END),
+  frenado en LSW (BRAKING_LSW_START/END), SEARCHING_EOT/END_OF_TRAVEL, y ST_FAULT.
+- **Capas de detección de falla (safety):**
+  - *Layer 1* — completitud espacial: LSW físicos delimitan el recorrido.
+  - *Layer 2* — stall por encoder: cuenta sin cambio con DMA activo → `iEV_ENCODER_STALL`.
+  - *Layer 3* — deadline derivado: `deadline_ms = K × t_nominal + piso`; vencido → `iEV_TIMEOUT`.
+  - **StallGuard del TMC2209 NO es mecanismo de seguridad** (poco confiable a baja
+    velocidad); queda solo como telemetría diagnóstica opcional.
+- **Dead-time de reversa en LSW:** tras frenar contra un final de carrera, el release
+  en dirección opuesta se difiere `LSW_REVERSAL_DEAD_TIME_MS` (200 ms) vía
+  `fsm_service_release_deadtime()`; se auto-cancela si la FSM sale del estado RELEASING.
+- **Auditoría de cobertura (trazabilidad IEC 62304):** `fsm_audit_coverage()` recorre la
+  matriz completa ST_COUNT × EV_COUNT. Toda celda debe quedar clasificada
+  (VALID/IGNORE/ILLEGAL). **`SIN_CLASIFICAR == 0` es criterio de build** para cualquier
+  commit que toque la tabla.
+- **Referencia de posición:** el encoder se resetea SOLO en boot, `CMD_ENC_RESET` y hit
+  de LSW_START. STOP no resetea el encoder. La calibración punta-a-punta persiste
+  `calibrated_max_encoder_count` en flash y se recarga en boot.
+
+---
+
+## 5. Core 0 — FreeRTOS
+
+Tareas creadas en `core0_main.c` (y por los `*_start()` de cada módulo):
+
+| Tarea | Rol | Prioridad |
+|---|---|---|
+| `EvBroker` | Drena colas de eventos y hace fanout a consumers | 4 (la más alta) |
+| `Init` | Config desde flash, restaura calibración, arranca red | 2 |
+| `MQTT_Task` / `MQTT_Rx` | Conexión/keepalive MQTT · recepción y despacho de comandos | 2 |
+| `CLI` | Consola serial → `cmd_dispatch_string()` | 1 |
+| `SerialCons` / `MqttCons` / `HmiCons` | Consumers de eventos | 1 |
+| `SysMon` | Stack high-water-marks, salud del sistema | 1 |
+| `Blinky`, `WiFi_Keepalive` | Housekeeping | 1 |
+| `UI_Input`, `TFT` | Solo con `ENABLE_TFT`: input táctil/teclas y render LVGL | 2–3 |
+
+---
+
+## 6. Sistema de eventos EDA pub-sub (logging y telemetría)
+
+Toda notificación del sistema (sensores, FSM, red, alarmas, salud) viaja como
+`SystemEvent_t` (**máx. 64 bytes**, `_Static_assert` lo garantiza) por colas hacia un
+**broker central** que la replica a consumers independientes.
+
+```
+Core 1 ── CORE1_EMIT ──► g_crosscore_event_q (queue_t SDK, cap. 32) ──┐
+                                                                      ├─► task_event_broker ──► fanout
+Core 0 ── CORE0_EMIT ──► g_core0_event_q (FreeRTOS, cap. 24) ─────────┘        │
+                                                                               ├─► g_serial_q → serial_consumer (printf)
+                                                                               ├─► g_mqtt_q   → mqtt_consumer (publish multi-rate)
+                                                                               └─► g_hmi_q    → hmi_consumer (TFT; NULL sin ENABLE_TFT)
+```
+
+- **IDs por dominio** (`headers/system_events.h`): TMC `0x01xx`, sensores `0x02xx`,
+  motor `0x03xx`, red `0x04xx`, app/FSM `0x05xx`, **alarmas `0x06xx`**, energía `0x07xx`,
+  sistema `0x08xx`. Payload = unión de DTOs tipados (`DtoMotion_t`, `DtoAlarm_t`, ...).
+- **Sin strings por colas** — única excepción: `DtoDebugStr_t` (56 bytes) para
+  `EV_DBG_STRING` de Core 1.
+- **Timestamps:** Core 1 emite con `timestamp_ms = 0` y el broker lo sella al recibir;
+  Core 0 sella al emitir (`CORE0_EMIT`).
+- **El broker es un router uniforme:** no interpreta contenido ni prioridades. Los
+  consumers filtran/priorizan por su cuenta (`EV_IS_ALARM(id)`).
+- **Los eventos de alarma son notificaciones, NO señales de control.** La acción de
+  seguridad (frenar motor, cambiar estado) ya ocurrió en Core 1 / FSM antes de emitir.
+- **Emisión no-bloqueante siempre:** si la cola está llena, el evento se descarta en
+  silencio (aceptable para logging; jamás bloquear al emisor).
+- `broker_side_effects()` en `event_broker.c` es el único lugar para efectos colaterales
+  de eventos (hoy: actualizar espejo FSM del cmd_gate, `Pump_UpdatePressure`, flag de
+  calibración dirty).
+
+---
+
+## 7. Pipeline de comandos (una sola vía de entrada a Core 1)
+
+```
+CLI (task_cli) ─────────┐
+MQTT (mqtt_client.c) ───┼──► cmd_dispatch_string(str, src, cid)   [cmd_dispatcher.c]
+TFT/HMI (futuro/BLE) ───┘         │  parseo único + emite EV_APP_CMD_EXECUTED
+                                  ▼
+                        cmd_gate_execute(action, p1, p2)          [cmd_gate.c]
+                                  │  valida contra espejo del estado FSM de Core 1
+                                  ▼
+                        cmd_send_*()  →  crosscore_cmd_queue      [crosscore_cmd.c]
+                                  ▼
+                        Core 1: pop → evento EV_CMD_* → fsm_dispatch()
+```
+
+Reglas del pipeline:
+- `cmd_dispatch_string()` es el **único parser** de comandos string, para todas las
+  interfaces. Retorna `{accepted, reason}` ("ok" | "invalid_state" | "bad_format" |
+  "unknown_cmd" | "queue_full") — el llamador arma su ACK (MQTT usa el `cid`).
+- `cmd_gate_execute()` es el **único punto que encola acciones de bomba** hacia Core 1.
+  Mantiene un espejo del estado FSM (`s_fsm_state`) actualizado **exclusivamente** por
+  el broker al recibir `EV_APP_FSM_STATE`.
+- **STOP / STOP_IMM nunca se validan contra el estado FSM** (invariante de seguridad);
+  se chequean primero en el dispatcher (`stop_imm` antes que `stop` por el prefijo).
+- Comandos de bajo nivel (`home_start`, `nsteps`, fallback `target,vel`) y de
+  configuración/red bypasean el gate — son para banco de pruebas, no para operación clínica.
+- Para agregar una **nueva interfaz** (ej. BLE): crear su consumer/parser y terminar en
+  `cmd_dispatch_string()` o `cmd_gate_execute()`. Nada más.
+- Para agregar una **nueva acción FSM**: valor en `PumpAction_t` → case con validación en
+  `cmd_gate_execute()` → `cmd_send_*()` en `crosscore_cmd.c/.h` → evento `EV_CMD_*` en
+  `Core1Event_t` → filas en la tabla FSM → actualizar golden test y auditoría.
+
+---
+
+## 8. MQTT (resumen — contrato completo en `MQTT_CONTRACT.md`)
+
+Identidad: `device_id` formato `bj-XXXXXXXX` derivado del chip ID, persistido en
+`SystemConfig_t`. Tópicos solo vía accessors de `mqtt_topics.h` — **prohibido hardcodear
+strings de tópicos**.
+
+```
+bj/{id}/status      QoS 1  retain 1   online/offline + LWT
+bj/{id}/cmd         QoS 1             envelope {"cid":N,"cmd":"..."} (fallback string crudo)
+bj/{id}/cmd/ack     QoS 1             {"cid":N,"result":"accepted"|"rejected"}
+bj/{id}/telemetry   QoS 0             JSON clínico cada 2 s (legacy, task_pump_telemetry)
+bj/{id}/event       QoS 1             transiciones FSM {"type":"state","from":N,"to":N}
+                                      (eventos de alarma por MQTT: pendiente)
+bj/{id}/telemetry/sensors   QoS 0     presión (500 ms)     ┐
+bj/{id}/telemetry/motion    QoS 0     encoder/avance (1 s) ├ publicados por mqtt_consumer
+bj/{id}/telemetry/session   QoS 0     infusión (2 s)       ┘
+```
+
+Payloads de comandos = los mismos strings de la CLI (ver tabla del README).
+`MQTT_MAX_PAYLOAD = 256`. Publicaciones QoS 1 vía `mqtt_client_publish_qos1()`.
+
+---
+
+## 9. REGLAS INVARIANTES (obligatorias para cualquier LLM/desarrollador)
+
+1. **Core 1 jamás llama `printf()`** ni primitivas bloqueantes compartidas con Core 0.
+   Toda salida de Core 1 = `CORE1_EMIT(...)` (o `LOG_DEBUG` que lo envuelve).
+2. **Toda comunicación entre cores va por las dos colas existentes** (`crosscore_cmd_queue`
+   hacia Core 1, `g_crosscore_event_q` hacia Core 0). No crear otros canales ni variables
+   compartidas sin sincronización explícita y justificada.
+3. **Ningún módulo escribe en `crosscore_cmd_queue` directamente** salvo `crosscore_cmd.c`.
+   Las acciones de bomba entran solo por `cmd_gate_execute()`; los comandos string solo
+   por `cmd_dispatch_string()`.
+4. **`cmd_gate_update_fsm_state()` se llama SOLO desde `event_broker.c`** — nunca desde
+   consumers de interfaz.
+5. **STOP siempre se acepta**: ningún cambio puede condicionar STOP/STOP_IMM al estado FSM.
+6. **La FSM se modifica solo por tablas** (`GLOBAL[]`, `TRANSITIONS[]`,
+   `fsm_default_policy()`), nunca reintroduciendo switches. Tras cualquier cambio:
+   `fsm_audit_coverage()` debe dar `SIN_CLASIFICAR == 0` y el golden test
+   (`tools/fsm_test`) debe actualizarse y pasar.
+7. **Las actions/guards de la FSM no tocan hardware directamente**: leen/escriben
+   `FsmCtx_t`; `core1_main.c` es quien puebla el ctx y toca PIO/DMA.
+8. **`sizeof(SystemEvent_t) ≤ 64`** — al agregar un DTO, respetar el `_Static_assert`.
+   Nada de `char[]` en DTOs (excepción existente: `DtoDebugStr_t`).
+9. **Emisión de eventos siempre no-bloqueante** (drop silencioso si la cola está llena).
+   El broker no interpreta eventos; efectos colaterales solo en `broker_side_effects()`.
+10. **`system_queues_init()` debe ejecutarse antes de `multicore_launch_core1()`**
+    (orden en `main.c` — no alterar).
+11. **Escrituras a flash** (`config_manager_save`): solo con motor detenido, con
+    multicore lockout + IRQs off. Layout según `MEMORY_CONTRACT.md` — no inventar offsets.
+12. **Tópicos MQTT solo vía `mqtt_topics.h`**; esquemas JSON según `MQTT_CONTRACT.md`.
+    No reintroducir tópicos legacy `syringe_pump/*`.
+13. **Credenciales (SSID/pass WiFi) no se emiten por eventos ni MQTT** (solo
+    `config_info` local por serial).
+14. **Código TFT/HMI siempre gated por `ENABLE_TFT`**; los módulos deben ser no-op si
+    `g_hmi_q == NULL`. Nada de lógica de display ni de protocolo de red en cmd_gate.
+15. **Headers en `headers/`, fuentes en `src/`**; todo archivo nuevo se agrega a
+    `CMakeLists.txt`. Constantes de hardware/clínicas centralizadas en `system_config.h`
+    (no magic numbers en el código).
+16. **StallGuard no se usa como mecanismo de seguridad** — la seguridad de movimiento es
+    Layers 1–3 (sección 4). No "optimizar" eliminando esas capas.
+17. **Git lo maneja el usuario**: no hacer commits, pushes ni cambios de rama salvo
+    pedido explícito.
+18. **Features descartadas — no reintroducir:** finales de carrera virtuales
+    (`fsm_virtual_lsw`), perfiles S-curve, `task_logger` monolítico.
+
+---
+
+## 10. Testing
+
+**Golden test de la FSM** (`tools/fsm_test/`): compila `fsm_table.c` en host (sin Pico
+SDK, hardware mockeado) y verifica cada transición contra la tabla de referencia
+`fsm_golden.h`. Corre en Windows/Linux/Mac:
+
 ```bash
-# Ver toda la actividad del simulador
-mosquitto_sub -h localhost -t "bj/+/#" -v
-
-# Iniciar infusión (canal sim)
-mosquitto_pub -h localhost -t bj/bj-deadbeef/sim_fault -m "infuse,50.0,20.0"
-mosquitto_pub -h localhost -t bj/bj-deadbeef/sim_fault -m "bolus,5.0,200.0"
-mosquitto_pub -h localhost -t bj/bj-deadbeef/sim_fault -m "fault_occ"
-mosquitto_pub -h localhost -t bj/bj-deadbeef/sim_fault -m "fault_bubble"
-mosquitto_pub -h localhost -t bj/bj-deadbeef/sim_fault -m "fault_clear"
-
-# Comandos reales (con envelope JSON del contrato)
-mosquitto_pub -h localhost -t bj/bj-deadbeef/cmd -m '{"cid":1,"cmd":"stop"}'
-mosquitto_pub -h localhost -t bj/bj-deadbeef/cmd -m '{"cid":2,"cmd":"fsm_reset"}'
-mosquitto_pub -h localhost -t bj/bj-deadbeef/cmd -m '{"cid":3,"cmd":"fsm_occ_rel"}'
-
-# Verificar ACK
-mosquitto_sub -h localhost -t "bj/bj-deadbeef/cmd/ack" -C 1
+cd tools/fsm_test
+gcc -Wall -Wextra -o test_golden test_fsm_golden.c && ./test_golden
 ```
 
-### Uso local (sin Docker)
-```bash
-pip install paho-mqtt==1.6.1
-python nodered/pump_simulator.py --broker localhost --id bj-001
-python nodered/pump_simulator.py --diam 14.50 --cap 10.0  # jeringa 10 mL
-python nodered/pump_simulator.py --diam 26.70 --cap 50.0  # jeringa 50 mL
-```
+Obligatorio tras cualquier cambio en `fsm_table.c`, `core1_main.h` (estados/eventos) o
+la lógica de guards. Al agregar estados/eventos: extender `fsm_golden.h` y la
+clasificación de `fsm_default_policy()` en el mismo commit.
+
+**Entorno de integración sin hardware:** `cd docker && docker compose up` levanta
+Mosquitto + Node-RED + simulador Python (`bj-deadbeef`). Ver sección Docker del
+`MQTT_CONTRACT.md` y `docker/flows_bomba.json`.
+
+No hay CI configurado: el criterio de "verde" es build limpio del firmware + golden test
+pasando + auditoría de cobertura sin celdas sin clasificar.
 
 ---
 
-## 7. Dashboard Node-RED — Estado actual
+## 11. Estado actual y trabajo pendiente
 
-### Arquitectura de capas
-```
-[Bombas / Simulador]
-        ↓  MQTT pub/sub
-[Broker Mosquitto]
-        ↓
-[Node-RED — servidor central]
-  ├── Ingesta          → parseo y validación de JSON entrante
-  ├── Comandos         → publicación cmd + espera ack (fn_mk_cmd)
-  ├── Estado global    → contexto por bomba en flow context (TODO)
-  ├── Motor de alarmas → notificaciones + tabla de eventos
-  ├── Persistencia     → SQLite / histórico (TODO)
-  ├── Push             → Web Push API → PWA del personal (TODO)
-  └── Páginas UI       → Dashboard 2.0 (FlowFuse)
-        ↓
-[Navegador / PWA]
-```
-
-### Flow inicial — ✅ IMPLEMENTADO (`docker/flows_bomba.json`)
-
-Importar en Node-RED: Menú (≡) → Import → seleccionar `docker/flows_bomba.json` → Deploy
-
-**Prerequisito:** instalar Dashboard 2.0 primero:
-Menú → Manage Palette → Install → buscar `@flowfuse/node-red-dashboard` → Install
-
-#### Estructura del flow
-```
-MQTT in (bj/+/telemetry) → fn_telem [3 out] → gauge caudal
-                                             → templates: estado, infusión, alarmas
-                                             → chart presión
-
-MQTT in (bj/+/status)   → fn_status         → template dispositivo
-MQTT in (bj/+/event)    → fn_event [2 out]  → tabla eventos
-                                             → ui-notification (alarmas)
-MQTT in (bj/+/cmd/ack)  → fn_ack            → ui-text ACK
-
-btn_stop/pause/...       → fn_mk_cmd         → MQTT out (bj/bj-deadbeef/cmd)
-btn_sim_infuse/occ/...   → fn_fault_topic    → MQTT out (bj/bj-deadbeef/sim_fault)
-```
-
-#### Páginas del flow
-| Página | Widgets |
-|---|---|
-| Monitor | Dispositivo (online/offline + ID), Estado FSM (color por estado), Caudal (gauge), Infusión (vol_inf, vol_tgt, t_ela, t_rem), Presión (chart tiempo real), Alarmas (badges OCC/NEAR/END/BUB/EMP/ERR) |
-| Control | Botones: STOP, STOP IMM, PAUSAR, REANUDAR, RESET FSM, LIB. OCLUSIÓN — Sim: Infundir, Oclusión, Burbuja, Limpiar — ACK display + tabla de eventos |
-
-#### IDs hardcodeados a cambiar si se usa otro device_id
-- `fn_mk_cmd` → `msg.topic = 'bj/bj-deadbeef/cmd'`
-- `fn_fault_topic` → `msg.topic = 'bj/bj-deadbeef/sim_fault'`
-- Los MQTT in usan wildcard `bj/+/...` → no necesitan cambio
-
-### Páginas pendientes de implementar
-1. **Overview / Sala** — grid de tarjetas para N bombas (multi-device)
-2. **Panel de alarmas** — lista priorizada, silenciado, histórico
-3. **Datalog** — descarga de histórico (requiere `node-red-node-sqlite`)
-4. **Config** — umbral de oclusión, perfil de jeringa
-
-### Paquetes Node-RED adicionales (pendientes)
-```
-@flowfuse/node-red-dashboard  ← ✅ instalar antes de importar el flow
-node-red-node-sqlite          ← persistencia (TODO)
-node-red-contrib-web-push     ← notificaciones PWA (TODO)
-```
+- **Rama activa:** `tft_integration` (la integración TFT está en scaffold; el grueso del
+  trabajo reciente fue la migración EDA y la FSM table-driven).
+- **Backlog priorizado y decisiones descartadas:** ver `TODO_notes.txt` (mantenerlo
+  actualizado al completar o descartar items).
+- Convivencia transitoria: `task_pump_telemetry` (telemetría legacy en un solo JSON) y
+  `mqtt_consumer` (sub-tópicos multi-rate) corren en paralelo hasta validar el nuevo en
+  hardware; después se elimina el legacy.
 
 ---
 
-## 8. Contrato MQTT — MQTT_CONTRACT.md
+## 12. Convenciones de trabajo
 
-Este es el primer entregable antes de cualquier código de dashboard o PR de firmware.
-
-### Jerarquía de tópicos
-```
-bj/{device_id}/telemetry     QoS 0  retain 0   período: 2000 ms
-bj/{device_id}/event         QoS 1  retain 0   por disparo
-bj/{device_id}/status        QoS 1  retain 1   online/offline + LWT
-bj/{device_id}/cmd           QoS 1  retain 0   dashboard → firmware
-bj/{device_id}/cmd/ack       QoS 1  retain 0   firmware → dashboard
-```
-
-### Esquema JSON telemetry (portado de Pump_GetTelemetryJSON)
-```json
-{
-  "vol_inf": 10.83,      // mL infundidos (float ±0.01)
-  "vol_tgt": 20.00,      // mL objetivo (float)
-  "rate":    50.00,      // mL/h actual (float)
-  "t_ela_s": 780.0,      // segundos transcurridos (float, 1 decimal)
-  "t_rem_h": 0.18,       // horas restantes estimadas (float)
-  "pres":    12.2,       // presión línea mmHg (float, 1 decimal)
-  "st":      1,          // PumpState: 0=STOPPED 1=CONT 2=BOLUS 3=PURGE 4=KVO 5=PAUSED 6=ALARM
-  "alm": {
-    "occ":   0,          // oclusión detectada
-    "near":  0,          // último 10% de infusión
-    "end":   0,          // fin de infusión
-    "bub":   0,          // burbuja en línea
-    "emp":   0,          // jeringa vacía
-    "err":   0           // error de sistema
-  }
-}
-```
-
-### Esquema JSON status (LWT + online)
-```json
-{"state": "online",  "id": "bj-abc12345", "fw": "v1.0.0"}
-{"state": "offline", "id": "bj-abc12345"}   ← publicado por broker via LWT
-```
-
-### Esquema JSON cmd / cmd-ack
-```json
-// Comando (dashboard → firmware)
-{"cid": 17, "cmd": "fsm_dispense,10000.0,450.0"}
-
-// ACK (firmware → dashboard)
-{"cid": 17, "result": "accepted"}
-{"cid": 17, "result": "rejected", "reason": "no_syringe"}
-```
-
----
-
-## 9. Próximos pasos en orden de prioridad
-
-### ✅ Completado
-- [x] Crear `MQTT_CONTRACT.md` en la raíz del repo
-- [x] PR1: `device_id` en `SystemConfig_t` + `mqtt_topics.h/.c` + LWT/status + fix RX topic bug
-- [x] Entorno Docker: mosquitto + simulador + Node-RED (`docker/docker-compose.yml`)
-- [x] Simulador actualizado al contrato completo: tópicos `bj/{id}/...`, envelope CMD, ACK, eventos
-- [x] Flow inicial Node-RED: Monitor (telemetría, estado, alarmas) + Control (botones) importable
-- [x] PR2: migrar telemetría/eventos a `bj/{id}/...`, QoS diferenciado por tipo
-- [x] PR3: `cmd_envelope` + ACK correlacionado en `bj/{id}/cmd/ack`
-- [x] PR4: `MQTT_MAX_PAYLOAD=256` — fix crítico de truncamiento de telemetría
-
-### Inmediato — Testear el flow con el simulador Docker
-1. `cd docker && docker compose up`
-2. En Node-RED: instalar `@flowfuse/node-red-dashboard` (Manage Palette)
-3. Importar `docker/flows_bomba.json` → Deploy
-4. Abrir http://localhost:1880/dashboard
-5. Pulsar "▶ Infundir" → verificar que el gauge de caudal y la telemetría se actualicen
-6. Pulsar "⚠ Oclusión" → verificar notificación y badge OCC en rojo
-7. Pulsar "STOP" → verificar ACK en la tabla de eventos (debe aparecer `#N: accepted`)
-
----
-
-## 10. Notas técnicas importantes
-
-### Sobre el manejo de memoria en el firmware
-- Heap configurado con `heap_3.c` (malloc estándar de stdlib). `xPortGetFreeHeapSize()`
-  no disponible sin `mallinfo`. Monitorear stack HWM por tarea en `task_system_monitor`.
-- El buffer de telemetría está en `core0_main.c` como `char json_buf[256]` — suficiente
-  para el contrato actual. `MQTT_MAX_PAYLOAD=256` en la cola es consistente con este tamaño.
-
-### Sobre el submódulo TFT
-- `lib/tft_touch_module` es submódulo git apuntando a `AleeGallo/ProyectoFinal`
-- Al clonar: `git clone --recurse-submodules`
-- Al integrar cambios del submódulo: pinear el commit en el repo principal con
-  `git submodule update --remote` + commit del pointer
-
-### Sobre la kinemática (para el simulador y para entender el firmware)
-```
-Jeringa 20 mL (Ø 19.05 mm BD Plastipak):
-  área_pistón = π × (19.05/2)² = 284.87 mm²
-  50 mL/h = 50000 mm³/h = 13.89 mm³/s → velocidad = 13.89/284.87 = 0.0488 mm/s = 48.8 µm/s
-  En 60 s a 50 mL/h → 0.833 mL infundidos (verificado en el test del simulador)
-```
-
-### Sobre el modelo de presión del simulador
-```python
-# Parámetros del PressureModel en pump_simulator.py
-RAMP_UP_RATE_MMHG_S  = 100.0   # pendiente de oclusión (mmHg/s)
-RAMP_DOWN_TAU_S      = 3.0     # constante de tiempo post-liberación
-BASELINE_MEAN_MMHG   = 10.0    # basal en reposo
-FLOW_COEFF_MMHG_MLH  = 0.05    # 50 mL/h ≈ +2.5 mmHg
-```
-
----
-
-## 11. Posibilidades de mejora para sesiones futuras
-
-Esta sección recoge ideas priorizadas por impacto. No son deuda técnica sino oportunidades.
-
-### Firmware — alta prioridad
-
-**A. Alarm events explícitos por MQTT**
-- `LOG_EVENT_PRESSURE_ALERT` (y futuros) deben publicar en `topic_event()` con
-  `{"type":"alarm","code":"pres","level":2}` además de actualizar `alm.occ` en telemetría.
-- Archivos: `src/core0_main.c` (task_logger, switch LOG_EVENT_*) + `src/crosscore_logger.h`.
-- Impacto: el dashboard puede disparar alarma visual/sonora en tiempo real sin esperar al ciclo de 2 s.
-
-**B. ACK con reason field**
-- Cuando `handled && !ok` en `pump_hmi_parse_and_execute`, incluir el estado FSM actual
-  en el ACK: `{"cid":N,"result":"rejected","reason":"invalid_state","state":3}`.
-- Cambio de 3 líneas en `src/mqtt_client.c` (pasar `pump_hmi_get_fsm_state()` al snprintf).
-- Impacto: el dashboard puede mostrar "Rechazado: la bomba está en estado PURGA" en lugar de solo "rejected".
-
-**C. Watchdog multi-thread**
-- FreeRTOS task watchdog via event group: cada tarea setea su bit en un `EventGroupHandle_t`
-  cada ciclo. Una tarea watchdog verifica que todos los bits se hayan seteado dentro de N ms.
-- Si una tarea se bloquea, activa `NVIC_SystemReset()` y publica offline antes de resetear.
-- Archivos nuevos: `src/watchdog_task.c/.h`.
-
-**D. `cmd_parse_and_execute` return value**
-- Actualmente retorna `void` → `pump_hmi_parse_and_execute` asume `true` para comandos de bajo nivel.
-- Cambiar a `bool` en `src/crosscore_cmd.h/.c` para propagar el resultado real al ACK.
-
-### Firmware — mediano plazo
-
-**E. RTC / NTP + timestamps en eventos**
-- El firmware no tiene reloj real; los timestamps de eventos los genera Node-RED (hora del broker).
-- Opción liviana: sincronizar SNTP una vez al arrancar y adjuntar `"ts":epoch_ms` en cada
-  publish de `topic_event()`. SDK lwIP incluye `lwip/apps/sntp.h`.
-- Archivos: `src/core0_main.c`, `src/mqtt_client.c`.
-
-**F. Persistencia de logs en flash (littlefs)**
-- `LOG_EVENT_*` se pierden si el firmware resetea. Usar littlefs sobre la flash interna
-  del RP2350 para guardar últimos N eventos con timestamp.
-- Librería: https://github.com/littlefs-project/littlefs (port RP2040 ya existe).
-
-**G. Reporte de Stack HWM por MQTT**
-- `task_system_monitor` ya imprime el HWM por serial; podría publicarlo periódicamente
-  en `bj/{id}/telemetry` como campo `"stk_min"` o en un tópico de debug separado.
-- Útil para detectar stack overflows antes de que ocurran en producción.
-
-### Dashboard Node-RED — alta prioridad
-
-**H. Página Overview multi-dispositivo**
-- Un `ui-template` con Vue que itere `context.global.get('devices')` (Map keyed by device_id)
-  y muestre una tarjeta por bomba con estado, caudal y alarmas activas.
-- El nodo MQTT activo ya usa wildcard `bj/+/...`; solo falta agregar el device al Map en `fn_telem`.
-
-**I. Alarm history con persistencia**
-- `node-red-node-sqlite` para guardar cada evento en una tabla `events(ts, device_id, type, detail)`.
-- Un nodo `ui-table` en la página de alarmas muestra el histórico con filtros.
-- Export a CSV via endpoint HTTP en Node-RED.
-
-**J. Notificaciones PWA**
-- `node-red-contrib-web-push`: suscribir el browser y enviar push cuando `type=alarm` llega
-  a `fn_event`. Funciona offline si el dashboard está instalado como PWA.
-
-### Dashboard Node-RED — mediano plazo
-
-**K. `fn_fault_topic` dinámico**
-- El nodo de faults del simulador tiene el topic hardcodeado a `bj/bj-deadbeef/sim_fault`.
-- Debería usar `context.global.get('online_device_id')` igual que `fn_mk_cmd`.
-
-**L. Histórico de telemetría (sparklines)**
-- Guardar últimas N muestras de `rate` y `pres` en flow context para mostrar un sparkline
-  en la tarjeta de la bomba sin necesitar SQLite.
-
-### Fuera del alcance inmediato (ideas a largo plazo)
-
-- **Control de lazo cerrado**: integrar el encoder óptico (branch `tft_integration`) en el
-  loop de velocidad del motor PAP para compensar slippage.
-- **OTA firmware update**: publicar binario por MQTT + bootloader custom en RP2350.
-  La flash tiene 4 MB; hay espacio para imagen A/B.
-- **Certificación IEC 60601-2-24**: documentar hazard analysis (FMEA), agregar tests de
-  precisión de dosificación (±2% en todo el rango de caudal).
-- **TFT menus**: branch `tft_integration` WIP — integrar `pump_hmi_execute()` como backend
-  de los menús del display táctil para unificar todas las interfaces en un único dispatcher.
-
----
-
-## 12. Recursos y referencias
-
-| Recurso | URL / Ubicación |
-|---------|----------------|
-| Repo firmware | https://github.com/alan36alexis/pico2w_syringe_pump (rama: tft_integration) |
-| Simulador | `nodered/pump_simulator.py` |
-| Flow Node-RED | `docker/flows_bomba.json` (importar en Node-RED) |
-| Docker Compose | `docker/docker-compose.yml` |
-| Pico SDK docs | https://datasheets.raspberrypi.com/pico/raspberry-pi-pico-c-sdk.pdf |
-| lwIP MQTT API | `$PICO_SDK_PATH/lib/lwip/src/include/lwip/apps/mqtt.h` |
-| Node-RED Dashboard 2.0 | https://dashboard.flowfuse.com/getting-started.html |
-| IEC 60601-2-24 | Resumen en `Entradas_de_diseño.pdf` del proyecto |
-| FreeRTOS | https://www.freertos.org/Documentation/RTOS_book.html |
+- **Idioma:** comentarios y docs mezclan español e inglés — mantener el estilo del
+  archivo que se edita. Mensajes de commit en inglés, formato convencional
+  (`feat(fsm): ...`, `fix(mqtt): ...`, `refactor: ...`).
+- **Documentar decisiones:** si un cambio altera un contrato (tópicos, layout de flash,
+  tabla FSM, DTOs), actualizar el `.md` de contrato correspondiente **en el mismo cambio**.
+- **Compilación firmware:** CMake + Pico SDK v2.2.0 (toolchain ARM), tareas de VSCode ya
+  configuradas en `.vscode/`. El test de host se compila aparte (sección 10).
+- Ante ambigüedad entre este documento y el código: el código manda; reportar la
+  discrepancia y actualizar este documento.
