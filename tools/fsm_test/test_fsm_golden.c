@@ -116,7 +116,8 @@ static Core1State_t simulate_switch(Core1State_t from, Core1Event_t event,
         break;
 
     case ST_SEARCHING_SYRINGE:
-        if (ev == iEV_CONTACT_DETECTED) return ST_SYRINGE_ENGAGED;
+      if (ev == iEV_CONTACT_DETECTED || ev == iEV_TARGET_REACHED)
+        return ST_SYRINGE_ENGAGED;
         break;
 
     case ST_SYRINGE_ENGAGED:
@@ -274,7 +275,13 @@ const GoldenEntry_t GOLDEN_TABLE[GOLDEN_TABLE_SIZE] = {
       .kind = ENTRY_PRESERVED,
       .note = "Searching syringe: contact voltage -> syringe engaged" },
 
-    /* [13] Dispense command received */
+    /* [13] Simulated syringe position reached after fixed travel */
+    { .from = ST_SEARCHING_SYRINGE, .event = iEV_TARGET_REACHED,
+      .expected_current = ST_SYRINGE_ENGAGED, .expected_new = ST_SYRINGE_ENGAGED,
+      .kind = ENTRY_PRESERVED,
+      .note = "Searching syringe: test position reached -> syringe engaged" },
+
+    /* [14] Dispense command received */
     { .from = ST_SYRINGE_ENGAGED, .event = EV_CMD_START_DISPENSE,
       .expected_current = ST_DISPENSING, .expected_new = ST_DISPENSING,
       .kind = ENTRY_PRESERVED,

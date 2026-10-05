@@ -547,6 +547,12 @@ void core1_main(void) {
             }
         }
 
+        if (prev_state == ST_DISPENSING &&
+            current_state == ST_DISPENSE_COMPLETED) {
+            CORE1_EMIT(EV_MOT_PROGRESS, motion,
+                       ((DtoMotion_t){ .progress_pct = 100.0f }));
+        }
+
         if (current_state != prev_state)
             logger_send_fsm_state(current_state);
 

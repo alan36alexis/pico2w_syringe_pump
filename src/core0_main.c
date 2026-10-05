@@ -266,10 +266,11 @@ static void task_system_monitor(void *params) {
 #endif
 
 #ifdef ENABLE_TFT
-#include "display_driver.h"
-#include "encoder_driver.h"
-#include "touch_driver.h"
-#include "ui.h"
+#include "modulo_tft.h"
+#include "lvgl.h"
+#include "screens.h"
+#include "vars.h"
+#include "vars.h"
 
 static void task_ui_input(void *params) {
   (void)params;
@@ -284,20 +285,44 @@ static void task_ui_input(void *params) {
 
 static void task_tft(void *params) {
   (void)params;
-  lv_init();
-  display_driver_init();
-  touch_driver_init();
-  encoder_driver_init();
-  ui_init();
+  modulo_tft_init();
+  if (objects.bar_infusion) {
+    lv_bar_set_range(objects.bar_infusion, 0, 100);
+  }
 
   TickType_t last_wake = xTaskGetTickCount();
-  const TickType_t period = pdMS_TO_TICKS(20);
+  const TickType_t period = pdMS_TO_TICKS(5);
   while (1) {
-    lv_tick_inc(20);
-    lv_timer_handler();
+    modulo_tft_run_once();
 
     UIState_t state = ui_state_get_snapshot();
-    (void)state; // TODO: actualizar widgets LVGL con state
+    bool update_progress = false;
+    float progress_pct = 0.0f;
+    if (state.fsm_state == ST_DISPENSING) {
+      progress_pct = state.progress_pct;
+      update_progress = true;
+    } else if (state.fsm_state == ST_DISPENSE_COMPLETED) {
+      progress_pct = 100.0f;
+      update_progress = true;
+    } else if (state.session_data_valid) {
+      progress_pct = state.progress_pct;
+      update_progress = true;
+    }
+
+    if (update_progress) {
+      if (progress_pct < 0.0f) progress_pct = 0.0f;
+      if (progress_pct > 100.0f) progress_pct = 100.0f;
+      int32_t rounded_pct = (int32_t)(progress_pct + 0.5f);
+      set_var_value_infusion_test((float)rounded_pct);
+      if (objects.bar_infusion) {
+        int32_t displayed_pct = lv_bar_get_value(objects.bar_infusion);
+        if (displayed_pct != rounded_pct) {
+          lv_anim_enable_t animation =
+              state.fsm_state == ST_DISPENSE_COMPLETED ? LV_ANIM_OFF : LV_ANIM_ON;
+          lv_bar_set_value(objects.bar_infusion, rounded_pct, animation);
+        }
+      }
+    }
 
     UIEvent_t ev;
     while (xQueueReceive(ui_event_queue, &ev, 0) == pdTRUE) {

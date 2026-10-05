@@ -50,6 +50,11 @@ typedef enum {
 
 // --- API Functions ---
 
+/** Converts clinical volume and flow units to motor displacement units. */
+float Pump_MlToUm(float volume_ml, float area_mm2);
+float Pump_MlPerSecondToUmPerSecond(float rate_ml_s, float area_mm2);
+float Pump_MlPerHourToUmPerSecond(float rate_ml_h, float area_mm2);
+
 /**
  * Initializes the API structures and sets default safe values.
  */

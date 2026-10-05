@@ -15,6 +15,15 @@ typedef struct {
     float        rate_ml_h;
     float        infused_volume_ml;
     float        target_volume_ml;
+    uint32_t     session_id;
+    uint32_t     elapsed_s;
+    bool         session_active;
+    bool         session_data_valid;
+    uint16_t     last_alarm_id;
+    uint8_t      last_alarm_severity;
+    uint16_t     last_alarm_fsm_state;
+    float        last_alarm_param;
+    uint32_t     alarm_event_count;
     PumpAlarms_t alarms;
 } UIState_t;
 

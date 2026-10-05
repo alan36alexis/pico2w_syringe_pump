@@ -206,10 +206,10 @@ static void act_send_nsteps_release_end(FsmCtx_t *ctx) {
 }
 
 static void act_search_syringe(FsmCtx_t *ctx) {
-    closed_loop_init_move(ctx->scl, 105000.0f, ctx->cmd_velocity_ums,
+    closed_loop_init_move(ctx->scl, POS_JERINGA_TEST_UM, ctx->cmd_velocity_ums,
                           ctx->current_encoder_count);
-    ctx->move_linear_fn(ctx->motor, 105000.0f, ctx->cmd_velocity_ums);
-    SET_DEADLINE(ctx, 105000.0f, ctx->cmd_velocity_ums);
+    ctx->move_linear_fn(ctx->motor, POS_JERINGA_TEST_UM, ctx->cmd_velocity_ums);
+    SET_DEADLINE(ctx, POS_JERINGA_TEST_UM, ctx->cmd_velocity_ums);
 }
 
 static void act_stop_on_contact(FsmCtx_t *ctx) {
@@ -363,6 +363,8 @@ static const Transition_t TRANSITIONS[] = {
     /* ST_SEARCHING_SYRINGE */
     { ST_SEARCHING_SYRINGE, iEV_CONTACT_DETECTED, ST_SYRINGE_ENGAGED,
       act_stop_on_contact, NULL },
+        { ST_SEARCHING_SYRINGE, iEV_TARGET_REACHED, ST_SYRINGE_ENGAGED,
+            act_stop_on_contact, NULL },
 
     /* ST_SYRINGE_ENGAGED */
     { ST_SYRINGE_ENGAGED, EV_CMD_START_DISPENSE, ST_DISPENSING,

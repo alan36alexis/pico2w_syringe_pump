@@ -29,6 +29,7 @@
 // --- FSM Velocities ---
 #define FSM_HOME_VELOCITY_UMS       1500.0f
 #define FSM_SEARCH_VELOCITY_UMS     1200.0f
+#define POS_JERINGA_TEST_UM          10000.0f
 
 // --- Motor Drive Profile Thresholds ---
 #define MOTOR_THRESH_LOW_UMS        350.0f   // < threshold: 16x microstep, StealthChop, 0.5A
