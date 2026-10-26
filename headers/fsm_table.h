@@ -66,6 +66,25 @@ typedef struct {
     float      cmd_target_um;
     float      cmd_velocity_ums;
 
+    /* ---- Dispense tracking for pause/resume across occlusion ----
+     * Recorded by act_start_dispense; used by act_resume_dispense to calculate
+     * the remaining distance needed to reach the original target. */
+    float      dispense_target_um;
+    float      dispense_velocity_ums;
+    int32_t    dispense_start_encoder_count;
+
+    /* ---- Syringe engagement position (backward limit for occlusion release) ----
+     * Recorded by act_stop_on_contact when the syringe is found (ST_SEARCHING_SYRINGE).
+     * Prevents occlusion release from backing off beyond the start of the syringe plunger. */
+    int32_t    syringe_start_encoder_count;
+    bool       has_syringe_contact;
+
+    /* ---- Anti-bolus Mode ----
+     * When true (default), occlusion automatically triggers backward release move
+     * on motor stop (ST_OCCLUSION_STOPPING -> ST_OCCLUSION_RELEASE).
+     * When false, pump stays in ST_OCCLUSION_STOPPING awaiting EV_CMD_OCC_RELEASE. */
+    bool       auto_antibolus;
+
     /* Motor moving state — updated each polling cycle by core1_main.c BEFORE
      * calling fsm_dispatch(). Guards read this field; they do NOT call the
      * hardware directly, keeping dispatch hardware-free. */
@@ -212,5 +231,9 @@ bool guard_is_calibrating(const FsmCtx_t *ctx);
 bool guard_not_calibrating(const FsmCtx_t *ctx);
 bool guard_motor_moving(const FsmCtx_t *ctx);
 bool guard_motor_stopped(const FsmCtx_t *ctx);
+bool guard_resume_has_remaining(const FsmCtx_t *ctx);
+bool guard_resume_is_completed(const FsmCtx_t *ctx);
+bool guard_auto_antibolus_enabled(const FsmCtx_t *ctx);
+bool guard_auto_antibolus_disabled(const FsmCtx_t *ctx);
 
 #endif /* FSM_TABLE_H */

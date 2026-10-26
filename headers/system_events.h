@@ -26,6 +26,7 @@ typedef uint16_t SystemEventID_t;
 #define EV_ACT_PRESSURE_OCC  ((SystemEventID_t)0x0201)  // DtoForce_t: occlusion threshold exceeded
 #define EV_ACT_LSW_END       ((SystemEventID_t)0x0202)  // payload.param = 0
 #define EV_ACT_SYRINGE_DET   ((SystemEventID_t)0x0203)  // payload.param: 1=engaged, 0=removed
+#define EV_ACT_IO_EXP_INPUT  ((SystemEventID_t)0x0204)  // payload.param: bitmask de entradas filtradas
 
 // Motor and kinematics [0x0300–0x03FF]
 #define EV_MOT_ENCODER       ((SystemEventID_t)0x0300)  // DtoMotion_t: count, position_mm

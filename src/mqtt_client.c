@@ -111,7 +111,7 @@ static void mqtt_connection_cb(mqtt_client_t *client, void *arg, mqtt_connection
 
         err_t err = mqtt_subscribe(client, topic_cmd(), 1, mqtt_request_cb, NULL);
         if (err != ERR_OK) {
-            printf("[MQT]: Subscribe error: %d\n", err);
+            printf("NET : ERR=mqtt_sub code=%d\n", err);
         }
 
         // Publish online status with retain so the dashboard always sees it
@@ -135,7 +135,7 @@ void mqtt_client_task(void *params) {
     cyw43_arch_lwip_end();
 
     if (mqtt_client == NULL) {
-        printf("[MQT]: Failed to create MQTT client\n");
+        printf("NET : ERR=mqtt_client_create\n");
         vTaskDelete(NULL);
         return;
     }
@@ -170,8 +170,8 @@ void mqtt_client_task(void *params) {
                 err_t err = mqtt_client_connect(mqtt_client, &broker_ip, g_sys_config.mqtt_port, mqtt_connection_cb, NULL, &ci);
                 cyw43_arch_lwip_end();
 
-                if (err != ERR_OK) {
-                    printf("[MQT]: Connection error: %d\n", err);
+                if (err != ERR_OK && err != -10 /* ERR_ISCONN: conexión ya en curso */) {
+                    printf("NET : ERR=mqtt_connect code=%d\n", err);
                 }
             }
             vTaskDelay(pdMS_TO_TICKS(MQTT_TASK_DELAY_MS));

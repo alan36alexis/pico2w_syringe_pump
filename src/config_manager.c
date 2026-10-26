@@ -1,4 +1,6 @@
 #include "config_manager.h"
+#include "system_config.h"
+#include "crosscore_cmd.h"
 #include "mqtt_client.h" // For default macros
 #include <string.h>
 #include <stdio.h>
@@ -20,7 +22,7 @@ extern TMC2209_t *global_motor;
 
 // Reservamos el último sector de la flash (1 sector = 4096 bytes)
 #define CONFIG_FLASH_OFFSET (PICO_FLASH_SIZE_BYTES - FLASH_SECTOR_SIZE)
-#define CONFIG_MAGIC_WORD 0xA1B2C3D5
+#define CONFIG_MAGIC_WORD 0xA1B2C3D6
 
 SystemConfig_t g_sys_config;
 volatile bool g_calibration_dirty = false;
@@ -72,8 +74,14 @@ void config_manager_init(void) {
 
     if (valid) {
         memcpy(&g_sys_config, flash_cfg, sizeof(SystemConfig_t));
+        if (g_sys_config.thresh_syringe_contact_v <= 0.0f) g_sys_config.thresh_syringe_contact_v = ADC_THRESH_SYRINGE_REACHED_V_DEFAULT;
+        if (g_sys_config.thresh_occlusion_v <= 0.0f)       g_sys_config.thresh_occlusion_v       = ADC_THRESH_OCCLUSION_V_DEFAULT;
+        if (g_sys_config.thresh_occ_release_v <= 0.0f)     g_sys_config.thresh_occ_release_v     = ADC_THRESH_OCC_RELEASE_V_DEFAULT;
+        if (g_sys_config.auto_antibolus_enabled > 1)       g_sys_config.auto_antibolus_enabled   = ANTIBOLUS_AUTO_ENABLED_DEFAULT;
         printf("[CFG]: Loaded from Flash successfully.\n");
-        printf("[CFG]: SSID='%s', MQTT='%s:%d'\n", g_sys_config.wifi_ssid, g_sys_config.mqtt_ip, g_sys_config.mqtt_port);
+        printf("[CFG]: SSID='%s', MQTT='%s:%d', AntiBolus=%s\n",
+               g_sys_config.wifi_ssid, g_sys_config.mqtt_ip, g_sys_config.mqtt_port,
+               g_sys_config.auto_antibolus_enabled ? "AUTO" : "MANUAL");
     } else {
         printf("[CFG]: No valid config in Flash. Using firmware defaults.\n");
         g_sys_config.magic = CONFIG_MAGIC_WORD;
@@ -91,6 +99,10 @@ void config_manager_init(void) {
         g_sys_config.wifi_enabled = 1;
         g_sys_config.calibration_valid = 0;
         g_sys_config.calibrated_max_encoder_count = 0;
+        g_sys_config.thresh_syringe_contact_v = ADC_THRESH_SYRINGE_REACHED_V_DEFAULT;
+        g_sys_config.thresh_occlusion_v       = ADC_THRESH_OCCLUSION_V_DEFAULT;
+        g_sys_config.thresh_occ_release_v     = ADC_THRESH_OCC_RELEASE_V_DEFAULT;
+        g_sys_config.auto_antibolus_enabled   = ANTIBOLUS_AUTO_ENABLED_DEFAULT;
 
         char unique_id[17];
         pico_get_unique_board_id_string(unique_id, sizeof(unique_id));
@@ -200,4 +212,29 @@ void config_set_wifi_enabled(bool enabled) {
     g_sys_config.wifi_enabled = enabled ? 1 : 0;
     config_unlock();
     printf("[CFG]: WiFi Enabled status actualizado a %d\n", enabled ? 1 : 0);
+}
+
+void config_set_adc_thresholds(float v_syringe, float v_occ, float v_release) {
+    config_lock();
+    if (v_syringe > 0.0f) g_sys_config.thresh_syringe_contact_v = v_syringe;
+    if (v_occ > 0.0f)     g_sys_config.thresh_occlusion_v = v_occ;
+    if (v_release > 0.0f) g_sys_config.thresh_occ_release_v = v_release;
+    config_unlock();
+
+    cmd_send_set_adc_thresholds(g_sys_config.thresh_syringe_contact_v,
+                                g_sys_config.thresh_occlusion_v,
+                                g_sys_config.thresh_occ_release_v);
+    printf("[CFG]: ADC Thresholds actualizados: Contacto=%.2f V, Oclusion=%.2f V, Release=%.2f V\n",
+           g_sys_config.thresh_syringe_contact_v,
+           g_sys_config.thresh_occlusion_v,
+           g_sys_config.thresh_occ_release_v);
+}
+
+void config_set_antibolus_mode(bool auto_enabled) {
+    config_lock();
+    g_sys_config.auto_antibolus_enabled = auto_enabled ? 1 : 0;
+    config_unlock();
+
+    cmd_send_set_antibolus_mode(auto_enabled);
+    printf("[CFG]: Anti-bolus mode actualizado: %s\n", auto_enabled ? "AUTO" : "MANUAL");
 }

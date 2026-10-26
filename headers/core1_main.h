@@ -75,6 +75,12 @@ extern volatile int32_t calibration_max_encoder_count;
 void core1_main(void);
 
 /**
+ * @brief Returns the last occlusion sensor ADC reading (12-bit, 0-4095)
+ * sampled by Core 1. Core 1 is the guardian of the ADC hardware.
+ */
+uint16_t core1_get_occlusion_adc_raw(void);
+
+/**
  * @brief Returns a human-readable string for a Core1State_t value.
  */
 const char *get_state_name(Core1State_t state);

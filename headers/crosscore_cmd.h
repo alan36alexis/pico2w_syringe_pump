@@ -27,6 +27,8 @@ typedef enum {
     CMD_RESUME_DISPENSE,
     CMD_CALIBRATE,
     CMD_ENC_RESET,
+    CMD_SET_ADC_THRESHOLDS,
+    CMD_SET_ANTIBOLUS_MODE,
     // Add more commands here as needed
 } Core1CmdID_t;
 
@@ -65,6 +67,14 @@ typedef struct {
             float move_velocity_ums;  /* Fase 1: buscar LSW_START (0 = default) */
             float seek_velocity_ums;  /* Fase 2: buscar LSW_END   (0 = default) */
         } calibrate;
+        struct {
+            float v_syringe_contact;  /* Umbral detección inicio jeringa (V) */
+            float v_occlusion;        /* Umbral detección oclusión (V) */
+            float v_occ_release;      /* Umbral alivio de presión (V) */
+        } adc_thresholds;
+        struct {
+            bool auto_enabled;        /* Modo anti-bolus: true = automático, false = manual */
+        } antibolus;
         uint32_t raw_data; // For arbitrary data
     } payload;
 } Core1CmdMessage_t;
@@ -95,6 +105,7 @@ bool cmd_send_occ_release(void);
 bool cmd_send_resume_dispense(void);
 bool cmd_send_calibrate(float move_velocity_ums, float seek_velocity_ums);
 bool cmd_send_enc_reset(void);
-
+bool cmd_send_set_adc_thresholds(float v_syringe, float v_occlusion, float v_release);
+bool cmd_send_set_antibolus_mode(bool auto_enabled);
 
 #endif // CROSSCORE_CMD_H

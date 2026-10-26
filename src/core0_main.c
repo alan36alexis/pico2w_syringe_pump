@@ -4,6 +4,7 @@
 #include "mqtt_consumer.h"
 #include "serial_consumer.h"
 #include "system_queues.h"
+#include "io_expander.h"
 
 // Descomentar o comentar esta linea para habilitar/deshabilitar el monitoreo de
 // salud del sistema
@@ -72,6 +73,14 @@ static void wifi_keepalive_task(void *params) {
 static void task_init(void *params) {
   config_manager_init();
 
+  // Sincronizar umbrales ADC iniciales hacia Core 1
+  cmd_send_set_adc_thresholds(g_sys_config.thresh_syringe_contact_v,
+                              g_sys_config.thresh_occlusion_v,
+                              g_sys_config.thresh_occ_release_v);
+
+  // Sincronizar modo anti-bolus inicial hacia Core 1
+  cmd_send_set_antibolus_mode(g_sys_config.auto_antibolus_enabled != 0);
+
   // Restaurar la calibracion persistida como valor activo. Core 1 arranca
   // antes de que la config este cargada, asi que se publica desde aqui
   // (escritura de 32 bits alineada — atomica entre cores).
@@ -85,6 +94,14 @@ static void task_init(void *params) {
                               calc_um_per_pulse(USE_QUADRATURE_ENCODER) / 1000.0f,
                  .trigger = 0,
                  .success = g_sys_config.calibration_valid}));
+
+  // Inicializacion del bus I2C0 y del expansor PCAL9555
+  if (io_expander_init(NULL)) {
+    io_expander_start_task(1);
+    printf("[I2C]: PCAL9555 detectado e iniciado en 0x%02X.\n", PCAL9555_I2C_ADDR_DEFAULT);
+  } else {
+    printf("[I2C]: AVISO: PCAL9555 no responde en 0x%02X (operando sin expansion).\n", PCAL9555_I2C_ADDR_DEFAULT);
+  }
 
   // Inicializacion de GPIO y Wi-Fi chip (CYW43)
   if (cyw43_arch_init_with_country(CYW43_COUNTRY_WORLDWIDE)) {
@@ -181,6 +198,8 @@ static void task_cli(void *params) {
           printf("\n"); // Echo newline
           cmd_dispatch_string(cli_buf, CMD_SRC_SERIAL, -1);
           cli_idx = 0;
+        } else {
+          printf("\n");
         }
       } else if (c == '\b' || c == 127) { // backspace
         if (cli_idx > 0) {

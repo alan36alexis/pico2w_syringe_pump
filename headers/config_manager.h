@@ -22,6 +22,10 @@ typedef struct {
     uint8_t calibration_valid;
     int32_t calibrated_max_encoder_count;
     char device_id[17];
+    float thresh_syringe_contact_v;
+    float thresh_occlusion_v;
+    float thresh_occ_release_v;
+    uint8_t auto_antibolus_enabled; /* 1 = Automático (defecto), 0 = Manual */
     uint32_t crc;
 } SystemConfig_t;
 
@@ -46,6 +50,8 @@ void config_set_mqtt(const char* ip, uint16_t port);
 void config_set_mqtt_ip(const char* ip);
 void config_set_mqtt_port(uint16_t port);
 void config_set_wifi_enabled(bool enabled);
+void config_set_adc_thresholds(float v_syringe, float v_occ, float v_release);
+void config_set_antibolus_mode(bool auto_enabled);
 
 #ifdef __cplusplus
 }

@@ -61,7 +61,7 @@ bool cmd_gate_execute(PumpAction_t action, float param1, float param2) {
         return cmd_send_stop_immediate();
 
     case PUMP_ACTION_OCC_RELEASE:
-        if (st == ST_OCCLUSION_PAUSED)
+        if (st == ST_OCCLUSION_STOPPING)
             return cmd_send_occ_release();
         break;
 

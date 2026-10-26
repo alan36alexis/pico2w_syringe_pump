@@ -99,6 +99,9 @@ add_executable(pico2w_syringe_pump
     src/encoder_driver.c
     src/ModuloTFT.c
     src/ui_actions.c
+    src/i2c_bus.c
+    src/pcal9555.c
+    src/io_expander.c
     ${UI_SOURCES}
     ${EEZ_SOURCES}
 )
@@ -135,6 +138,7 @@ target_link_libraries(pico2w_syringe_pump
     hardware_flash
     hardware_spi
     hardware_gpio
+    hardware_i2c
     lvgl
 )
 

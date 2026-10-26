@@ -113,6 +113,12 @@ Actualmente, estos comandos son accesibles mediante la consola serial y se utili
 |---|---|
 | `config_wifi,<SSID>,<PASS>`| Guarda temporalmente en RAM y usa las nuevas credenciales de Wi-Fi. |
 | `config_mqtt,<IP>,<PORT>` | Guarda temporalmente en RAM y usa la nueva IP/Puerto del Broker. |
+| `config_thresholds,<V_SYR>,<V_OCC>,<V_REL>` | Configura los 3 umbrales ADC de tensión (V): inicio jeringa, oclusión y liberación. |
+| `set_syringe_thresh,<V>` | Configura el umbral de tensión (V) para detección de inicio de jeringa. |
+| `set_occ_thresh,<V>` | Configura el umbral de tensión (V) para detección de oclusión. |
+| `set_occ_rel_thresh,<V>` | Configura el umbral de tensión (V) para liberación de oclusión. |
+| `config_antibolus,<auto\|manual>` | Configura el modo anti-bolus (`auto` habilitado por defecto, o `manual`). |
+| `set_antibolus_auto,<1\|0>` | Habilita (1) o deshabilita (0) el mecanismo de anti-bolus automático. |
 | `set_ssid,<SSID>` | Cambia únicamente el SSID del Wi-Fi en RAM. |
 | `set_wpass,<PASS>` | Cambia únicamente la contraseña del Wi-Fi en RAM. |
 | `set_mqtt_ip,<IP>` | Cambia únicamente la IP del Broker MQTT en RAM. |

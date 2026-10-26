@@ -109,7 +109,7 @@ void logger_send_encoder_indep_counts(int32_t count_a, int32_t count_b);
 void logger_send_encoder_speed(float actual_ums, float target_ums);
 void logger_send_speed_warning(float expected_ums, float actual_ums);
 void logger_send_correction_applied(float correction_um);
-void logger_send_motor_progress(float pct);
+void logger_send_motor_progress(float pct, float position_mm);
 void logger_send_fsm_state(Core1State_t state);
 
 #endif // CROSSCORE_LOGGER_H

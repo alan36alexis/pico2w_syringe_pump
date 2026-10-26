@@ -94,8 +94,14 @@ static void act_stub(FsmCtx_t *ctx) { (void)ctx; }
  * and then EV_CMD_RESET is sent, the guard_is_calibrating path in
  * ST_RELEASING_LSW_START would fire incorrectly on the next homing sequence. */
 static void act_reset_to_unhomed(FsmCtx_t *ctx) {
+    tmc2209_stop(ctx->motor);
     ctx->is_calibrating  = false;
     ctx->deadline_active = false;
+    ctx->has_syringe_contact = false;
+    ctx->syringe_start_encoder_count = 0;
+    if (ctx->scl) {
+        ctx->scl->waiting_for_correction = false;
+    }
 }
 
 /* ---- Global handlers ---- */
@@ -106,6 +112,8 @@ static void act_abort_brake_start(FsmCtx_t *ctx) {
      * This is one of only three reset sources (boot and fsm_enc_reset are the
      * other two). */
     RESET_ENCODER_VIA_CTX(ctx);
+    ctx->has_syringe_contact = false;
+    ctx->syringe_start_encoder_count = 0;
     tmc2209_abort_profile_dma(ctx->motor);
     SET_DEADLINE_FIXED(ctx, BRAKE_DEADLINE_MS);
 }
@@ -128,6 +136,8 @@ static void act_abort_brake_end(FsmCtx_t *ctx) {
  * Same position-reference reset as act_abort_brake_start. */
 static void act_release_lsw_start(FsmCtx_t *ctx) {
     RESET_ENCODER_VIA_CTX(ctx);
+    ctx->has_syringe_contact = false;
+    ctx->syringe_start_encoder_count = 0;
     tmc2209_stop(ctx->motor);
     schedule_release(ctx, 1000000);
     SET_DEADLINE_FIXED(ctx, LSW_RELEASE_DEADLINE_MS);
@@ -156,6 +166,8 @@ static void act_fault_stop(FsmCtx_t *ctx) {
 /* ---- Local (per-state) handlers ---- */
 
 static void act_home_start(FsmCtx_t *ctx) {
+    ctx->has_syringe_contact = false;
+    ctx->syringe_start_encoder_count = 0;
     closed_loop_init_move(ctx->scl, -105000.0f, ctx->cmd_velocity_ums,
                           ctx->current_encoder_count);
     ctx->move_linear_fn(ctx->motor, -105000.0f, ctx->cmd_velocity_ums);
@@ -215,9 +227,23 @@ static void act_search_syringe(FsmCtx_t *ctx) {
 static void act_stop_on_contact(FsmCtx_t *ctx) {
     tmc2209_stop(ctx->motor);
     ctx->deadline_active = false;
+    ctx->syringe_start_encoder_count = ctx->current_encoder_count;
+    ctx->has_syringe_contact = true;
+    printf("[FSM]: Syringe engaged at encoder count %ld (%.1f um)\n",
+           (long)ctx->syringe_start_encoder_count,
+           (float)ctx->syringe_start_encoder_count * calc_um_per_pulse(ctx->use_quadrature));
 }
 
 static void act_start_dispense(FsmCtx_t *ctx) {
+    ctx->dispense_target_um = ctx->cmd_target_um;
+    ctx->dispense_velocity_ums = ctx->cmd_velocity_ums;
+    ctx->dispense_start_encoder_count = ctx->current_encoder_count;
+
+    if (!ctx->has_syringe_contact) {
+        ctx->syringe_start_encoder_count = ctx->current_encoder_count;
+        ctx->has_syringe_contact = true;
+    }
+
     closed_loop_init_move(ctx->scl, ctx->cmd_target_um, ctx->cmd_velocity_ums,
                           ctx->current_encoder_count);
     ctx->move_linear_fn(ctx->motor, ctx->cmd_target_um, ctx->cmd_velocity_ums);
@@ -234,6 +260,9 @@ static void act_dispense_target_reached(FsmCtx_t *ctx) {
 static void act_abort_occlusion(FsmCtx_t *ctx) {
     tmc2209_abort_profile_dma(ctx->motor);
     ctx->deadline_active = false;
+    if (ctx->scl) {
+        ctx->scl->waiting_for_correction = false;
+    }
 }
 
 static void act_search_eot(FsmCtx_t *ctx) {
@@ -248,19 +277,91 @@ static void act_stop_at_eot(FsmCtx_t *ctx) {
 }
 
 static void act_occ_release_move(FsmCtx_t *ctx) {
-    closed_loop_init_move(ctx->scl, -105000.0f, 200.0f, ctx->current_encoder_count);
-    ctx->move_linear_fn(ctx->motor, -105000.0f, 200.0f);
-    SET_DEADLINE(ctx, -105000.0f, 200.0f);
+    tmc2209_stop(ctx->motor);
+
+    float um_per_pulse = calc_um_per_pulse(ctx->use_quadrature);
+    float current_pos_um = (float)ctx->current_encoder_count * um_per_pulse;
+
+    // Límite 1: Configurado máximo de release (OCCLUSION_RELEASE_MAX_UM, ej. 5000 um)
+    float release_um = OCCLUSION_RELEASE_MAX_UM;
+
+    // Límite 2: Inicio de la jeringa (syringe reached)
+    // No retroceder más allá del punto donde se detectó el émbolo de la jeringa
+    if (ctx->has_syringe_contact) {
+        float syringe_start_um = (float)ctx->syringe_start_encoder_count * um_per_pulse;
+        float dist_to_syringe = current_pos_um - syringe_start_um;
+        if (dist_to_syringe < 0.0f) {
+            dist_to_syringe = 0.0f;
+        }
+        if (dist_to_syringe < release_um) {
+            release_um = dist_to_syringe;
+        }
+    }
+
+    // Límite 3: LSW_START (posición de Home / 0 um)
+    // No retroceder más allá del switch de origen
+    float dist_to_lsw_start = current_pos_um;
+    if (dist_to_lsw_start < 0.0f) {
+        dist_to_lsw_start = 0.0f;
+    }
+    if (dist_to_lsw_start < release_um) {
+        release_um = dist_to_lsw_start;
+    }
+
+    printf("[FSM]: Occlusion release move: target -%.1f um (Limits: max=%.1f, syringe_start=%.1f, pos=%.1f)\n",
+           release_um, OCCLUSION_RELEASE_MAX_UM,
+           ctx->has_syringe_contact ? (float)ctx->syringe_start_encoder_count * um_per_pulse : 0.0f,
+           current_pos_um);
+
+    if (release_um < CORRECTION_DEADBAND_UM) {
+        release_um = CORRECTION_DEADBAND_UM;
+    }
+
+    closed_loop_init_move(ctx->scl, -release_um, OCCLUSION_RELEASE_SPEED_UMS, ctx->current_encoder_count);
+    ctx->move_linear_fn(ctx->motor, -release_um, OCCLUSION_RELEASE_SPEED_UMS);
+    SET_DEADLINE(ctx, -release_um, OCCLUSION_RELEASE_SPEED_UMS);
 }
 
 static void act_stop_occ_paused(FsmCtx_t *ctx) {
     tmc2209_stop(ctx->motor);
     ctx->deadline_active = false;
+    if (ctx->scl) {
+        ctx->scl->waiting_for_correction = false;
+    }
 }
 
-/* Transition only: original switch did not re-launch the move here.
- * core1_main.c handles the CL correction when the resumed move completes. */
-static void act_resume_dispense(FsmCtx_t *ctx) { (void)ctx; }
+static float calc_dispense_remaining_um(const FsmCtx_t *ctx) {
+    float um_per_pulse = calc_um_per_pulse(ctx->use_quadrature);
+    int32_t delta_counts = ctx->current_encoder_count - ctx->dispense_start_encoder_count;
+    float net_moved_um = (float)delta_counts * um_per_pulse;
+    return ctx->dispense_target_um - net_moved_um;
+}
+
+static void act_resume_dispense_complete(FsmCtx_t *ctx) {
+    tmc2209_stop(ctx->motor);
+    ctx->deadline_active = false;
+    if (ctx->scl) {
+        ctx->scl->waiting_for_correction = false;
+    }
+    printf("[FSM]: Resuming dispense — Target reached / remaining <= deadband. Completing dispense.\n");
+}
+
+/* Resume the original dispense: calculates remaining distance from initial target
+ * and current encoder position (taking into account any reverse release move). */
+static void act_resume_dispense(FsmCtx_t *ctx) {
+    float remaining_um = calc_dispense_remaining_um(ctx);
+    float um_per_pulse = calc_um_per_pulse(ctx->use_quadrature);
+    int32_t delta_counts = ctx->current_encoder_count - ctx->dispense_start_encoder_count;
+    float net_moved_um = (float)delta_counts * um_per_pulse;
+
+    printf("[FSM]: Resuming dispense — Target: %.1f um, Net moved: %.1f um, Remaining: %.1f um @ %.1f um/s\n",
+           ctx->dispense_target_um, net_moved_um, remaining_um, ctx->dispense_velocity_ums);
+
+    closed_loop_init_move(ctx->scl, remaining_um, ctx->dispense_velocity_ums,
+                          ctx->current_encoder_count);
+    ctx->move_linear_fn(ctx->motor, remaining_um, ctx->dispense_velocity_ums);
+    SET_DEADLINE(ctx, remaining_um, ctx->dispense_velocity_ums);
+}
 
 static void act_manual_stop(FsmCtx_t *ctx) {
     tmc2209_stop(ctx->motor);
@@ -279,6 +380,22 @@ bool guard_is_calibrating(const FsmCtx_t *ctx)  { return ctx->is_calibrating; }
 bool guard_not_calibrating(const FsmCtx_t *ctx) { return !ctx->is_calibrating; }
 bool guard_motor_moving(const FsmCtx_t *ctx)    { return ctx->motor_is_moving; }
 bool guard_motor_stopped(const FsmCtx_t *ctx)   { return !ctx->motor_is_moving; }
+
+bool guard_resume_has_remaining(const FsmCtx_t *ctx) {
+    float remaining_um = calc_dispense_remaining_um(ctx);
+    if (ctx->dispense_target_um >= 0.0f) {
+        return (remaining_um > CORRECTION_DEADBAND_UM) && (ctx->dispense_velocity_ums > 0.0f);
+    } else {
+        return (remaining_um < -CORRECTION_DEADBAND_UM) && (ctx->dispense_velocity_ums > 0.0f);
+    }
+}
+
+bool guard_resume_is_completed(const FsmCtx_t *ctx) {
+    return !guard_resume_has_remaining(ctx);
+}
+
+bool guard_auto_antibolus_enabled(const FsmCtx_t *ctx)  { return ctx->auto_antibolus; }
+bool guard_auto_antibolus_disabled(const FsmCtx_t *ctx) { return !ctx->auto_antibolus; }
 
 /* -------------------------------------------------------------------------
  * GLOBAL table — evaluated first for all states EXCEPT ST_FAULT.
@@ -409,16 +526,19 @@ static const Transition_t TRANSITIONS[] = {
     { ST_END_OF_TRAVEL, EV_CMD_HOME, ST_HOMING, act_home_start, NULL },
 
     /* ST_OCCLUSION_STOPPING */
-    { ST_OCCLUSION_STOPPING, EV_CMD_OCC_RELEASE, ST_OCCLUSION_RELEASE,
-      act_occ_release_move, NULL },
+    { ST_OCCLUSION_STOPPING, EV_CMD_RESET,       ST_UNHOMED,           act_reset_to_unhomed, NULL },
+    { ST_OCCLUSION_STOPPING, EV_CMD_OCC_RELEASE, ST_OCCLUSION_RELEASE, act_occ_release_move, NULL },
+    { ST_OCCLUSION_STOPPING, iEV_TARGET_REACHED, ST_OCCLUSION_RELEASE, act_occ_release_move, guard_auto_antibolus_enabled },
 
     /* ST_OCCLUSION_RELEASE */
-    { ST_OCCLUSION_RELEASE, iEV_OCC_RELEASED, ST_OCCLUSION_PAUSED,
-      act_stop_occ_paused, NULL },
+    { ST_OCCLUSION_RELEASE, EV_CMD_RESET,       ST_UNHOMED,           act_reset_to_unhomed, NULL },
+    { ST_OCCLUSION_RELEASE, iEV_OCC_RELEASED,   ST_OCCLUSION_PAUSED,  act_stop_occ_paused,  NULL },
+    { ST_OCCLUSION_RELEASE, iEV_TARGET_REACHED, ST_FAULT,             act_fault_stop,       NULL },
 
     /* ST_OCCLUSION_PAUSED */
-    { ST_OCCLUSION_PAUSED, EV_CMD_RESUME_DISPENSE, ST_DISPENSING,
-      act_resume_dispense, NULL },
+    { ST_OCCLUSION_PAUSED, EV_CMD_RESET,          ST_UNHOMED,            act_reset_to_unhomed,         NULL },
+    { ST_OCCLUSION_PAUSED, EV_CMD_RESUME_DISPENSE, ST_DISPENSING,         act_resume_dispense,          guard_resume_has_remaining },
+    { ST_OCCLUSION_PAUSED, EV_CMD_RESUME_DISPENSE, ST_DISPENSE_COMPLETED, act_resume_dispense_complete, guard_resume_is_completed },
 
     /* ST_MANUAL_OVERRIDE */
     { ST_MANUAL_OVERRIDE, EV_CMD_RESET,       ST_UNHOMED,        act_manual_stop,          NULL },
@@ -577,6 +697,7 @@ void fsm_audit_coverage(void)
         ST_CALIB_SEEK_END,
         ST_RELEASING_LSW_START,
         ST_RELEASING_LSW_END,
+        ST_OCCLUSION_RELEASE,
     };
     int wait_state_count = (int)(sizeof(WAIT_STATES) / sizeof(WAIT_STATES[0]));
     int missing_fault_exit = 0;

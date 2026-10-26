@@ -1,8 +1,14 @@
 #include "syringe_pump_api.h"
 #include "crosscore_cmd.h"
 #include "system_config.h"
+#include "core1_main.h"
 #include <math.h>
 #include <stdio.h>
+
+// Encabezado de mensaje: respeta la longitud estándar de 3 caracteres de los headers del firmware ([ADC], [FSM], [CFG], etc.)
+#ifndef PUMP_LOG_HDR
+#define PUMP_LOG_HDR "[ADC]:"
+#endif
 
 #define PI 3.1415926535f
 
@@ -175,6 +181,13 @@ void Pump_SetOcclusionThreshold(uint8_t level) {
         case 3:
         default: ctx.occlusion_threshold_mmhg = OCC_THRESHOLD_L3_MMHG; break;
     }
+}
+
+uint16_t Pump_ReadOcclusionSensor(void) {
+    uint16_t raw_val = core1_get_occlusion_adc_raw();
+    float voltage = (float)raw_val * 3.3f / (float)(1 << 12);
+    printf(PUMP_LOG_HDR " Occlusion sensor raw=%u (%.2f V)\n", raw_val, voltage);
+    return raw_val;
 }
 
 void Pump_CheckAlarms(void) {

@@ -9,12 +9,12 @@
 LogFilterConfig_t g_log_filter = {
     .show_tgt = true,
     .show_cfg = true,
-    .show_kin = true,
-    .show_prf = true,
+    .show_kin = false,
+    .show_prf = false,
     .show_fsm = true,
-    .show_adc = true,
-    .show_prg = true,
-    .show_enc = true,
+    .show_adc = false,
+    .show_prg = false,
+    .show_enc = false,
     .show_mtr = true
 };
 
@@ -125,8 +125,8 @@ void logger_send_correction_applied(float correction_um) {
     CORE1_EMIT(EV_MOT_CORRECTION, motion, dto);
 }
 
-void logger_send_motor_progress(float pct) {
-    DtoMotion_t dto = { .progress_pct = pct };
+void logger_send_motor_progress(float pct, float position_mm) {
+    DtoMotion_t dto = { .progress_pct = pct, .position_mm = position_mm };
     CORE1_EMIT(EV_MOT_PROGRESS, motion, dto);
 }
 

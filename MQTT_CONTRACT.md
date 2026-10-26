@@ -121,7 +121,14 @@ Enviado por el dashboard con QoS 1. El campo `cid` (correlation ID) permite corr
 | `fsm_search,<vel>` | Buscar jeringa |
 | `fsm_reset` | Reset FSM |
 | `fsm_occ_rel` | Liberar oclusión |
+| `fsm_resume` | Reanudar infusión tras oclusión |
 | `fsm_calibrate` | Calibrar recorrido |
+| `config_thresholds,<v_syr>,<v_occ>,<v_rel>` | Configurar umbrales ADC en V (contacto, oclusión, release) |
+| `set_syringe_thresh,<v>` | Configurar umbral de contacto con jeringa (V) |
+| `set_occ_thresh,<v>` | Configurar umbral de detección de oclusión (V) |
+| `set_occ_rel_thresh,<v>` | Configurar umbral de liberación de oclusión (V) |
+| `config_antibolus,<auto\|manual>` | Configurar modo anti-bolus (`auto` habilitado por defecto, o `manual`) |
+| `set_antibolus_auto,<1\|0>` | Habilitar (1) o deshabilitar (0) anti-bolus automático |
 | `config_wifi,<ssid>,<pass>` | Cambiar credenciales WiFi |
 | `config_mqtt,<ip>,<port>` | Cambiar broker MQTT |
 | `config_save` | Guardar config en flash |
