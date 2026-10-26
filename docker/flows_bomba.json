@@ -223,8 +223,8 @@
     "id": "n_telem_in",
     "type": "mqtt in",
     "z": "fl_main",
-    "name": "Telemetría",
-    "topic": "bj/+/telemetry",
+    "name": "Telemetría EDA",
+    "topic": "bj/+/telemetry/+",
     "qos": "0",
     "datatype": "utf8",
     "broker": "cf_broker",
@@ -308,9 +308,9 @@
     "id": "fn_telem",
     "type": "function",
     "z": "fl_main",
-    "name": "Parse Telemetría",
-    "func": "try {\n  const d = JSON.parse(msg.payload);\n  const parts = msg.topic.split('/');\n  const id = parts[1] || context.global.get('online_device_id') || 'device';\n  return [\n    { payload: d.rate },\n    { payload: d, deviceId: id },\n    { payload: d.pres, topic: id + ' pres' }\n  ];\n} catch(e) { return [null,null,null]; }",
-    "outputs": 3,
+    "name": "Router Telemetría EDA",
+    "func": "try {\n  const d = JSON.parse(msg.payload);\n  const parts = msg.topic.split('/');\n  const devId = parts[1] || context.global.get('online_device_id') || 'bj-001';\n  const sub = parts[3]; // 'sensors', 'motion', 'session'\n\n  let outRate = null;\n  let outTelem = null;\n  let outChart = null;\n  let outState = null;\n\n  if (sub === 'sensors') {\n    outChart = { payload: d.pressure_mmhg, topic: devId + ' pres' };\n  } else if (sub === 'session') {\n    outRate = { payload: d.rate_ml_h };\n    outTelem = { payload: d, deviceId: devId };\n    if (d.fsm_state != null) {\n      outState = { payload: { fsm_to: d.fsm_state } };\n    }\n  } else if (sub === 'motion') {\n    outTelem = { payload: d, deviceId: devId };\n  }\n\n  return [outRate, outTelem, outChart, outState];\n} catch(e) {\n  return [null, null, null, null];\n}",
+    "outputs": 4,
     "timeout": 0,
     "noerr": 0,
     "initialize": "",
@@ -320,8 +320,9 @@
     "y": 60,
     "wires": [
       ["w_rate"],
-      ["w_telem", "w_alm", "w_state"],
-      ["w_chart"]
+      ["w_telem"],
+      ["w_chart"],
+      ["w_state", "w_fsm_state_ctrl"]
     ]
   },
   {
@@ -345,8 +346,8 @@
     "type": "function",
     "z": "fl_main",
     "name": "Format Evento",
-    "func": "try {\n  const d = JSON.parse(msg.payload);\n  const t = new Date().toLocaleTimeString('es-MX');\n  const CORE1 = [\n    'ESPERANDO','HOMING','REL_LSW_INI','COLOQUE JERINGA',\n    'BUSCANDO JERINGA','JERINGA OK','DISPENSANDO','FIN DE DISPENSADO',\n    'NUEVO_DISP','BUSCANDO_EOT','FRENANDO_EOT','FIN DE RECORRIDO',\n    'FALLA','OCLUSIÓN','OCC_LIBERANDO','OCC_PAUSADO',\n    'MANUAL','INICIANDO CALIBRACIÓN','CALIBRANDO...','FREN_LSW_INI','FREN_LSW_FIN'\n  ];\n  let log = context.global.get('event_log') || [];\n  let detail, fsmMsg = null;\n  if (d.type === 'alarm') {\n    detail = 'ALARMA ' + (d.code||'').toUpperCase() + ' lvl ' + d.level;\n  } else if (d.type === 'state') {\n    const from = CORE1[d.from] !== undefined ? CORE1[d.from] : String(d.from);\n    const to   = CORE1[d.to]   !== undefined ? CORE1[d.to]   : String(d.to);\n    detail = from + ' → ' + to;\n    context.global.set('fsm_state', d.to);\n    fsmMsg = { payload: { fsm_from: d.from, fsm_to: d.to } };\n  } else {\n    detail = d.msg || JSON.stringify(d);\n  }\n  log.unshift({ time: t, tipo: d.type || 'info', detalle: detail });\n  if (log.length > 25) log = log.slice(0, 25);\n  context.global.set('event_log', log);\n  const notif = d.type === 'alarm'\n    ? { payload: '⚠ ALARMA: ' + (d.code||'').toUpperCase() + ' (nivel ' + d.level + ')', topic: 'error' }\n    : null;\n  return [{ payload: log }, notif, fsmMsg];\n} catch(e) {\n  node.error('fn_event: ' + e.message, msg);\n  return [null, null, null];\n}",
-    "outputs": 3,
+    "func": "try {\n  const d = JSON.parse(msg.payload);\n  const t = new Date().toLocaleTimeString('es-MX');\n  const CORE1 = [\n    'ESPERANDO (UNHOMED)',\n    'HOMING',\n    'REL_LSW_INI',\n    'LISTO EN HOME',\n    'BUSCANDO JERINGA',\n    'JERINGA ACOPLADA',\n    'DISPENSANDO',\n    'FIN DE DISPENSADO',\n    'NUEVO DISPENSADO',\n    'BUSCANDO EOT',\n    'REL_LSW_FIN',\n    'FIN DE RECORRIDO',\n    'FALLA MOTOR',\n    'OCLUSIÓN FRENANDO',\n    'LIBERANDO OCLUSIÓN',\n    'PAUSA POR OCLUSIÓN',\n    'MANUAL OVERRIDE',\n    'CALIB INI (BUSCA 0)',\n    'CALIB FIN (BUSCA MAX)',\n    'FRENANDO LSW INI',\n    'FRENANDO LSW FIN'\n  ];\n  let log = context.global.get('event_log') || [];\n  let alarms = context.global.get('active_alarms') || {\n    occ: 0, bub: 0, eot: 0, emp: 0, drv: 0, bat: 0\n  };\n  let detail = '', fsmMsg = null;\n\n  if (d.type === 'alarm') {\n    const code = (d.code || '').toLowerCase();\n    alarms[code] = 1;\n    context.global.set('active_alarms', alarms);\n    detail = '⚠ ALARMA ' + code.toUpperCase() + ' (lvl ' + d.level + ')';\n  } else if (d.type === 'state') {\n    const from = CORE1[d.from] !== undefined ? CORE1[d.from] : String(d.from);\n    const to   = CORE1[d.to]   !== undefined ? CORE1[d.to]   : String(d.to);\n    detail = from + ' → ' + to;\n    context.global.set('fsm_state', d.to);\n    fsmMsg = { payload: { fsm_from: d.from, fsm_to: d.to } };\n    if (d.to === 3 || d.to === 6) {\n      alarms.occ = 0;\n      alarms.drv = 0;\n      context.global.set('active_alarms', alarms);\n    }\n  } else {\n    detail = d.msg || JSON.stringify(d);\n  }\n\n  log.unshift({ time: t, tipo: d.type || 'info', detalle: detail });\n  if (log.length > 25) log = log.slice(0, 25);\n  context.global.set('event_log', log);\n\n  const notif = (d.type === 'alarm')\n    ? { payload: '⚠ ALARMA: ' + (d.code||'').toUpperCase() + ' (nivel ' + d.level + ')', topic: 'error' }\n    : null;\n  const almMsg = { payload: { alm: alarms } };\n\n  return [{ payload: log }, notif, fsmMsg, almMsg];\n} catch(e) {\n  node.error('fn_event: ' + e.message, msg);\n  return [null, null, null, null];\n}",
+    "outputs": 4,
     "timeout": 0,
     "noerr": 0,
     "initialize": "",
@@ -357,7 +358,8 @@
     "wires": [
       ["w_events"],
       ["w_notif"],
-      ["w_state", "w_fsm_state_ctrl"]
+      ["w_state", "w_fsm_state_ctrl"],
+      ["w_alm"]
     ]
   },
   {
@@ -444,7 +446,7 @@
     "x": 560,
     "y": 60,
     "wires": [],
-    "format": "<template>\n  <div style=\"padding:10px;text-align:center\">\n    <div style=\"font-size:9px;letter-spacing:.1em;opacity:0.5;margin-bottom:3px\">BOMBA (API)</div>\n    <div :style=\"{fontSize:'18px',fontWeight:'bold',color:pumpColor,transition:'color 0.3s'}\">{{ pumpLabel }}</div>\n    <div style=\"border-top:1px solid #333;margin:8px 0\"></div>\n    <div style=\"font-size:9px;letter-spacing:.1em;opacity:0.5;margin-bottom:3px\">MOTOR (FSM)</div>\n    <div :style=\"{fontSize:'14px',fontWeight:'bold',color:fsmColor,transition:'color 0.3s'}\">{{ fsmLabel }}</div>\n    <div v-if=\"fsmSt !== null\" style=\"font-size:10px;opacity:0.4;margin-top:2px\">#{{ fsmSt }}</div>\n  </div>\n</template>\n<script>\n  const PUMP_LABELS = ['DETENIDA','INFUSANDO','BOLUS','PURGA','KVO','PAUSADA','ALARMA'];\n  const PUMP_COLORS = ['#9e9e9e','#4caf50','#2196f3','#ff9800','#9c27b0','#ffb300','#f44336'];\n  const CORE1_LABELS = [\n    'ESPERANDO','HOMING','REL_LSW_INI','COLOQUE JERINGA',\n    'BUSCANDO JERINGA','JERINGA OK','DISPENSANDO','FIN DE DISPENSADO',\n    'NUEVO DISP','BUSCANDO EOT','FRENANDO EOT','FIN DE RECORRIDO',\n    'FALLA','OCLUSIÓN','OCC LIBERANDO','OCC PAUSADO',\n    'MANUAL','INICIANDO CALIBRACIÓN','CALIBRANDO...','FREN LSW INI','FREN LSW FIN'\n  ];\n  const CORE1_COLORS = [\n    '#9e9e9e','#ffb300','#ffb300','#4caf50',\n    '#2196f3','#2196f3','#4caf50','#9e9e9e',\n    '#9e9e9e','#2196f3','#ffb300','#9e9e9e',\n    '#f44336','#f44336','#ffb300','#ff9800',\n    '#9c27b0','#00bcd4','#00bcd4','#ffb300','#ffb300'\n  ];\n  export default {\n    data() { return { pumpSt: null, fsmSt: null } },\n    computed: {\n      pumpLabel() { return this.pumpSt != null ? (PUMP_LABELS[this.pumpSt] || '—') : '—' },\n      pumpColor() { return this.pumpSt != null ? (PUMP_COLORS[this.pumpSt] || '#9e9e9e') : '#9e9e9e' },\n      fsmLabel()  { return this.fsmSt  != null ? (CORE1_LABELS[this.fsmSt] || String(this.fsmSt)) : 'SIN DATOS' },\n      fsmColor()  { return this.fsmSt  != null ? (CORE1_COLORS[this.fsmSt] || '#9e9e9e') : '#555' }\n    },\n    watch: {\n      'msg.payload': {\n        immediate: true,\n        handler(d) {\n          if (!d) return;\n          if (d.st != null)     this.pumpSt = d.st;\n          if (d.fsm_to != null) this.fsmSt  = d.fsm_to;\n        }\n      }\n    }\n  }\n</script>"
+    "format": "<template>\n  <div style=\"padding:12px;text-align:center\">\n    <div style=\"font-size:10px;letter-spacing:.12em;opacity:0.5;margin-bottom:6px\">ESTADO MOTOR (Core1 FSM)</div>\n    <div :style=\"{fontSize:'20px',fontWeight:'bold',color:fsmColor,transition:'color 0.3s'}\">{{ fsmLabel }}</div>\n    <div v-if=\"fsmSt !== null\" style=\"font-size:11px;opacity:0.4;margin-top:4px\">estado #{{ fsmSt }}</div>\n  </div>\n</template>\n<script>\n  const CORE1_LABELS = [\n    'ESPERANDO (UNHOMED)',\n    'HOMING',\n    'REL_LSW_INI',\n    'LISTO EN HOME',\n    'BUSCANDO JERINGA',\n    'JERINGA ACOPLADA',\n    'DISPENSANDO',\n    'FIN DE DISPENSADO',\n    'NUEVO DISPENSADO',\n    'BUSCANDO EOT',\n    'REL_LSW_FIN',\n    'FIN DE RECORRIDO',\n    'FALLA MOTOR',\n    'OCLUSIÓN FRENANDO',\n    'LIBERANDO OCLUSIÓN',\n    'PAUSA POR OCLUSIÓN',\n    'MANUAL OVERRIDE',\n    'CALIB INI (BUSCA 0)',\n    'CALIB FIN (BUSCA MAX)',\n    'FRENANDO LSW INI',\n    'FRENANDO LSW FIN'\n  ];\n  const CORE1_COLORS = [\n    '#9e9e9e','#ffb300','#ffb300','#4caf50',\n    '#2196f3','#00bcd4','#4caf50','#8bc34a',\n    '#9e9e9e','#2196f3','#ffb300','#9e9e9e',\n    '#f44336','#f44336','#ffb300','#ff9800',\n    '#9c27b0','#00bcd4','#00bcd4','#ffb300','#ffb300'\n  ];\n  export default {\n    data() { return { fsmSt: null } },\n    computed: {\n      fsmLabel() { return this.fsmSt != null ? (CORE1_LABELS[this.fsmSt] || String(this.fsmSt)) : 'SIN DATOS' },\n      fsmColor() { return this.fsmSt != null ? (CORE1_COLORS[this.fsmSt] || '#9e9e9e') : '#555' }\n    },\n    watch: {\n      'msg.payload': {\n        immediate: true,\n        handler(d) {\n          if (!d) return;\n          if (typeof d === 'number') this.fsmSt = d;\n          else if (d.fsm_state != null) this.fsmSt = d.fsm_state;\n          else if (d.fsm_to != null) this.fsmSt = d.fsm_to;\n        }\n      }\n    }\n  }\n</script>"
   },
   {
     "id": "w_telem",
@@ -454,7 +456,7 @@
     "name": "Stats Infusión",
     "order": 1,
     "width": 6,
-    "height": 2,
+    "height": 3,
     "storeState": true,
     "passthru": false,
     "resendOnReconnect": true,
@@ -463,7 +465,7 @@
     "x": 560,
     "y": 180,
     "wires": [],
-    "format": "<template>\n  <div style=\"padding:8px;font-size:13px\">\n    <div style=\"display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid #333\">\n      <span>Infundido</span>\n      <b>{{ msg.payload && msg.payload.vol_inf != null ? msg.payload.vol_inf.toFixed(2) : '—' }} mL</b>\n    </div>\n    <div style=\"display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid #333\">\n      <span>Objetivo</span>\n      <b>{{ msg.payload && msg.payload.vol_tgt != null ? msg.payload.vol_tgt.toFixed(2) : '—' }} mL</b>\n    </div>\n    <div style=\"display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid #333\">\n      <span>Transcurrido</span>\n      <b>{{ msg.payload && msg.payload.t_ela_s ? (Math.floor(msg.payload.t_ela_s/3600)+'h '+Math.floor(msg.payload.t_ela_s%3600/60)+'m '+Math.floor(msg.payload.t_ela_s%60)+'s') : '0h 0m 0s' }}</b>\n    </div>\n    <div style=\"display:flex;justify-content:space-between;padding:5px 0\">\n      <span>Restante</span>\n      <b>{{ msg.payload && msg.payload.t_rem_h > 0 ? (msg.payload.t_rem_h * 60).toFixed(1)+' min' : '—' }}</b>\n    </div>\n  </div>\n</template>"
+    "format": "<template>\n  <div style=\"padding:8px;font-size:13px\">\n    <div style=\"display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid #333\">\n      <span>Infundido</span>\n      <b>{{ inf.toFixed(2) }} mL</b>\n    </div>\n    <div style=\"display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid #333\">\n      <span>Objetivo</span>\n      <b>{{ tgt.toFixed(2) }} mL</b>\n    </div>\n    <div style=\"display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid #333\">\n      <span>Transcurrido</span>\n      <b>{{ timeStr }}</b>\n    </div>\n    <div style=\"display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid #333\">\n      <span>Restante</span>\n      <b>{{ remStr }}</b>\n    </div>\n    <div style=\"display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid #333\">\n      <span>Posición émbolo</span>\n      <b>{{ posMm.toFixed(2) }} mm</b>\n    </div>\n    <div style=\"margin-top:6px\">\n      <div style=\"display:flex;justify-content:space-between;font-size:11px;opacity:0.7;margin-bottom:2px\">\n        <span>Progreso</span>\n        <b>{{ progPct.toFixed(1) }}%</b>\n      </div>\n      <div style=\"width:100%;height:6px;background:#2a2a4a;border-radius:3px;overflow:hidden\">\n        <div :style=\"{width: Math.min(progPct, 100) + '%', height: '100%', background: '#4caf50', transition: 'width 0.4s'}\"></div>\n      </div>\n    </div>\n  </div>\n</template>\n<script>\nexport default {\n  data() {\n    return {\n      inf: 0.0,\n      tgt: 0.0,\n      elaS: 0,\n      rate: 0.0,\n      posMm: 0.0,\n      progPct: 0.0\n    };\n  },\n  computed: {\n    timeStr() {\n      const s = this.elaS || 0;\n      const h = Math.floor(s / 3600);\n      const m = Math.floor((s % 3600) / 60);\n      const sec = Math.floor(s % 60);\n      return h + 'h ' + m + 'm ' + sec + 's';\n    },\n    remStr() {\n      if (this.rate > 0 && this.tgt > this.inf) {\n        const remH = (this.tgt - this.inf) / this.rate;\n        return (remH * 60).toFixed(1) + ' min';\n      }\n      return '—';\n    }\n  },\n  watch: {\n    'msg.payload': {\n      immediate: true,\n      handler(d) {\n        if (!d) return;\n        if (d.infused_ml != null)  this.inf     = d.infused_ml;\n        if (d.target_ml != null)   this.tgt     = d.target_ml;\n        if (d.rate_ml_h != null)   this.rate    = d.rate_ml_h;\n        if (d.elapsed_s != null)   this.elaS    = d.elapsed_s;\n        if (d.position_mm != null) this.posMm   = d.position_mm;\n        if (d.progress_pct != null)this.progPct = d.progress_pct;\n      }\n    }\n  }\n}\n</script>"
   },
   {
     "id": "w_rate",
@@ -555,7 +557,7 @@
     "x": 700,
     "y": 600,
     "wires": [],
-    "format": "<template>\n  <div style=\"display:flex;align-items:center;justify-content:center;gap:24px;padding:12px;height:100%\">\n    <div style=\"text-align:center\">\n      <div style=\"font-size:9px;letter-spacing:.12em;opacity:0.4;margin-bottom:6px\">ESTADO MOTOR (Core1 FSM)</div>\n      <div :style=\"{fontSize:'32px',fontWeight:'bold',color:fsmColor,transition:'color 0.4s',letterSpacing:'.02em'}\">{{ fsmLabel }}</div>\n      <div v-if=\"fsmSt !== null\" style=\"font-size:11px;opacity:0.35;margin-top:4px\">estado #{{ fsmSt }}</div>\n    </div>\n    <div :style=\"{width:'14px',height:'14px',borderRadius:'50%',background:fsmColor,boxShadow:'0 0 8px '+fsmColor,transition:'background 0.4s',flexShrink:0}\"></div>\n  </div>\n</template>\n<script>\n  const CORE1_LABELS = [\n    'ESPERANDO','HOMING','REL_LSW_INI','COLOQUE JERINGA',\n    'BUSCANDO JERINGA','JERINGA OK','DISPENSANDO','FIN DE DISPENSADO',\n    'NUEVO DISP','BUSCANDO EOT','FRENANDO EOT','FIN DE RECORRIDO',\n    'FALLA','OCLUSIÓN','OCC LIBERANDO','OCC PAUSADO',\n    'MANUAL','INICIANDO CALIBRACIÓN','CALIBRANDO...','FREN LSW INI','FREN LSW FIN'\n  ];\n  const CORE1_COLORS = [\n    '#9e9e9e','#ffb300','#ffb300','#4caf50',\n    '#2196f3','#2196f3','#4caf50','#9e9e9e',\n    '#9e9e9e','#2196f3','#ffb300','#9e9e9e',\n    '#f44336','#f44336','#ffb300','#ff9800',\n    '#9c27b0','#00bcd4','#00bcd4','#ffb300','#ffb300'\n  ];\n  export default {\n    data() { return { fsmSt: null } },\n    computed: {\n      fsmLabel() { return this.fsmSt != null ? (CORE1_LABELS[this.fsmSt] || String(this.fsmSt)) : 'SIN DATOS' },\n      fsmColor() { return this.fsmSt != null ? (CORE1_COLORS[this.fsmSt] || '#9e9e9e') : '#555' }\n    },\n    watch: {\n      'msg.payload': {\n        immediate: true,\n        handler(d) { if (d && d.fsm_to != null) this.fsmSt = d.fsm_to; }\n      }\n    }\n  }\n</script>"
+    "format": "<template>\n  <div style=\"display:flex;align-items:center;justify-content:center;gap:24px;padding:12px;height:100%\">\n    <div style=\"text-align:center\">\n      <div style=\"font-size:9px;letter-spacing:.12em;opacity:0.4;margin-bottom:6px\">ESTADO MOTOR (Core1 FSM)</div>\n      <div :style=\"{fontSize:'32px',fontWeight:'bold',color:fsmColor,transition:'color 0.4s',letterSpacing:'.02em'}\">{{ fsmLabel }}</div>\n      <div v-if=\"fsmSt !== null\" style=\"font-size:11px;opacity:0.35;margin-top:4px\">estado #{{ fsmSt }}</div>\n    </div>\n    <div :style=\"{width:'14px',height:'14px',borderRadius:'50%',background:fsmColor,boxShadow:'0 0 8px '+fsmColor,transition:'background 0.4s',flexShrink:0}\"></div>\n  </div>\n</template>\n<script>\n  const CORE1_LABELS = [\n    'ESPERANDO (UNHOMED)',\n    'HOMING',\n    'REL_LSW_INI',\n    'LISTO EN HOME',\n    'BUSCANDO JERINGA',\n    'JERINGA ACOPLADA',\n    'DISPENSANDO',\n    'FIN DE DISPENSADO',\n    'NUEVO DISPENSADO',\n    'BUSCANDO EOT',\n    'REL_LSW_FIN',\n    'FIN DE RECORRIDO',\n    'FALLA MOTOR',\n    'OCLUSIÓN FRENANDO',\n    'LIBERANDO OCLUSIÓN',\n    'PAUSA POR OCLUSIÓN',\n    'MANUAL OVERRIDE',\n    'CALIB INI (BUSCA 0)',\n    'CALIB FIN (BUSCA MAX)',\n    'FRENANDO LSW INI',\n    'FRENANDO LSW FIN'\n  ];\n  const CORE1_COLORS = [\n    '#9e9e9e','#ffb300','#ffb300','#4caf50',\n    '#2196f3','#00bcd4','#4caf50','#8bc34a',\n    '#9e9e9e','#2196f3','#ffb300','#9e9e9e',\n    '#f44336','#f44336','#ffb300','#ff9800',\n    '#9c27b0','#00bcd4','#00bcd4','#ffb300','#ffb300'\n  ];\n  export default {\n    data() { return { fsmSt: null } },\n    computed: {\n      fsmLabel() { return this.fsmSt != null ? (CORE1_LABELS[this.fsmSt] || String(this.fsmSt)) : 'SIN DATOS' },\n      fsmColor() { return this.fsmSt != null ? (CORE1_COLORS[this.fsmSt] || '#9e9e9e') : '#555' }\n    },\n    watch: {\n      'msg.payload': {\n        immediate: true,\n        handler(d) {\n          if (!d) return;\n          if (typeof d === 'number') this.fsmSt = d;\n          else if (d.fsm_state != null) this.fsmSt = d.fsm_state;\n          else if (d.fsm_to != null) this.fsmSt = d.fsm_to;\n        }\n      }\n    }\n  }\n</script>"
   },
   {
     "id": "w_fsm_cmds",
@@ -825,16 +827,16 @@
     "id": "fn_init_events",
     "type": "function",
     "z": "fl_main",
-    "name": "Reload eventos",
-    "func": "var log = context.global.get('event_log') || [];\nreturn [{ payload: log }];",
-    "outputs": 1,
+    "name": "Reload eventos y alarmas",
+    "func": "var log = context.global.get('event_log') || [];\nvar alarms = context.global.get('active_alarms') || { occ: 0, bub: 0, eot: 0, emp: 0, drv: 0, bat: 0 };\nreturn [{ payload: log }, { payload: { alm: alarms } }];",
+    "outputs": 2,
     "timeout": 0,
     "noerr": 0,
     "initialize": "",
     "finalize": "",
     "libs": [],
-    "x": 320,
+    "x": 340,
     "y": 360,
-    "wires": [["w_events"]]
+    "wires": [["w_events"], ["w_alm"]]
   }
 ]

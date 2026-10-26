@@ -92,13 +92,14 @@ static void publish_motion(void) {
 }
 
 static void publish_session(void) {
-    char buf[128];
+    char buf[160];
     snprintf(buf, sizeof(buf),
              "{\"session_id\":%u,\"infused_ml\":%.2f,\"target_ml\":%.2f,"
-             "\"rate_ml_h\":%.1f,\"elapsed_s\":%u}",
+             "\"rate_ml_h\":%.1f,\"elapsed_s\":%u,\"fsm_state\":%u}",
              (unsigned)s_snap.session_id,
              s_snap.infused_volume_ml, s_snap.target_volume_ml,
-             s_snap.rate_ml_h, (unsigned)s_snap.elapsed_s);
+             s_snap.rate_ml_h, (unsigned)s_snap.elapsed_s,
+             (unsigned)s_snap.fsm_state);
     mqtt_client_publish(topic_telemetry_session(), buf);
 }
 
@@ -108,6 +109,23 @@ static void publish_fsm_on_event(const SystemEvent_t *ev) {
              "{\"type\":\"state\",\"from\":%u,\"to\":%u}",
              (unsigned)ev->payload.fsm.state_from,
              (unsigned)ev->payload.fsm.state_to);
+    mqtt_client_publish_qos1(topic_event(), buf);
+}
+
+static void publish_alarm_on_event(const SystemEvent_t *ev) {
+    const char *code = "err";
+    switch (ev->id) {
+    case EV_ALARM_OCCLUSION:   code = "occ"; break;
+    case EV_ALARM_EOT:         code = "eot"; break;
+    case EV_ALARM_DRV_FAULT:   code = "drv"; break;
+    case EV_ALARM_BATTERY_LOW: code = "bat"; break;
+    case EV_ALARM_MAINS_LOST:  code = "mains"; break;
+    default: break;
+    }
+    char buf[64];
+    snprintf(buf, sizeof(buf),
+             "{\"type\":\"alarm\",\"code\":\"%s\",\"level\":%u}",
+             code, (unsigned)ev->payload.alarm.severity);
     mqtt_client_publish_qos1(topic_event(), buf);
 }
 
@@ -125,12 +143,16 @@ static void task_mqtt_consumer(void *arg) {
             apply_event(&ev);
             if (ev.id == EV_APP_FSM_STATE)
                 publish_fsm_on_event(&ev);
+            else if (EV_IS_ALARM(ev.id))
+                publish_alarm_on_event(&ev);
 
             // Drain burst without blocking
             while (xQueueReceive(g_mqtt_q, &ev, 0) == pdTRUE) {
                 apply_event(&ev);
                 if (ev.id == EV_APP_FSM_STATE)
                     publish_fsm_on_event(&ev);
+                else if (EV_IS_ALARM(ev.id))
+                    publish_alarm_on_event(&ev);
             }
         }
 

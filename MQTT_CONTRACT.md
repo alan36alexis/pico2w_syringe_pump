@@ -1,199 +1,209 @@
-# Contrato MQTT — Bomba de Infusión a Jeringa IoT
+# Contrato MQTT — Bomba de Infusión a Jeringa IoT (Arquitectura EDA)
 
-Documento de referencia para el firmware (Pico W2) y el dashboard (Node-RED).
-Todo mensaje MQTT del sistema debe conformar los esquemas de este documento.
+Documento oficial de referencia para el firmware (Pico 2 W / RP2350), el simulador en Python y el dashboard (Node-RED).
+Todo mensaje MQTT del sistema debe conformar los esquemas y políticas definidos en este documento.
+
+> **Nota sobre el tópico legado:** El antiguo tópico monolítico `bj/{device_id}/telemetry` ha sido reemplazado formalmente por la arquitectura multi-rate EDA dividida en sensores, cinemática y sesión clínica.
 
 ---
 
-## Jerarquía de tópicos
+## 1. Jerarquía de Tópicos
 
 | Tópico | QoS | Retain | Período / Disparo | Dirección |
 |--------|-----|--------|-------------------|-----------|
-| `bj/{device_id}/telemetry` | 0 | No | 2000 ms | Firmware → Dashboard |
-| `bj/{device_id}/event` | 1 | No | Por disparo | Firmware → Dashboard |
-| `bj/{device_id}/status` | 1 | **Sí** | Conexión / LWT | Firmware / Broker → Dashboard |
-| `bj/{device_id}/cmd` | 1 | No | Por disparo | Dashboard → Firmware |
-| `bj/{device_id}/cmd/ack` | 1 | No | Por disparo | Firmware → Dashboard |
+| `bj/{device_id}/telemetry/sensors` | 0 | No | 500 ms | Firmware / Sim → Dashboard |
+| `bj/{device_id}/telemetry/motion`  | 0 | No | 1000 ms | Firmware / Sim → Dashboard |
+| `bj/{device_id}/telemetry/session` | 0 | No | 2000 ms | Firmware / Sim → Dashboard |
+| `bj/{device_id}/event`             | 1 | No | Por disparo | Firmware / Sim → Dashboard |
+| `bj/{device_id}/status`            | 1 | **Sí** | Conexión / LWT | Firmware / Broker → Dashboard |
+| `bj/{device_id}/cmd`               | 1 | No | Por disparo | Dashboard → Firmware / Sim |
+| `bj/{device_id}/cmd/ack`           | 1 | No | Por disparo | Firmware / Sim → Dashboard |
 
-`{device_id}` tiene el formato `bj-XXXXXXXX` (8 hex chars derivados del ID único del chip RP2350).
+`{device_id}` tiene el formato `bj-XXXXXXXX` (8 caracteres hexadecimales derivados del identificador único del chip RP2350 o prefijo de simulación).
 
 ---
 
-## Esquemas JSON
+## 2. Esquemas JSON de Telemetría (Multi-rate EDA)
 
-### `bj/{device_id}/telemetry`
-
-Publicado cada 2 s. QoS 0 — perder una muestra es aceptable; la siguiente reemplaza.
+### A. Sensores de Presión: `bj/{device_id}/telemetry/sensors`
+Publicado cada **500 ms** (2 Hz) con QoS 0. Proporciona datos de alta frecuencia para gráficos de presión de línea y detección visual de oclusiones.
 
 ```json
 {
-  "vol_inf": 10.83,
-  "vol_tgt": 20.00,
-  "rate":    50.00,
-  "t_ela_s": 780.0,
-  "t_rem_h": 0.18,
-  "pres":    12.2,
-  "st":      1,
-  "alm": {
-    "occ":  0,
-    "near": 0,
-    "end":  0,
-    "bub":  0,
-    "emp":  0,
-    "err":  0
-  }
+  "pressure_psi": 0.235,
+  "pressure_mmhg": 12.2
 }
 ```
 
 | Campo | Tipo | Unidad | Descripción |
 |-------|------|--------|-------------|
-| `vol_inf` | float | mL | Volumen infundido (±0.01 mL) |
-| `vol_tgt` | float | mL | Volumen objetivo |
-| `rate` | float | mL/h | Caudal actual |
-| `t_ela_s` | float | s | Tiempo transcurrido (1 decimal) |
-| `t_rem_h` | float | h | Tiempo restante estimado |
-| `pres` | float | mmHg | Presión de línea (1 decimal) |
-| `st` | int | — | Estado FSM: 0=STOPPED 1=CONT 2=BOLUS 3=PURGE 4=KVO 5=PAUSED 6=ALARM |
-| `alm.occ` | 0/1 | — | Oclusión detectada |
-| `alm.near` | 0/1 | — | Último 10% de infusión |
-| `alm.end` | 0/1 | — | Fin de infusión |
-| `alm.bub` | 0/1 | — | Burbuja en línea |
-| `alm.emp` | 0/1 | — | Jeringa vacía |
-| `alm.err` | 0/1 | — | Error de sistema |
+| `pressure_psi` | float | psi | Presión hidráulica en línea (3 decimales) |
+| `pressure_mmhg` | float | mmHg | Presión hidráulica en línea (1 decimal) |
 
 ---
 
-### `bj/{device_id}/status`
+### B. Cinemática y Motor: `bj/{device_id}/telemetry/motion`
+Publicado cada **1000 ms** (1 Hz) con QoS 0. Informa la posición mecánica del empujador, velocidad y conteo de encoder en cuadratura.
 
-LWT configurado en el broker; publicado también por el firmware al conectar. Retain = true.
-
-**Online** (publicado por el firmware tras conexión exitosa):
 ```json
-{"state": "online", "id": "bj-abc12345", "fw": "v1.0.0"}
+{
+  "encoder_count": 15200,
+  "position_mm": 15.20,
+  "speed_ums": 450.0,
+  "progress_pct": 50.0
+}
 ```
 
-**Offline** (publicado por el broker al vencer el keepalive — LWT):
+| Campo | Tipo | Unidad | Descripción |
+|-------|------|--------|-------------|
+| `encoder_count` | int | pulsos | Conteo acumulado del encoder por hardware (PIO) |
+| `position_mm` | float | mm | Desplazamiento lineal del émbolo (2 decimales) |
+| `speed_ums` | float | µm/s | Velocidad lineal instantánea medida |
+| `progress_pct` | float | % | Porcentaje completado respecto al objetivo (0.0 a 100.0) |
+
+---
+
+### C. Sesión Clínica e Infusión: `bj/{device_id}/telemetry/session`
+Publicado cada **2000 ms** (0.5 Hz) con QoS 0. Estado de la infusión, volúmenes acumulados y estado de la FSM.
+
 ```json
-{"state": "offline", "id": "bj-abc12345"}
+{
+  "session_id": 1,
+  "infused_ml": 5.25,
+  "target_ml": 10.00,
+  "rate_ml_h": 50.0,
+  "elapsed_s": 378,
+  "fsm_state": 6
+}
+```
+
+| Campo | Tipo | Unidad | Descripción |
+|-------|------|--------|-------------|
+| `session_id` | int | — | Identificador secuencial de la sesión de infusión |
+| `infused_ml` | float | mL | Volumen real infundido al paciente |
+| `target_ml` | float | mL | Volumen objetivo programado (VTBI) |
+| `rate_ml_h` | float | mL/h | Caudal configurado |
+| `elapsed_s` | int | s | Tiempo transcurrido de infusión activa |
+| `fsm_state` | int | — | Estado actual de la FSM de Core 1 (0 a 20) |
+
+---
+
+## 3. Eventos y Alarmas: `bj/{device_id}/event`
+
+Publicado con **QoS 1** ante cambios de estado de la máquina de estados o disparo de alarmas. No utiliza flag retain.
+
+### A. Transición de Estado FSM:
+```json
+{"type": "state", "from": 3, "to": 6}
+```
+* `from`: ID del estado anterior (`Core1State_t`).
+* `to`: ID del estado nuevo (`Core1State_t`).
+
+### B. Disparo de Alarmas (IEC 60601-1-8):
+```json
+{"type": "alarm", "code": "occ", "level": 2}
+```
+* `code`: Código de la alarma:
+  - `occ`: Oclusión hidráulica en línea.
+  - `eot`: Fin de recorrido mecánico / jeringa vacía.
+  - `drv`: Falla del driver de potencia TMC2209.
+  - `bat`: Batería baja.
+  - `mains`: Pérdida de alimentación de red (220V).
+  - `bub`: Detección de burbuja de aire en línea.
+* `level`: Severidad clínica:
+  - `1`: Baja prioridad / advertencia.
+  - `2`: Media prioridad (requiere atención del operador).
+  - `3`: Alta prioridad (parada obligatoria inmediata del motor).
+
+### C. Eventos Informativos:
+```json
+{"type": "info", "msg": "dispense_finished"}
 ```
 
 ---
 
-### `bj/{device_id}/event`
+## 4. Estados FSM de Core 1 (`Core1State_t`)
 
-Publicado con QoS 1 ante cambios de estado o alarmas. No hay retain.
+El sistema cuenta con 21 estados físicos y de control en Core 1:
 
-```json
-{"type": "alarm",  "code": "occ",    "level": 2}
-{"type": "state",  "from": 1,        "to": 6}
-{"type": "info",   "msg": "kvo_start"}
-```
-
-| Campo `type` | Descripción |
-|---|---|
-| `alarm` | Alarma activada — `code` identifica el campo `alm.*`, `level` 0–3 |
-| `state` | Transición de estado FSM |
-| `info` | Evento informativo de texto libre |
-
----
-
-### `bj/{device_id}/cmd`
-
-Enviado por el dashboard con QoS 1. El campo `cid` (correlation ID) permite correlacionar el ACK.
-
-```json
-{"cid": 17, "cmd": "fsm_dispense,10000.0,450.0"}
-```
-
-| Campo | Tipo | Descripción |
-|-------|------|-------------|
-| `cid` | int | ID de correlación (generado por el dashboard, devuelto en el ack) |
-| `cmd` | string | Payload de comando — misma sintaxis que el parser CLI |
-
-**Comandos disponibles:**
-
-| Comando | Descripción |
-|---------|-------------|
-| `stop` | Detener motor suavemente |
-| `stop_imm` | Parada inmediata |
-| `fsm_dispense,<vol_um>,<vel_ums>` | Iniciar infusión |
-| `fsm_home,<vel>` | Ir a home |
-| `fsm_search,<vel>` | Buscar jeringa |
-| `fsm_reset` | Reset FSM |
-| `fsm_occ_rel` | Liberar oclusión |
-| `fsm_resume` | Reanudar infusión tras oclusión |
-| `fsm_calibrate` | Calibrar recorrido |
-| `config_thresholds,<v_syr>,<v_occ>,<v_rel>` | Configurar umbrales ADC en V (contacto, oclusión, release) |
-| `set_syringe_thresh,<v>` | Configurar umbral de contacto con jeringa (V) |
-| `set_occ_thresh,<v>` | Configurar umbral de detección de oclusión (V) |
-| `set_occ_rel_thresh,<v>` | Configurar umbral de liberación de oclusión (V) |
-| `config_antibolus,<auto\|manual>` | Configurar modo anti-bolus (`auto` habilitado por defecto, o `manual`) |
-| `set_antibolus_auto,<1\|0>` | Habilitar (1) o deshabilitar (0) anti-bolus automático |
-| `config_wifi,<ssid>,<pass>` | Cambiar credenciales WiFi |
-| `config_mqtt,<ip>,<port>` | Cambiar broker MQTT |
-| `config_save` | Guardar config en flash |
-| `config_info` | Imprimir config actual (vía log) |
+| ID | Enumeración C (`Core1State_t`) | Etiqueta UI | Descripción |
+|:--:|--------------------------------|-------------|-------------|
+| `0` | `ST_UNHOMED` | ESPERANDO (UNHOMED) | Dispositivo encendido sin referencia de home |
+| `1` | `ST_HOMING` | HOMING | Carro retrocediendo hacia sensor de inicio |
+| `2` | `ST_RELEASING_LSW_START` | REL_LSW_INI | Despegue suave del microswitch inicial |
+| `3` | `ST_READY_AT_HOME` | LISTO EN HOME | Referenciado en origen, listo para operar |
+| `4` | `ST_SEARCHING_SYRINGE` | BUSCANDO JERINGA | Avance lento buscando contacto con el émbolo |
+| `5` | `ST_SYRINGE_ENGAGED` | JERINGA ACOPLADA | Contacto detectado por celda de carga |
+| `6` | `ST_DISPENSING` | DISPENSANDO | Infusión continua o bolo en curso |
+| `7` | `ST_DISPENSE_COMPLETED` | FIN DE DISPENSADO | Objetivo de volumen alcanzado |
+| `8` | `ST_SET_NEW_DISPENSE` | NUEVO DISPENSADO | Espera de nuevos parámetros de dosis |
+| `9` | `ST_SEARCHING_EOT` | BUSCANDO EOT | Movimiento hacia límite de final de carrera |
+| `10` | `ST_RELEASING_LSW_END` | REL_LSW_FIN | Despegue del microswitch final |
+| `11` | `ST_END_OF_TRAVEL` | FIN DE RECORRIDO | Límite físico máximo alcanzado |
+| `12` | `ST_FAULT` | FALLA MOTOR | Error crítico de hardware o bloqueo |
+| `13` | `ST_OCCLUSION_STOPPING` | OCLUSIÓN FRENANDO | Frenado inmediato ante sobrepresión |
+| `14` | `ST_OCCLUSION_RELEASE` | LIBERANDO OCLUSIÓN | Retroceso anti-bolus para aliviar presión |
+| `15` | `ST_OCCLUSION_PAUSED` | PAUSA POR OCLUSIÓN | En pausa con presión aliviada |
+| `16` | `ST_MANUAL_OVERRIDE` | MANUAL OVERRIDE | Control por joystick o pasos manuales |
+| `17` | `ST_CALIB_SEEK_START` | CALIB INI (BUSCA 0) | Calibración de recorrido hacia inicio |
+| `18` | `ST_CALIB_SEEK_END` | CALIB FIN (BUSCA MAX) | Calibración hacia fin y conteo de pasos |
+| `19` | `ST_BRAKING_LSW_START` | FRENANDO LSW INI | Frenado por golpe de switch inicial |
+| `20` | `ST_BRAKING_LSW_END` | FRENANDO LSW FIN | Frenado por golpe de switch final |
 
 ---
 
-### `bj/{device_id}/cmd/ack`
+## 5. Control y Comandos: `bj/{device_id}/cmd` y `ack`
 
-Respuesta del firmware por QoS 1. El `cid` coincide con el del comando.
+Enviado por el dashboard con **QoS 1**. Cada comando incluye un Correlation ID (`cid`) para vincular la respuesta unívoca en `ack`.
 
+### A. Solicitud de Comando:
+```json
+{"cid": 17, "cmd": "fsm_dispense,30000.0,500.0"}
+```
+
+### B. Acuse de Recibo (ACK): `bj/{device_id}/cmd/ack`
 ```json
 {"cid": 17, "result": "accepted"}
-{"cid": 17, "result": "rejected", "reason": "no_syringe"}
+```
+o en caso de rechazo:
+```json
+{"cid": 17, "result": "rejected", "reason": "invalid_state"}
 ```
 
-| `result` | Descripción |
-|----------|-------------|
-| `accepted` | Comando recibido y encolado para Core 1 |
-| `rejected` | Comando inválido, estado incompatible, o cola llena |
+### C. Catálogo de Comandos Admitidos:
+
+| Comando | Parámetros | Descripción |
+|---------|------------|-------------|
+| `stop` | Ninguno | Detención suave del motor |
+| `stop_imm` | Ninguno | Parada de emergencia inmediata (invariante de seguridad) |
+| `fsm_home` | `[<vel_um_s>]` | Iniciar rutina de homing |
+| `fsm_search` | `[<vel_um_s>]` | Buscar acople con émbolo de jeringa |
+| `fsm_dispense` | `<vol_um>,<vel_ums>` | Iniciar dispensado con distancia y velocidad |
+| `fsm_cont` | Ninguno | Continuar infusión |
+| `fsm_occ_rel` | Ninguno | Liberar oclusión y aliviar presión hidráulica |
+| `fsm_resume` | Ninguno | Reanudar infusión tras oclusión liberada |
+| `fsm_reset` | Ninguno | Restablecer fallas y poner FSM en estado inicial |
+| `fsm_calibrate` | `[<vel_move>,<vel_seek>]` | Iniciar calibración automática de longitud total |
+| `fsm_search_eot`| Ninguno | Búsqueda controlada de fin de carrera |
+| `config_thresholds` | `<v_syr>,<v_occ>,<v_rel>` | Configurar umbrales ADC (V) |
+| `set_occ_thresh` | `<volts>` | Configurar umbral de oclusión (V) |
+| `config_antibolus`| `<auto\|manual>` | Habilitar o deshabilitar retroceso anti-bolus |
+| `config_wifi` | `<ssid>,<password>` | Configurar red WiFi en caliente |
+| `config_mqtt` | `<ip>,<port>` | Configurar broker MQTT |
+| `config_save` | Ninguno | Persistir configuración en memoria Flash |
 
 ---
 
-## Diagrama de secuencia: Comando con ACK
+## 6. Presencia y Keepalive (`bj/{device_id}/status`)
 
+Configurado con **Retain = true** y **QoS 1**.
+
+* **Online** (emitido al conectar exitosamente):
+```json
+{"state": "online", "id": "bj-XXXXXXXX", "fw": "v1.0.0-eda"}
 ```
-Dashboard                    Broker                    Firmware
-    │                           │                           │
-    │── PUBLISH cmd QoS 1 ─────►│                           │
-    │   {"cid":17,"cmd":"stop"} │── DELIVER ───────────────►│
-    │                           │                           │── parsea cmd
-    │                           │                           │── encola Core1
-    │                           │◄── PUBLISH ack QoS 1 ─────│
-    │◄── DELIVER ───────────────│  {"cid":17,"result":"accepted"}
-    │                           │                           │
+
+* **Offline** (emitido automáticamente por el broker mediante Last Will and Testament al vencer el keepalive de 60 s):
+```json
+{"state": "offline", "id": "bj-XXXXXXXX"}
 ```
-
----
-
-## Reglas de suscripción para Node-RED
-
-| Tópico | QoS | Notas |
-|--------|-----|-------|
-| `bj/+/telemetry` | 0 | Stream — pérdida aceptable |
-| `bj/+/event` | 1 | No perder alarmas |
-| `bj/+/status` | 1 | Con retain para recuperar estado al reconectar |
-| `bj/+/cmd/ack` | 1 | Correlacionar con `cid` del comando enviado |
-
-Publicar a `bj/{id}/cmd` con QoS 1.
-
----
-
-## Keepalive y detección de desconexión
-
-- Keepalive configurado: **60 s**
-- El broker detecta dispositivo caído tras ~90 s sin actividad (1.5× keepalive)
-- La telemetría cada 2 s actúa como heartbeat implícito
-- El topic `status` con retain permite conocer el último estado conocido al reconectar
-
----
-
-## Versiones
-
-| Campo | Valor |
-|-------|-------|
-| Firmware target | v1.0.0 |
-| `SystemConfig_t` magic | `0xA1B2C3D5` |
-| Esquema telemetría | v1 (compatible con `Pump_GetTelemetryJSON`) |

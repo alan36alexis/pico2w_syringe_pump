@@ -1,39 +1,39 @@
 #!/usr/bin/env python3
 """
-pump_simulator.py — Simulador de Bomba de Infusión a Jeringa
-=============================================================
-Replica el comportamiento del firmware pico2w_syringe_pump (rama tft_integration)
-con telemetría JSON byte-exacta a la de Pump_GetTelemetryJSON().
+pump_simulator.py — Simulador de Bomba de Infusión a Jeringa (Arquitectura EDA)
+=============================================================================
+Replica el comportamiento del firmware pico2w_syringe_pump bajo el contrato MQTT
+moderno multi-rate (EDA):
+  - bj/{device_id}/telemetry/sensors  (QoS 0, 500 ms)
+  - bj/{device_id}/telemetry/motion   (QoS 0, 1000 ms)
+  - bj/{device_id}/telemetry/session  (QoS 0, 2000 ms)
+  - bj/{device_id}/event              (QoS 1, por disparo: FSM transitions y alarmas)
+  - bj/{device_id}/status             (QoS 1, retain: online/offline)
+  - bj/{device_id}/cmd                (QoS 1, comandos con envelope {"cid":N,"cmd":"..."})
+  - bj/{device_id}/cmd/ack            (QoS 1, ACK {"cid":N,"result":"accepted"|"rejected"})
 
 Fuentes de verdad portadas:
-  - src/syringe_pump_api.c   → modelo de estado, cinemática, alarmas, JSON
-  - src/crosscore_cmd.c      → parser de comandos MQTT/CLI
-  - src/system_config.h      → constantes clínicas y umbrales de oclusión
-
-Extras del simulador (no están en el firmware):
-  - Modelo de presión físicamente razonable (ruido basal + rampa de oclusión)
-  - Inyección de fallas vía tópico MQTT separado (sin contaminar el canal de cmd)
-  - Modo multi-instancia: --id permite correr N bombas en paralelo
-  - Reconexión automática al broker con back-off
+  - headers/core1_main.h     → Core1State_t (21 estados FSM de Core 1)
+  - src/mqtt_consumer.c      → Esquemas JSON multi-rate y eventos
+  - src/cmd_dispatcher.c     → Pipeline de comandos agnóstico
+  - headers/system_config.h  → Constantes clínicas y umbrales de oclusión
 
 Uso rápido:
-    pip install paho-mqtt
-    python pump_simulator.py --broker 192.168.1.100 --id bj-001
+    python pump_simulator.py --broker localhost --id bj-001
     python pump_simulator.py --broker 192.168.1.100 --id bj-002 --diam 19.05 --cap 20.0
 
 Comandos vía MQTT (tópico: bj/{device_id}/cmd):
-    Payload JSON del contrato: {"cid": 17, "cmd": "stop"}
-    También acepta string crudo por compatibilidad: stop
+    {"cid": 1, "cmd": "fsm_home,1500"}
+    {"cid": 2, "cmd": "fsm_dispense,30000,500"}
+    {"cid": 3, "cmd": "stop"}
 
-Inyección de fallas (tópico: bj/{device_id}/sim_fault):
-    fault_occ          →  simula oclusión (presión sube hasta umbral)
+Inyección de fallas / pruebas (tópico: bj/{device_id}/sim_fault):
+    fault_occ          →  simula rampa de oclusión hidráulica
     fault_bubble       →  dispara alarma de burbuja
-    fault_clear        →  limpia todas las fallas inyectadas
-    select_syringe,<diam_mm>,<cap_ml>   →  reconfigura jeringa en caliente
-    infuse,<rate_ml_h>,<vol_ml>         →  modo continuo con volumen objetivo
-    bolus,<vol_ml>,<rate_ml_h>          →  bolo
-    purge                               →  purga
-    kvo                                 →  modo KVO
+    fault_clear        →  limpia alarmas y restablece presión
+    infuse,<rate>,<vol>→  inicia infusión continua (mL/h, mL)
+    bolus,<vol>,<rate> →  dispara bolo (mL, mL/h)
+    purge              →  purga rápida
 """
 
 import argparse
@@ -60,94 +60,118 @@ logging.basicConfig(
 log = logging.getLogger("BombaSim")
 
 # ---------------------------------------------------------------------------
-# Constantes — portadas de system_config.h y syringe_pump_api.h
+# Constantes clínicas y cinemáticas
 # ---------------------------------------------------------------------------
 PI = 3.1415926535
 
-# Umbrales de oclusión (mmHg) — OCC_THRESHOLD_Lx_MMHG
+# Umbrales de oclusión (mmHg)
 OCC_THRESHOLDS = [225.0, 475.0, 725.0, 975.0]
 
-# Modos clínicos por defecto
 PURGE_FLOW_RATE_MLH = 1000.0
 PURGE_VOLUME_ML = 1.0
 KVO_FLOW_RATE_MLH = 1.0
 
-# Período de telemetría (ms) — coincide con task_pump_telemetry del firmware
-TELEMETRY_PERIOD_MS = 2000
+# Períodos de telemetría multi-rate EDA (ms)
+PERIOD_SENSORS_MS = 500
+PERIOD_MOTION_MS  = 1000
+PERIOD_SESSION_MS = 2000
+SIM_TICK_MS       = 100
 
-# Tick interno del simulador (ms) — resolución de la integración de volumen
-SIM_TICK_MS = 100
+MMHG_TO_PSI = 0.0193368
 
 # ---------------------------------------------------------------------------
-# Enumeraciones — portadas de syringe_pump_api.h
+# Estados FSM de Core 1 — 1:1 con headers/core1_main.h (Core1State_t)
 # ---------------------------------------------------------------------------
-class PumpState(IntEnum):
-    STOPPED               = 0
-    INFUSING_CONTINUOUS   = 1
-    INFUSING_BOLUS        = 2
-    PURGING               = 3
-    KVO                   = 4
-    PAUSED                = 5
-    ALARM                 = 6
+class Core1State(IntEnum):
+    ST_UNHOMED             = 0
+    ST_HOMING              = 1
+    ST_RELEASING_LSW_START = 2
+    ST_READY_AT_HOME       = 3
+    ST_SEARCHING_SYRINGE   = 4
+    ST_SYRINGE_ENGAGED     = 5
+    ST_DISPENSING          = 6
+    ST_DISPENSE_COMPLETED  = 7
+    ST_SET_NEW_DISPENSE    = 8
+    ST_SEARCHING_EOT       = 9
+    ST_RELEASING_LSW_END   = 10
+    ST_END_OF_TRAVEL       = 11
+    ST_FAULT               = 12
+    ST_OCCLUSION_STOPPING  = 13
+    ST_OCCLUSION_RELEASE   = 14
+    ST_OCCLUSION_PAUSED    = 15
+    ST_MANUAL_OVERRIDE     = 16
+    ST_CALIB_SEEK_START    = 17
+    ST_CALIB_SEEK_END      = 18
+    ST_BRAKING_LSW_START   = 19
+    ST_BRAKING_LSW_END     = 20
 
-# Nombres legibles para el log
-STATE_NAMES = {
-    PumpState.STOPPED:             "STOPPED",
-    PumpState.INFUSING_CONTINUOUS: "INFUSING_CONTINUOUS",
-    PumpState.INFUSING_BOLUS:      "INFUSING_BOLUS",
-    PumpState.PURGING:             "PURGING",
-    PumpState.KVO:                 "KVO",
-    PumpState.PAUSED:              "PAUSED",
-    PumpState.ALARM:               "ALARM",
+CORE1_STATE_NAMES = {
+    Core1State.ST_UNHOMED:             "ST_UNHOMED",
+    Core1State.ST_HOMING:              "ST_HOMING",
+    Core1State.ST_RELEASING_LSW_START: "ST_RELEASING_LSW_START",
+    Core1State.ST_READY_AT_HOME:       "ST_READY_AT_HOME",
+    Core1State.ST_SEARCHING_SYRINGE:   "ST_SEARCHING_SYRINGE",
+    Core1State.ST_SYRINGE_ENGAGED:     "ST_SYRINGE_ENGAGED",
+    Core1State.ST_DISPENSING:          "ST_DISPENSING",
+    Core1State.ST_DISPENSE_COMPLETED:  "ST_DISPENSE_COMPLETED",
+    Core1State.ST_SET_NEW_DISPENSE:    "ST_SET_NEW_DISPENSE",
+    Core1State.ST_SEARCHING_EOT:       "ST_SEARCHING_EOT",
+    Core1State.ST_RELEASING_LSW_END:   "ST_RELEASING_LSW_END",
+    Core1State.ST_END_OF_TRAVEL:       "ST_END_OF_TRAVEL",
+    Core1State.ST_FAULT:               "ST_FAULT",
+    Core1State.ST_OCCLUSION_STOPPING:  "ST_OCCLUSION_STOPPING",
+    Core1State.ST_OCCLUSION_RELEASE:   "ST_OCCLUSION_RELEASE",
+    Core1State.ST_OCCLUSION_PAUSED:    "ST_OCCLUSION_PAUSED",
+    Core1State.ST_MANUAL_OVERRIDE:     "ST_MANUAL_OVERRIDE",
+    Core1State.ST_CALIB_SEEK_START:    "ST_CALIB_SEEK_START",
+    Core1State.ST_CALIB_SEEK_END:      "ST_CALIB_SEEK_END",
+    Core1State.ST_BRAKING_LSW_START:   "ST_BRAKING_LSW_START",
+    Core1State.ST_BRAKING_LSW_END:     "ST_BRAKING_LSW_END",
 }
 
 # ---------------------------------------------------------------------------
-# Estructuras de datos — portadas de syringe_pump_api.h
+# Estructuras de datos
 # ---------------------------------------------------------------------------
 @dataclass
 class SyringeProfile:
-    internal_diameter_mm: float = 19.13   # 20 mL Becton-Dickinson por defecto
+    internal_diameter_mm: float = 19.05   # BD 20 mL por defecto
     max_capacity_ml: float       = 20.0
 
 @dataclass
 class PumpAlarms:
-    occlusion:             bool = False
-    near_end_of_infusion:  bool = False   # último 10%
-    end_of_infusion:       bool = False
-    bubble_in_line:        bool = False
-    syringe_empty:         bool = False
-    system_error:          bool = False
+    occlusion:     bool = False
+    bubble_in_line: bool = False
+    eot:           bool = False
+    syringe_empty: bool = False
+    drv_fault:     bool = False
+    battery_low:   bool = False
 
 @dataclass
 class PumpContext:
-    target_volume_ml:         float = 0.0
-    infused_volume_ml:        float = 0.0
-    current_rate_ml_h:        float = 0.0
-    current_pressure_mmhg:    float = 0.0
-    occlusion_threshold_mmhg: float = OCC_THRESHOLDS[3]
-    elapsed_time_s:           float = 0.0
+    session_id:               int        = 1
+    target_volume_ml:         float      = 0.0
+    infused_volume_ml:        float      = 0.0
+    current_rate_ml_h:        float      = 0.0
+    current_pressure_mmhg:    float      = 10.0
+    current_pressure_psi:     float      = 0.193
+    occlusion_threshold_mmhg: float      = OCC_THRESHOLDS[3]
+    elapsed_time_s:           float      = 0.0
+    position_mm:              float      = 0.0
+    encoder_count:            int        = 0
+    speed_ums:                float      = 0.0
+    progress_pct:             float      = 0.0
+    fsm_state:                Core1State = Core1State.ST_READY_AT_HOME
     alarms:                   PumpAlarms = field(default_factory=PumpAlarms)
-    state:                    PumpState  = PumpState.STOPPED
 
 # ---------------------------------------------------------------------------
-# Modelo de presión — no existe en el firmware (el hardware lo mide directo)
+# Modelo de Presión
 # ---------------------------------------------------------------------------
 class PressureModel:
-    """
-    Simula la presión hidráulica en línea de forma físicamente razonable.
-
-    Comportamiento:
-      - Basalino ruidoso en reposo: 5–15 mmHg
-      - Infusión normal: presión leve proporcional al caudal
-      - Fault de oclusión activo: rampa lineal hasta el umbral configurado
-        a ~100 mmHg/s (ocluyendo a 450 mL/h en una tubería de 4 Fr es ~90 mmHg/s)
-      - Al liberar oclusión (fsm_occ_rel): caída exponencial de regreso al basal
-    """
-    RAMP_UP_RATE_MMHG_S   = 100.0   # pendiente de subida al ocluyir
-    RAMP_DOWN_TAU_S       = 3.0     # constante de tiempo de caída (exponencial)
-    BASELINE_MEAN_MMHG    = 10.0
-    BASELINE_NOISE_MMHG   = 3.0
-    FLOW_COEFF_MMHG_MLH   = 0.05    # 0.05 mmHg por (mL/h) → 50 mL/h ≈ 2.5 mmHg extra
+    RAMP_UP_RATE_MMHG_S = 100.0
+    RAMP_DOWN_TAU_S     = 3.0
+    BASELINE_MEAN_MMHG  = 10.0
+    BASELINE_NOISE_MMHG = 2.5
+    FLOW_COEFF_MMHG_MLH = 0.05
 
     def __init__(self):
         self._fault_active = False
@@ -159,33 +183,28 @@ class PressureModel:
     def release(self):
         self._fault_active = False
 
-    def update(self, delta_s: float, rate_ml_h: float, threshold_mmhg: float) -> float:
+    def update(self, delta_s: float, rate_ml_h: float, threshold_mmhg: float) -> Tuple[float, float]:
         noise = random.gauss(0, self.BASELINE_NOISE_MMHG * 0.3)
         flow_component = rate_ml_h * self.FLOW_COEFF_MMHG_MLH
         baseline = self.BASELINE_MEAN_MMHG + flow_component
 
         if self._fault_active:
-            # Sube lineal hasta el umbral + 5% (reproducir el overshoot del sensor)
             target = threshold_mmhg * 1.05
             self._current_p += self.RAMP_UP_RATE_MMHG_S * delta_s
             self._current_p = min(self._current_p, target)
         else:
-            # Decaimiento exponencial hacia el basalino
             diff = self._current_p - baseline
             self._current_p -= diff * (1.0 - math.exp(-delta_s / self.RAMP_DOWN_TAU_S))
             self._current_p = max(self._current_p, 0.0)
 
-        return self._current_p + noise
+        mmhg = max(0.0, self._current_p + noise)
+        psi = mmhg * MMHG_TO_PSI
+        return mmhg, psi
 
 # ---------------------------------------------------------------------------
-# Simulador principal — porta syringe_pump_api.c + cmd_parse_and_execute()
+# Simulador Principal
 # ---------------------------------------------------------------------------
 class SyringePumpSimulator:
-    """
-    Réplica del PumpContext_t + lógica de syringe_pump_api.c en Python.
-    Thread-safe vía un único lock que protege ctx + syringe + event_queue.
-    """
-
     def __init__(self, device_id: str, diam_mm: float, cap_ml: float):
         self.device_id = device_id
         self._lock = threading.Lock()
@@ -193,46 +212,45 @@ class SyringePumpSimulator:
         self._ctx = PumpContext()
         self._syringe = SyringeProfile(diam_mm, cap_ml)
         self._syringe_area_mm2 = self._calc_area(diam_mm)
-        self._syringe_selected = True
         self._pressure_model = PressureModel()
 
         self._event_queue: list = []
-        self._prev_state: PumpState = PumpState.STOPPED  # para detectar transiciones entre ticks
+        self._state_timer: float = 0.0
+        self._pending_fsm_transition: Optional[Core1State] = None
 
-        log.info(f"[{self.device_id}] Jeringa configurada: Ø{diam_mm} mm, {cap_ml} mL")
+        log.info(f"[{self.device_id}] Inicializado. Jeringa: Ø{diam_mm} mm, {cap_ml} mL, Área={self._syringe_area_mm2:.2f} mm²")
 
-    # -----------------------------------------------------------------------
-    # Event queue — drenado por PumpMQTTClient para publicar al tópico event
-    # -----------------------------------------------------------------------
-    def pop_events(self) -> list:
-        with self._lock:
-            events = list(self._event_queue)
-            self._event_queue.clear()
-            return events
-
-    # -----------------------------------------------------------------------
-    # Cinemática interna — portada de syringe_pump_api.c
-    # -----------------------------------------------------------------------
     @staticmethod
     def _calc_area(diam_mm: float) -> float:
         r = diam_mm / 2.0
         return PI * r * r
 
-    def _ml_to_um(self, volume_ml: float) -> float:
-        """Volumen (mL) → desplazamiento lineal (µm). Idéntico al C."""
-        if self._syringe_area_mm2 <= 0.0:
+    def _ml_to_mm(self, volume_ml: float) -> float:
+        if self._syringe_area_mm2 <= 0:
             return 0.0
-        volume_mm3 = volume_ml * 1000.0
-        length_mm  = volume_mm3 / self._syringe_area_mm2
-        return length_mm * 1000.0
+        return (volume_ml * 1000.0) / self._syringe_area_mm2
 
     def _ml_h_to_um_s(self, rate_ml_h: float) -> float:
-        """Caudal (mL/h) → velocidad lineal (µm/s). Idéntico al C."""
-        return self._ml_to_um(rate_ml_h / 3600.0)
+        mm_h = self._ml_to_mm(rate_ml_h)
+        return (mm_h / 3600.0) * 1000.0
 
-    # -----------------------------------------------------------------------
-    # Pump_CheckAlarms() — portada exacta + generación de eventos
-    # -----------------------------------------------------------------------
+    def pop_events(self) -> list:
+        with self._lock:
+            evs = list(self._event_queue)
+            self._event_queue.clear()
+            return evs
+
+    def _set_fsm_state(self, new_state: Core1State):
+        if self._ctx.fsm_state != new_state:
+            prev = self._ctx.fsm_state
+            self._ctx.fsm_state = new_state
+            self._event_queue.append({
+                "type": "state",
+                "from": int(prev),
+                "to":   int(new_state)
+            })
+            log.info(f"[{self.device_id}] FSM: {CORE1_STATE_NAMES[prev]} → {CORE1_STATE_NAMES[new_state]}")
+
     def _check_alarms(self):
         ctx = self._ctx
         alm = ctx.alarms
@@ -241,237 +259,154 @@ class SyringePumpSimulator:
         if ctx.current_pressure_mmhg >= ctx.occlusion_threshold_mmhg:
             if not alm.occlusion:
                 alm.occlusion = True
-                self._stop_motor()
-                ctx.state = PumpState.ALARM
+                self._set_fsm_state(Core1State.ST_OCCLUSION_STOPPING)
+                ctx.current_rate_ml_h = 0.0
+                ctx.speed_ums = 0.0
                 self._event_queue.append({"type": "alarm", "code": "occ", "level": 2})
-                log.warning(f"[{self.device_id}] ALARMA: Oclusión detectada "
-                            f"({ctx.current_pressure_mmhg:.1f} mmHg ≥ "
-                            f"{ctx.occlusion_threshold_mmhg:.1f} mmHg)")
+                log.warning(f"[{self.device_id}] ALARMA OCLUSIÓN: {ctx.current_pressure_mmhg:.1f} mmHg ≥ {ctx.occlusion_threshold_mmhg:.1f} mmHg")
+                # Auto anti-bolus programado en 0.5s
+                self._state_timer = 0.5
+                self._pending_fsm_transition = Core1State.ST_OCCLUSION_RELEASE
         else:
             alm.occlusion = False
 
-        # 2. Proximidad al final de infusión (último 10%)
-        if ctx.target_volume_ml > 0.0:
-            remaining = ctx.target_volume_ml - ctx.infused_volume_ml
-            if 0.0 < remaining <= ctx.target_volume_ml * 0.10:
-                if not alm.near_end_of_infusion:
-                    alm.near_end_of_infusion = True
-                    self._event_queue.append({"type": "info", "msg": "near_end"})
-                    log.info(f"[{self.device_id}] Aviso: último 10% de infusión")
-            else:
-                alm.near_end_of_infusion = False
+        # 2. Fin de infusión
+        if ctx.target_volume_ml > 0.0 and ctx.infused_volume_ml >= ctx.target_volume_ml:
+            if ctx.fsm_state == Core1State.ST_DISPENSING:
+                self._set_fsm_state(Core1State.ST_DISPENSE_COMPLETED)
+                ctx.current_rate_ml_h = 0.0
+                ctx.speed_ums = 0.0
+                self._event_queue.append({"type": "info", "msg": "dispense_finished"})
+                log.info(f"[{self.device_id}] Infusión objetivo completada")
 
-            # 3. Fin de infusión
-            if ctx.infused_volume_ml >= ctx.target_volume_ml:
-                if not alm.end_of_infusion:
-                    alm.end_of_infusion = True
-                    self._event_queue.append({"type": "info", "msg": "kvo_start"})
-                    log.info(f"[{self.device_id}] Fin de infusión → KVO")
-                    if ctx.state not in (PumpState.KVO, PumpState.ALARM):
-                        self._mode_kvo()
-            else:
-                alm.end_of_infusion = False
-
-        # 4. Jeringa vacía (límite físico)
-        if (self._syringe_selected and
-                ctx.infused_volume_ml >= self._syringe.max_capacity_ml):
+        # 3. Límite de jeringa vacía / EOT
+        if ctx.infused_volume_ml >= self._syringe.max_capacity_ml:
             if not alm.syringe_empty:
                 alm.syringe_empty = True
-                self._stop_motor()
-                ctx.state = PumpState.ALARM
-                self._event_queue.append({"type": "alarm", "code": "emp", "level": 2})
-                log.warning(f"[{self.device_id}] ALARMA: Jeringa vacía")
+                self._set_fsm_state(Core1State.ST_END_OF_TRAVEL)
+                ctx.current_rate_ml_h = 0.0
+                ctx.speed_ums = 0.0
+                self._event_queue.append({"type": "alarm", "code": "eot", "level": 3})
+                log.warning(f"[{self.device_id}] ALARMA FIN DE RECORRIDO / JERINGA VACÍA")
 
-    # -----------------------------------------------------------------------
-    # Motor helpers internos (sin acceso al hardware real)
-    # -----------------------------------------------------------------------
-    def _stop_motor(self):
-        """Soft stop — reproduce cmd_send_stop_motor()."""
-        self._ctx.current_rate_ml_h = 0.0
-
-    def _stop_immediate(self):
-        """Hard stop — reproduce cmd_send_stop_immediate()."""
-        self._stop_motor()
-
-    # -----------------------------------------------------------------------
-    # Modos de operación — portados de Pump_Mode_*
-    # -----------------------------------------------------------------------
-    def _mode_continuous(self, rate_ml_h: float) -> bool:
-        ctx = self._ctx
-        if not self._syringe_selected:                     return False
-        if rate_ml_h < 0.01 or rate_ml_h > 2000.0:        return False
-        remaining = self._syringe.max_capacity_ml - ctx.infused_volume_ml
-        if remaining <= 0.0:                               return False
-
-        ctx.target_volume_ml  = self._syringe.max_capacity_ml
-        ctx.current_rate_ml_h = rate_ml_h
-        ctx.state             = PumpState.INFUSING_CONTINUOUS
-        log.info(f"[{self.device_id}] Modo continuo: {rate_ml_h:.2f} mL/h")
-        return True
-
-    def _mode_continuous_with_target(self, rate_ml_h: float, target_ml: float) -> bool:
-        """Extensión del simulador: continuo con volumen objetivo explícito."""
-        ctx = self._ctx
-        if not self._syringe_selected:                     return False
-        if rate_ml_h < 0.01 or rate_ml_h > 2000.0:        return False
-        remaining = self._syringe.max_capacity_ml - ctx.infused_volume_ml
-        if remaining <= 0.0:                               return False
-
-        ctx.target_volume_ml  = min(ctx.infused_volume_ml + target_ml,
-                                    self._syringe.max_capacity_ml)
-        ctx.current_rate_ml_h = rate_ml_h
-        ctx.state             = PumpState.INFUSING_CONTINUOUS
-        log.info(f"[{self.device_id}] Modo continuo: {rate_ml_h:.2f} mL/h "
-                 f"→ target {ctx.target_volume_ml:.2f} mL")
-        return True
-
-    def _mode_bolus(self, bolus_vol_ml: float, bolus_rate_ml_h: float) -> bool:
-        ctx = self._ctx
-        if not self._syringe_selected:         return False
-        if bolus_vol_ml <= 0 or bolus_rate_ml_h <= 0: return False
-        remaining = self._syringe.max_capacity_ml - ctx.infused_volume_ml
-        if bolus_vol_ml > remaining:           return False
-
-        ctx.target_volume_ml  = ctx.infused_volume_ml + bolus_vol_ml
-        ctx.current_rate_ml_h = bolus_rate_ml_h
-        ctx.state             = PumpState.INFUSING_BOLUS
-        log.info(f"[{self.device_id}] Bolo: {bolus_vol_ml:.2f} mL "
-                 f"@ {bolus_rate_ml_h:.2f} mL/h")
-        return True
-
-    def _mode_purge(self) -> bool:
-        if not self._syringe_selected: return False
-        self._ctx.state             = PumpState.PURGING
-        self._ctx.current_rate_ml_h = PURGE_FLOW_RATE_MLH
-        self._ctx.target_volume_ml  = (self._ctx.infused_volume_ml + PURGE_VOLUME_ML)
-        log.info(f"[{self.device_id}] Purga iniciada")
-        return True
-
-    def _mode_kvo(self) -> bool:
-        if not self._syringe_selected: return False
-        remaining = self._syringe.max_capacity_ml - self._ctx.infused_volume_ml
-        if remaining <= 0.0: return False
-        self._ctx.target_volume_ml  = self._syringe.max_capacity_ml
-        self._ctx.current_rate_ml_h = KVO_FLOW_RATE_MLH
-        self._ctx.state             = PumpState.KVO
-        log.info(f"[{self.device_id}] Modo KVO")
-        return True
-
-    def _pump_stop(self) -> bool:
-        self._ctx.state = PumpState.STOPPED
-        self._stop_motor()
-        log.info(f"[{self.device_id}] Stop")
-        return True
-
-    # -----------------------------------------------------------------------
-    # Pump_Tick() — motor de integración de volumen (portado exacto)
-    # -----------------------------------------------------------------------
     def tick(self, delta_ms: int):
-        """Llamar periódicamente desde el hilo de simulación."""
         if delta_ms <= 0:
             return
         with self._lock:
             ctx = self._ctx
             delta_s = delta_ms / 1000.0
-            # Usar _prev_state para detectar cambios hechos por comandos entre ticks
-            prev_state = self._prev_state
 
-            # Actualizar presión con el modelo físico
-            ctx.current_pressure_mmhg = self._pressure_model.update(
-                delta_s,
-                ctx.current_rate_ml_h,
-                ctx.occlusion_threshold_mmhg
+            # Manejo de transiciones diferidas (simula movimiento mecánico real)
+            if self._pending_fsm_transition is not None:
+                self._state_timer -= delta_s
+                if self._state_timer <= 0:
+                    next_st = self._pending_fsm_transition
+                    self._pending_fsm_transition = None
+                    self._set_fsm_state(next_st)
+
+                    # Encadenamientos de estados
+                    if next_st == Core1State.ST_HOMING:
+                        self._state_timer = 1.0
+                        self._pending_fsm_transition = Core1State.ST_RELEASING_LSW_START
+                    elif next_st == Core1State.ST_RELEASING_LSW_START:
+                        self._state_timer = 0.5
+                        self._pending_fsm_transition = Core1State.ST_READY_AT_HOME
+                    elif next_st == Core1State.ST_SEARCHING_SYRINGE:
+                        self._state_timer = 1.2
+                        self._pending_fsm_transition = Core1State.ST_SYRINGE_ENGAGED
+                    elif next_st == Core1State.ST_OCCLUSION_RELEASE:
+                        self._state_timer = 0.8
+                        self._pending_fsm_transition = Core1State.ST_OCCLUSION_PAUSED
+
+            # Actualizar modelo de presión
+            ctx.current_pressure_mmhg, ctx.current_pressure_psi = self._pressure_model.update(
+                delta_s, ctx.current_rate_ml_h, ctx.occlusion_threshold_mmhg
             )
 
-            # Integrar volumen solo si el motor está activo (= misma lógica que el C)
-            active_states = (
-                PumpState.INFUSING_CONTINUOUS,
-                PumpState.INFUSING_BOLUS,
-                PumpState.PURGING,
-                PumpState.KVO,
-            )
-            if ctx.state in active_states:
+            # Integración de volumen y cinemática en estado DISPENSING
+            if ctx.fsm_state == Core1State.ST_DISPENSING:
                 ctx.elapsed_time_s += delta_s
                 rate_ml_s = ctx.current_rate_ml_h / 3600.0
                 delta_ml  = rate_ml_s * delta_s
                 ctx.infused_volume_ml += delta_ml
+
+                # Posición y encoder (suponiendo 1000 pulsos/mm)
+                ctx.position_mm = self._ml_to_mm(ctx.infused_volume_ml)
+                ctx.encoder_count = int(ctx.position_mm * 1000)
+                ctx.speed_ums = self._ml_h_to_um_s(ctx.current_rate_ml_h)
+
+                if ctx.target_volume_ml > 0:
+                    ctx.progress_pct = min(100.0, (ctx.infused_volume_ml / ctx.target_volume_ml) * 100.0)
+                else:
+                    ctx.progress_pct = 0.0
+
                 self._check_alarms()
-
-            # Detectar transición de estado (comandos externos + _check_alarms)
-            if ctx.state != prev_state:
-                self._event_queue.append({
-                    "type": "state",
-                    "from": int(prev_state),
-                    "to":   int(ctx.state)
-                })
-            self._prev_state = ctx.state
+            else:
+                ctx.speed_ums = 0.0
 
     # -----------------------------------------------------------------------
-    # Pump_GetTelemetryJSON() — byte-exacto al snprintf del firmware
+    # Generadores de Telemetría EDA multi-rate (byte-exactos al firmware)
     # -----------------------------------------------------------------------
-    def get_telemetry_json(self) -> str:
+    def get_sensors_json(self) -> str:
         with self._lock:
             ctx = self._ctx
-            alm = ctx.alarms
+            return f'{{"pressure_psi":{ctx.current_pressure_psi:.3f},"pressure_mmhg":{ctx.current_pressure_mmhg:.1f}}}'
 
-            remaining_ml = max(ctx.target_volume_ml - ctx.infused_volume_ml, 0.0)
-            time_rem_h = 0.0
-            if (ctx.current_rate_ml_h > 0.0 and
-                    ctx.state in (PumpState.INFUSING_CONTINUOUS,
-                                  PumpState.INFUSING_BOLUS,
-                                  PumpState.KVO)):
-                time_rem_h = remaining_ml / ctx.current_rate_ml_h
-
-            # Mismo orden de campos y misma precisión decimal que snprintf del C
+    def get_motion_json(self) -> str:
+        with self._lock:
+            ctx = self._ctx
             return (
-                f'{{"vol_inf":{ctx.infused_volume_ml:.2f},'
-                f'"vol_tgt":{ctx.target_volume_ml:.2f},'
-                f'"rate":{ctx.current_rate_ml_h:.2f},'
-                f'"t_ela_s":{ctx.elapsed_time_s:.1f},'
-                f'"t_rem_h":{time_rem_h:.2f},'
-                f'"pres":{ctx.current_pressure_mmhg:.1f},'
-                f'"st":{int(ctx.state)},'
-                f'"alm":{{'
-                f'"occ":{int(alm.occlusion)},'
-                f'"near":{int(alm.near_end_of_infusion)},'
-                f'"end":{int(alm.end_of_infusion)},'
-                f'"bub":{int(alm.bubble_in_line)},'
-                f'"emp":{int(alm.syringe_empty)},'
-                f'"err":{int(alm.system_error)}'
-                f'}}}}'
+                f'{{"encoder_count":{ctx.encoder_count},'
+                f'"position_mm":{ctx.position_mm:.2f},'
+                f'"speed_ums":{ctx.speed_ums:.1f},'
+                f'"progress_pct":{ctx.progress_pct:.1f}}}'
+            )
+
+    def get_session_json(self) -> str:
+        with self._lock:
+            ctx = self._ctx
+            return (
+                f'{{"session_id":{ctx.session_id},'
+                f'"infused_ml":{ctx.infused_volume_ml:.2f},'
+                f'"target_ml":{ctx.target_volume_ml:.2f},'
+                f'"rate_ml_h":{ctx.current_rate_ml_h:.1f},'
+                f'"elapsed_s":{int(ctx.elapsed_time_s)},'
+                f'"fsm_state":{int(ctx.fsm_state)}}}'
             )
 
     # -----------------------------------------------------------------------
-    # cmd_parse_and_execute() — portado exacto de crosscore_cmd.c
-    # Retorna ("accepted", None) o ("rejected", reason) para el ACK MQTT.
+    # Parser de Comandos (Pipeline idéntico a cmd_dispatcher.c)
     # -----------------------------------------------------------------------
-    def parse_and_execute(self, payload: str) -> Tuple[str, Optional[str]]:
-        cmd = payload.strip()
-        log.debug(f"[{self.device_id}] CMD: {cmd}")
+    def parse_and_execute(self, cmd_str: str) -> Tuple[str, Optional[str]]:
+        cmd = cmd_str.strip()
+        log.debug(f"[{self.device_id}] CMD recibido: {cmd}")
 
         with self._lock:
-            # --- Stop inmediato ---
-            if cmd.lower() == "stop_imm":
-                self._stop_immediate()
-                self._ctx.state = PumpState.STOPPED
+            ctx = self._ctx
+
+            # STOP inmediato o suave
+            if cmd.lower() in ("stop", "stop_imm"):
+                ctx.current_rate_ml_h = 0.0
+                ctx.speed_ums = 0.0
+                self._pending_fsm_transition = None
+                self._set_fsm_state(Core1State.ST_READY_AT_HOME)
                 return ("accepted", None)
 
-            # --- Stop suave ---
-            if cmd.lower() == "stop":
-                self._pump_stop()
+            # FSM HOME
+            if cmd.startswith("fsm_home"):
+                self._set_fsm_state(Core1State.ST_HOMING)
+                self._state_timer = 1.0
+                self._pending_fsm_transition = Core1State.ST_RELEASING_LSW_START
                 return ("accepted", None)
 
-            # --- FSM: Homing ---
-            if cmd.startswith("fsm_home,"):
-                self._ctx.state = PumpState.STOPPED
-                log.info(f"[{self.device_id}] FSM: HOME simulado (velocidad {cmd[9:]} µm/s)")
+            # FSM SEARCH SYRINGE
+            if cmd.startswith("fsm_search,") or cmd == "fsm_search":
+                self._set_fsm_state(Core1State.ST_SEARCHING_SYRINGE)
+                self._state_timer = 1.2
+                self._pending_fsm_transition = Core1State.ST_SYRINGE_ENGAGED
                 return ("accepted", None)
 
-            if cmd.startswith("fsm_search,"):
-                self._ctx.state = PumpState.STOPPED
-                log.info(f"[{self.device_id}] FSM: SEARCH SYRINGE simulado")
-                return ("accepted", None)
-
+            # FSM DISPENSE (fsm_dispense,TARGET_UM,VELOCITY_UMS)
             if cmd.startswith("fsm_dispense,"):
                 parts = cmd[13:].split(",")
                 if len(parts) == 2:
@@ -480,88 +415,94 @@ class SyringePumpSimulator:
                         vel_ums   = float(parts[1])
                         if self._syringe_area_mm2 > 0:
                             target_ml = (target_um / 1000.0) * self._syringe_area_mm2 / 1000.0
-                            rate_ml_h = vel_ums * 3600.0 * self._syringe_area_mm2 / (1e6)
-                            ok = self._mode_continuous_with_target(rate_ml_h, target_ml)
-                            return ("accepted", None) if ok else ("rejected", "invalid_state")
+                            rate_ml_h = vel_ums * 3600.0 * self._syringe_area_mm2 / 1e6
+                            ctx.target_volume_ml  = min(ctx.infused_volume_ml + target_ml, self._syringe.max_capacity_ml)
+                            ctx.current_rate_ml_h = rate_ml_h
+                            ctx.session_id += 1
+                            self._set_fsm_state(Core1State.ST_DISPENSING)
+                            return ("accepted", None)
                     except ValueError:
                         pass
-                return ("rejected", "invalid_params")
+                return ("rejected", "bad_format")
 
+            # FSM SEARCH EOT
             if cmd == "fsm_search_eot":
-                log.info(f"[{self.device_id}] FSM: SEARCH EOT simulado")
+                self._set_fsm_state(Core1State.ST_SEARCHING_EOT)
+                self._state_timer = 1.5
+                self._pending_fsm_transition = Core1State.ST_END_OF_TRAVEL
                 return ("accepted", None)
 
+            # FSM RESET
             if cmd == "fsm_reset":
-                self._ctx.state             = PumpState.STOPPED
-                self._ctx.infused_volume_ml = 0.0
-                self._ctx.target_volume_ml  = 0.0
-                self._ctx.elapsed_time_s    = 0.0
-                self._ctx.alarms            = PumpAlarms()
+                ctx.infused_volume_ml = 0.0
+                ctx.target_volume_ml  = 0.0
+                ctx.current_rate_ml_h = 0.0
+                ctx.elapsed_time_s    = 0.0
+                ctx.position_mm       = 0.0
+                ctx.encoder_count     = 0
+                ctx.progress_pct      = 0.0
+                ctx.alarms            = PumpAlarms()
                 self._pressure_model.release()
-                log.info(f"[{self.device_id}] FSM: RESET")
+                self._pending_fsm_transition = None
+                self._set_fsm_state(Core1State.ST_READY_AT_HOME)
                 return ("accepted", None)
 
-            if cmd == "fsm_cont":
-                if self._ctx.state == PumpState.PAUSED:
-                    self._ctx.state = PumpState.INFUSING_CONTINUOUS
-                return ("accepted", None)
+            # FSM CONTINUE / RESUME
+            if cmd in ("fsm_cont", "fsm_resume"):
+                if ctx.fsm_state in (Core1State.ST_OCCLUSION_PAUSED, Core1State.ST_SET_NEW_DISPENSE):
+                    if ctx.current_rate_ml_h <= 0:
+                        ctx.current_rate_ml_h = 50.0 # valor nominal de respaldo
+                    self._set_fsm_state(Core1State.ST_DISPENSING)
+                    return ("accepted", None)
+                return ("rejected", "invalid_state")
 
+            # FSM OCCLUSION RELEASE
             if cmd == "fsm_occ_rel":
                 self._pressure_model.release()
-                self._ctx.alarms.occlusion = False
-                self._ctx.state = PumpState.STOPPED
-                log.info(f"[{self.device_id}] Oclusión liberada")
+                ctx.alarms.occlusion = False
+                self._set_fsm_state(Core1State.ST_OCCLUSION_RELEASE)
+                self._state_timer = 0.6
+                self._pending_fsm_transition = Core1State.ST_OCCLUSION_PAUSED
                 return ("accepted", None)
 
-            if cmd == "fsm_resume":
-                if self._ctx.state in (PumpState.PAUSED, PumpState.ALARM):
-                    self._ctx.state = PumpState.INFUSING_CONTINUOUS
+            # FSM CALIBRATE
+            if cmd.startswith("fsm_calibrate"):
+                self._set_fsm_state(Core1State.ST_CALIB_SEEK_START)
+                self._state_timer = 1.0
+                self._pending_fsm_transition = Core1State.ST_CALIB_SEEK_END
                 return ("accepted", None)
 
-            if cmd == "fsm_calibrate":
-                log.info(f"[{self.device_id}] FSM: CALIBRATE simulado")
-                return ("accepted", None)
-
-            # --- Home manual ---
-            if cmd.startswith("home_start,") or cmd.startswith("home_end,"):
-                log.info(f"[{self.device_id}] Homing manual simulado")
-                return ("accepted", None)
-
-            # --- Pausa ---
-            if cmd == "pause":
-                if self._ctx.state in (PumpState.INFUSING_CONTINUOUS,
-                                       PumpState.INFUSING_BOLUS):
-                    self._ctx.state = PumpState.PAUSED
-                    self._stop_motor()
-                return ("accepted", None)
-
-            # --- Fallback: "target_um,velocity_ums" ---
+            # Fallback cinemático crudo: TARGET_UM,VELOCITY_UMS
             if "," in cmd:
                 parts = cmd.split(",")
                 if len(parts) == 2:
                     try:
                         target_um = float(parts[0])
                         vel_ums   = float(parts[1])
-                        if self._syringe_area_mm2 > 0:
-                            target_ml = (target_um / 1000.0) * self._syringe_area_mm2 / 1000.0
-                            rate_ml_h = vel_ums * 3600.0 * self._syringe_area_mm2 / 1e6
-                            ok = self._mode_continuous_with_target(rate_ml_h, target_ml)
-                            return ("accepted", None) if ok else ("rejected", "invalid_state")
+                        target_ml = (target_um / 1000.0) * self._syringe_area_mm2 / 1000.0
+                        rate_ml_h = vel_ums * 3600.0 * self._syringe_area_mm2 / 1e6
+                        ctx.target_volume_ml  = min(ctx.infused_volume_ml + target_ml, self._syringe.max_capacity_ml)
+                        ctx.current_rate_ml_h = rate_ml_h
+                        self._set_fsm_state(Core1State.ST_DISPENSING)
+                        return ("accepted", None)
                     except ValueError:
                         pass
+
+            # Comandos de configuración aceptados silenciosamente
+            if any(cmd.startswith(prefix) for prefix in (
+                "config_wifi,", "config_mqtt,", "config_thresholds,", "set_occ_thresh,",
+                "set_syringe_thresh,", "set_occ_rel_thresh,", "config_antibolus,",
+                "set_antibolus_auto,", "config_save", "config_info")):
+                log.info(f"[{self.device_id}] Config aplicada: {cmd}")
+                return ("accepted", None)
 
             log.warning(f"[{self.device_id}] Comando no reconocido: {cmd}")
             return ("rejected", "unknown_cmd")
 
     # -----------------------------------------------------------------------
-    # Comandos exclusivos del simulador (tópico sim_fault)
+    # Inyección de fallas / atajos de simulación (tópico sim_fault)
     # -----------------------------------------------------------------------
     def parse_sim_command(self, payload: str):
-        """
-        Comandos de inyección de fallas y configuración de la simulación.
-        No existen en el firmware — viven en un tópico separado para no
-        contaminar el canal de comandos reales.
-        """
         cmd = payload.strip()
 
         if cmd == "fault_occ":
@@ -572,63 +513,56 @@ class SyringePumpSimulator:
         elif cmd == "fault_bubble":
             with self._lock:
                 self._ctx.alarms.bubble_in_line = True
-                self._ctx.state = PumpState.ALARM
-                self._stop_motor()
+                self._set_fsm_state(Core1State.ST_FAULT)
+                self._ctx.current_rate_ml_h = 0.0
                 self._event_queue.append({"type": "alarm", "code": "bub", "level": 2})
             log.warning(f"[{self.device_id}] SIM: Alarma de burbuja inyectada")
 
         elif cmd == "fault_clear":
             with self._lock:
-                self._ctx.alarms         = PumpAlarms()
-                self._ctx.state          = PumpState.STOPPED
+                self._ctx.alarms = PumpAlarms()
                 self._pressure_model.release()
-            log.info(f"[{self.device_id}] SIM: Fallas limpiadas")
-
-        elif cmd.startswith("select_syringe,"):
-            parts = cmd[15:].split(",")
-            if len(parts) == 2:
-                diam, cap = float(parts[0]), float(parts[1])
-                with self._lock:
-                    self._syringe = SyringeProfile(diam, cap)
-                    self._syringe_area_mm2 = self._calc_area(diam)
-                    self._syringe_selected = True
-                log.info(f"[{self.device_id}] SIM: Jeringa reconfigurada Ø{diam} mm, {cap} mL")
+                if self._ctx.fsm_state in (Core1State.ST_FAULT, Core1State.ST_OCCLUSION_PAUSED, Core1State.ST_OCCLUSION_STOPPING):
+                    self._set_fsm_state(Core1State.ST_READY_AT_HOME)
+            log.info(f"[{self.device_id}] SIM: Fallas limpiadas y presión normalizada")
 
         elif cmd.startswith("infuse,"):
             parts = cmd[7:].split(",")
             if len(parts) == 2:
-                rate_ml_h  = float(parts[0])
-                target_ml  = float(parts[1])
+                rate_ml_h = float(parts[0])
+                target_ml = float(parts[1])
                 with self._lock:
-                    self._mode_continuous_with_target(rate_ml_h, target_ml)
+                    self._ctx.target_volume_ml = min(self._ctx.infused_volume_ml + target_ml, self._syringe.max_capacity_ml)
+                    self._ctx.current_rate_ml_h = rate_ml_h
+                    self._ctx.session_id += 1
+                    self._set_fsm_state(Core1State.ST_DISPENSING)
+                log.info(f"[{self.device_id}] SIM: Infundiendo {rate_ml_h:.1f} mL/h hasta {target_ml:.1f} mL")
 
         elif cmd.startswith("bolus,"):
             parts = cmd[6:].split(",")
             if len(parts) == 2:
                 vol_ml, rate_ml_h = float(parts[0]), float(parts[1])
                 with self._lock:
-                    self._mode_bolus(vol_ml, rate_ml_h)
+                    self._ctx.target_volume_ml = min(self._ctx.infused_volume_ml + vol_ml, self._syringe.max_capacity_ml)
+                    self._ctx.current_rate_ml_h = rate_ml_h
+                    self._set_fsm_state(Core1State.ST_DISPENSING)
+                log.info(f"[{self.device_id}] SIM: Bolo {vol_ml:.1f} mL @ {rate_ml_h:.1f} mL/h")
 
         elif cmd == "purge":
             with self._lock:
-                self._mode_purge()
-
-        elif cmd == "kvo":
-            with self._lock:
-                self._mode_kvo()
+                self._ctx.target_volume_ml = min(self._ctx.infused_volume_ml + PURGE_VOLUME_ML, self._syringe.max_capacity_ml)
+                self._ctx.current_rate_ml_h = PURGE_FLOW_RATE_MLH
+                self._set_fsm_state(Core1State.ST_DISPENSING)
+            log.info(f"[{self.device_id}] SIM: Purga")
 
         else:
             log.warning(f"[{self.device_id}] SIM: Comando desconocido: {cmd}")
 
-    def get_state_name(self) -> str:
-        with self._lock:
-            return STATE_NAMES.get(self._ctx.state, "UNKNOWN")
-
 # ---------------------------------------------------------------------------
-# Cliente MQTT — integra el simulador con el broker
+# Cliente MQTT Multi-rate EDA
 # ---------------------------------------------------------------------------
 class PumpMQTTClient:
-    RECONNECT_BACKOFF_S = [2, 5, 10, 30, 60]
+    RECONNECT_BACKOFF_S = [2, 5, 10, 30]
 
     def __init__(self, sim: SyringePumpSimulator, broker: str, port: int):
         self.sim    = sim
@@ -636,22 +570,22 @@ class PumpMQTTClient:
         self.port   = port
         self._id    = sim.device_id
 
-        # Tópicos — jerarquía bj/{device_id}/... del MQTT_CONTRACT
-        self.topic_telemetry = f"bj/{self._id}/telemetry"
-        self.topic_cmd       = f"bj/{self._id}/cmd"
-        self.topic_cmd_ack   = f"bj/{self._id}/cmd/ack"
+        # Tópicos modernos EDA
+        self.topic_sensors   = f"bj/{self._id}/telemetry/sensors"
+        self.topic_motion    = f"bj/{self._id}/telemetry/motion"
+        self.topic_session   = f"bj/{self._id}/telemetry/session"
         self.topic_event     = f"bj/{self._id}/event"
         self.topic_status    = f"bj/{self._id}/status"
+        self.topic_cmd       = f"bj/{self._id}/cmd"
+        self.topic_cmd_ack   = f"bj/{self._id}/cmd/ack"
         self.topic_sim_fault = f"bj/{self._id}/sim_fault"
 
-        self._client = mqtt.Client(client_id=f"sim_{self._id}",
-                                   clean_session=True,
-                                   protocol=mqtt.MQTTv311)
+        self._client = mqtt.Client(client_id=f"sim_{self._id}", clean_session=True, protocol=mqtt.MQTTv311)
         self._client.on_connect    = self._on_connect
         self._client.on_disconnect = self._on_disconnect
         self._client.on_message    = self._on_message
 
-        # LWT: cuando el proceso muere, el broker publica offline
+        # LWT idéntico al firmware (bj/{id}/status retain=true)
         self._client.will_set(
             self.topic_status,
             payload=json.dumps({"state": "offline", "id": self._id}),
@@ -659,36 +593,33 @@ class PumpMQTTClient:
             retain=True
         )
 
-        self._connected     = False
-        self._backoff_idx   = 0
-        self._stop_event    = threading.Event()
+        self._connected   = False
+        self._backoff_idx = 0
+        self._stop_event  = threading.Event()
 
-    # -----------------------------------------------------------------------
-    # Callbacks MQTT
-    # -----------------------------------------------------------------------
     def _on_connect(self, client, userdata, flags, rc):
         if rc == 0:
             self._connected   = True
             self._backoff_idx = 0
-            log.info(f"[{self._id}] Conectado al broker {self.broker}:{self.port}")
+            log.info(f"[{self._id}] Conectado a {self.broker}:{self.port}")
 
-            # Publicar presencia
+            # Online con retain
             client.publish(
                 self.topic_status,
-                json.dumps({"state": "online", "id": self._id, "fw": "sim-1.0"}),
+                json.dumps({"state": "online", "id": self._id, "fw": "v1.0.0-eda"}),
                 qos=1, retain=True
             )
-            # Suscribir a cmd y al canal de fallas del simulador
+
             client.subscribe(self.topic_cmd,       qos=1)
             client.subscribe(self.topic_sim_fault, qos=0)
-            log.info(f"[{self._id}] Suscrito a: {self.topic_cmd} | {self.topic_sim_fault}")
+            log.info(f"[{self._id}] Suscrito a comandos: {self.topic_cmd} | {self.topic_sim_fault}")
         else:
-            log.error(f"[{self._id}] Error de conexión MQTT rc={rc}")
+            log.error(f"[{self._id}] Error conexión MQTT rc={rc}")
 
     def _on_disconnect(self, client, userdata, rc):
         self._connected = False
         if rc != 0:
-            log.warning(f"[{self._id}] Desconectado inesperadamente (rc={rc}), reintentando...")
+            log.warning(f"[{self._id}] Desconexión inesperada (rc={rc})")
 
     def _on_message(self, client, userdata, msg):
         payload = msg.payload.decode("utf-8", errors="replace").strip()
@@ -698,14 +629,13 @@ class PumpMQTTClient:
             return
 
         if msg.topic == self.topic_cmd:
-            # Intentar parsear el envelope JSON del contrato: {"cid": N, "cmd": "..."}
             cid = None
             try:
                 obj = json.loads(payload)
                 cid     = obj.get("cid")
-                cmd_str = obj["cmd"]
+                cmd_str = obj.get("cmd", payload)
             except (json.JSONDecodeError, KeyError):
-                cmd_str = payload   # backward compat: string crudo sin envelope
+                cmd_str = payload
 
             result, reason = self.sim.parse_and_execute(cmd_str)
 
@@ -715,69 +645,72 @@ class PumpMQTTClient:
                     ack["reason"] = reason
                 client.publish(self.topic_cmd_ack, json.dumps(ack), qos=1)
 
-    # -----------------------------------------------------------------------
-    # Loop principal con reconexión automática
-    # -----------------------------------------------------------------------
-    def _reconnect_loop(self):
+    def _telemetry_thread(self):
+        """Publicador multi-rate de telemetría (500 ms sensors, 1000 ms motion, 2000 ms session)"""
+        t_sensors = 0.0
+        t_motion  = 0.0
+        t_session = 0.0
+
+        while not self._stop_event.is_set():
+            now = time.time()
+
+            if self._connected:
+                # Sensors (500 ms)
+                if now - t_sensors >= (PERIOD_SENSORS_MS / 1000.0):
+                    self._client.publish(self.topic_sensors, self.sim.get_sensors_json(), qos=0)
+                    t_sensors = now
+
+                # Motion (1000 ms)
+                if now - t_motion >= (PERIOD_MOTION_MS / 1000.0):
+                    self._client.publish(self.topic_motion, self.sim.get_motion_json(), qos=0)
+                    t_motion = now
+
+                # Session (2000 ms)
+                if now - t_session >= (PERIOD_SESSION_MS / 1000.0):
+                    self._client.publish(self.topic_session, self.sim.get_session_json(), qos=0)
+                    t_session = now
+
+            time.sleep(0.05)
+
+    def _sim_tick_thread(self):
+        while not self._stop_event.is_set():
+            self.sim.tick(SIM_TICK_MS)
+            time.sleep(SIM_TICK_MS / 1000.0)
+
+    def _event_thread(self):
+        while not self._stop_event.is_set():
+            if self._connected:
+                for ev in self.sim.pop_events():
+                    self._client.publish(self.topic_event, json.dumps(ev), qos=1)
+            time.sleep(0.05)
+
+    def run(self):
+        # Conexión inicial
         while not self._stop_event.is_set():
             try:
                 self._client.connect(self.broker, self.port, keepalive=60)
                 self._client.loop_start()
                 break
             except Exception as e:
-                delay = self.RECONNECT_BACKOFF_S[
-                    min(self._backoff_idx, len(self.RECONNECT_BACKOFF_S) - 1)
-                ]
-                log.error(f"[{self._id}] No se pudo conectar ({e}). Reintento en {delay}s")
+                delay = self.RECONNECT_BACKOFF_S[min(self._backoff_idx, len(self.RECONNECT_BACKOFF_S) - 1)]
+                log.error(f"[{self._id}] No se pudo conectar ({e}). Reintento en {delay}s...")
                 self._backoff_idx += 1
                 time.sleep(delay)
 
-    def _telemetry_loop(self):
-        """Publica telemetría cada TELEMETRY_PERIOD_MS ms."""
-        while not self._stop_event.is_set():
-            if self._connected:
-                payload = self.sim.get_telemetry_json()
-                self._client.publish(self.topic_telemetry, payload, qos=0)
-            time.sleep(TELEMETRY_PERIOD_MS / 1000.0)
+        threading.Thread(target=self._sim_tick_thread,  daemon=True, name="tick").start()
+        threading.Thread(target=self._telemetry_thread, daemon=True, name="telem").start()
+        threading.Thread(target=self._event_thread,     daemon=True, name="event").start()
 
-    def _sim_tick_loop(self):
-        """Avanza la simulación a SIM_TICK_MS de resolución."""
-        while not self._stop_event.is_set():
-            self.sim.tick(SIM_TICK_MS)
-            time.sleep(SIM_TICK_MS / 1000.0)
-
-    def _event_loop(self):
-        """Drena la cola de eventos del simulador y los publica al broker."""
-        while not self._stop_event.is_set():
-            if self._connected:
-                for ev in self.sim.pop_events():
-                    self._client.publish(self.topic_event, json.dumps(ev), qos=1)
-            time.sleep(0.1)
-
-    def run(self):
-        """Arranca todos los hilos y bloquea hasta Ctrl+C."""
-        self._reconnect_loop()
-
-        t_tick      = threading.Thread(target=self._sim_tick_loop,  daemon=True, name="tick")
-        t_telemetry = threading.Thread(target=self._telemetry_loop, daemon=True, name="telemetry")
-        t_event     = threading.Thread(target=self._event_loop,     daemon=True, name="event")
-
-        t_tick.start()
-        t_telemetry.start()
-        t_event.start()
-
-        log.info(f"[{self._id}] Simulador corriendo. Ctrl+C para detener.")
-        log.info(f"[{self._id}] Telemetría → {self.topic_telemetry}  ({TELEMETRY_PERIOD_MS}ms)")
-        log.info(f"[{self._id}] Comandos   ← {self.topic_cmd}")
-        log.info(f"[{self._id}] Ack        → {self.topic_cmd_ack}")
-        log.info(f"[{self._id}] Eventos    → {self.topic_event}")
-        log.info(f"[{self._id}] Fallas sim ← {self.topic_sim_fault}")
+        log.info(f"[{self._id}] Simulador EDA corriendo.")
+        log.info(f"[{self._id}] Telemetría Sensors → {self.topic_sensors} (500ms)")
+        log.info(f"[{self._id}] Telemetría Motion  → {self.topic_motion} (1000ms)")
+        log.info(f"[{self._id}] Telemetría Session → {self.topic_session} (2000ms)")
+        log.info(f"[{self._id}] Eventos FSM       → {self.topic_event}")
+        log.info(f"[{self._id}] Canal Comandos     ← {self.topic_cmd}")
 
         try:
             while True:
                 time.sleep(5)
-                if not self._connected:
-                    self._reconnect_loop()
         except KeyboardInterrupt:
             log.info(f"[{self._id}] Deteniendo simulador...")
         finally:
@@ -795,51 +728,36 @@ class PumpMQTTClient:
 # ---------------------------------------------------------------------------
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
-        description="Simulador de Bomba de Infusión a Jeringa (pico2w_syringe_pump)",
+        description="Simulador de Bomba de Infusión (pico2w_syringe_pump - EDA)",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Ejemplos:
-  # Simulador básico contra broker local
-  python pump_simulator.py
+  python pump_simulator.py --broker localhost --id bj-001
+  python pump_simulator.py --broker 192.168.1.100 --id bj-002 --diam 14.5 --cap 10.0
 
-  # ID personalizado y broker remoto
-  python pump_simulator.py --broker 192.168.1.100 --id bj-002
-
-  # Jeringas de distintos volúmenes (diámetro Ø según BD Plastipak)
-  python pump_simulator.py --diam 14.50 --cap 10.0   # jeringa 10 mL
-  python pump_simulator.py --diam 19.05 --cap 20.0   # jeringa 20 mL (default)
-  python pump_simulator.py --diam 26.70 --cap 50.0   # jeringa 50 mL
-
-  # Tres bombas en paralelo (abrir tres terminales)
-  python pump_simulator.py --id bj-001 &
-  python pump_simulator.py --id bj-002 &
-  python pump_simulator.py --id bj-003 &
-
-Comandos rápidos con mosquitto_pub:
-  mosquitto_pub -h localhost -t bj/bj-deadbeef/sim_fault -m "infuse,50.0,20.0"
-  mosquitto_pub -h localhost -t bj/bj-deadbeef/sim_fault -m "fault_occ"
-  mosquitto_pub -h localhost -t bj/bj-deadbeef/sim_fault -m "fault_clear"
-  mosquitto_pub -h localhost -t bj/bj-deadbeef/cmd -m '{"cid":1,"cmd":"stop"}'
+Comandos con mosquitto_pub:
+  mosquitto_pub -h localhost -t bj/bj-001/cmd -m '{"cid":1,"cmd":"fsm_home,1500"}'
+  mosquitto_pub -h localhost -t bj/bj-001/cmd -m '{"cid":2,"cmd":"fsm_dispense,30000,500"}'
+  mosquitto_pub -h localhost -t bj/bj-001/sim_fault -m "fault_occ"
+  mosquitto_pub -h localhost -t bj/bj-001/sim_fault -m "fault_clear"
         """
     )
-    p.add_argument("--broker", default="localhost",       help="IP/host del broker MQTT")
-    p.add_argument("--port",   type=int, default=1883,    help="Puerto del broker MQTT")
+    p.add_argument("--broker", default="localhost",       help="IP/host broker MQTT")
+    p.add_argument("--port",   type=int, default=1883,    help="Puerto broker MQTT")
     p.add_argument("--id",     default="bj-001",          help="Device ID de la bomba")
-    p.add_argument("--diam",   type=float, default=19.05, help="Diámetro interno jeringa (mm)")
-    p.add_argument("--cap",    type=float, default=20.0,  help="Capacidad máx. jeringa (mL)")
-    p.add_argument("--debug",  action="store_true",       help="Log nivel DEBUG")
+    p.add_argument("--diam",   type=float, default=19.05, help="Diámetro interno émbolo (mm)")
+    p.add_argument("--cap",    type=float, default=20.0,  help="Capacidad máxima (mL)")
+    p.add_argument("--debug",  action="store_true",       help="Log DEBUG")
     return p
-
 
 def main():
     args = build_parser().parse_args()
     if args.debug:
         logging.getLogger().setLevel(logging.DEBUG)
 
-    sim    = SyringePumpSimulator(args.id, args.diam, args.cap)
+    sim = SyringePumpSimulator(args.id, args.diam, args.cap)
     client = PumpMQTTClient(sim, args.broker, args.port)
     client.run()
-
 
 if __name__ == "__main__":
     main()
