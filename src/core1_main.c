@@ -375,13 +375,13 @@ void core1_main(void) {
     float voltage = (float)adc_val * 3.3f / (float)(1 << 12);
     s_occlusion_adc_raw = adc_val;
 
+    if (counter % 50 == 0 && g_log_filter.show_adc)
+      LOG_DEBUG("[ADC]: Voltage: %.3f V (raw=%u, State %d)\n", voltage,
+                adc_val, current_state);
+
     if (current_state == ST_SEARCHING_SYRINGE ||
         current_state == ST_DISPENSING ||
         current_state == ST_OCCLUSION_RELEASE) {
-
-      if (counter % 50 == 0 && g_log_filter.show_adc)
-        LOG_DEBUG("[ADC]: ADC Voltage (State %d): %.2f V\n", current_state,
-                  voltage);
 
       if (voltage > s_thresh_syringe_contact_v && current_state == ST_SEARCHING_SYRINGE) {
         active_event = iEV_CONTACT_DETECTED;

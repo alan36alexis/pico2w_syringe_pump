@@ -137,8 +137,15 @@ CmdDispatchResult_t cmd_dispatch_string(const char *str, CmdSource_t src, int32_
     }
 
     // ------------------------------------------------------------------
-    // Log filter
+    // Log filter & Telemetry utilities
     // ------------------------------------------------------------------
+    if (strcmp(str, "adc") == 0 || strcmp(str, "read_adc") == 0 ||
+        strcmp(str, "ADC") == 0 || strcmp(str, "READ_ADC") == 0) {
+        uint16_t raw = core1_get_occlusion_adc_raw();
+        float volt = (float)raw * 3.3f / 4095.0f;
+        printf("ADC : raw=%u volt=%.3fV\n", raw, volt);
+        return dispatch_result(true, "ok", src, CMD_ACTION_LOWLEVEL);
+    }
     if (strncmp(str, "log_en,", 7) == 0) {
         log_filter_set(str + 7, true);
         return dispatch_result(true, "ok", src, CMD_ACTION_LOWLEVEL);

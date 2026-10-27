@@ -27,6 +27,34 @@ El núcleo 0 ejecuta un kernel de **FreeRTOS** y centraliza todas las entradas, 
   - Pipeline unificado de comandos (CLI / MQTT / HMI) con validación de estado FSM antes de despachar a Core 1.
   - CLI por consola serie, persistencia de configuración en Flash, monitor de salud del sistema (stack high-water-marks) y tareas de UI TFT (gated por `ENABLE_TFT`).
 
+### **Listado de Tareas de FreeRTOS (Core 0)**
+
+El kernel de FreeRTOS en el Core 0 administra las tareas de red, telemetría, consola, interfaces físicas y la arquitectura de eventos pub-sub (EDA). En la arquitectura RP2040/RP2350 (ARM Cortex-M 32 bits), el stack de FreeRTOS se especifica en palabras de 32 bits (`StackType_t = uint32_t`, donde **1 word = 4 bytes**) y `configMINIMAL_STACK_SIZE` está fijado en **128 words** (512 bytes). Las prioridades válidas van de `0` (`tskIDLE_PRIORITY`) a `5` (`configMAX_PRIORITIES = 6`).
+
+| Nombre Tarea | Función C | Prioridad | Stack (Words / Bytes) | Ubicación (Definición / Creación) | Estado / Condición | Rol / Responsabilidad |
+|---|---|---|---|---|---|---|
+| `EvBroker` | `task_event_broker` | 4 (`BROKER_PRIORITY`) | 512 w (2048 B)<br>*(MINIMAL × 4)* | [`src/event_broker.c`](src/event_broker.c) | Activa (prioridad máx.) | Broker central EDA: drena eventos de Core 1 y Core 0, actualiza espejos de estado (FSM en `cmd_gate` y presión), estampa timestamps, persiste calibración en Flash en reposo y replica hacia consumidores. |
+| `UI_Input` | `task_ui_input` | 3 (`tskIDLE_PRIORITY + 3`) | 512 w (2048 B) | [`src/core0_main.c`](src/core0_main.c) | Condicional (`ENABLE_TFT`) | Muestreo periódico (10 ms) de periféricos de entrada (touch/botones) antes del frame gráfico de LVGL. |
+| `Init` | `task_init` | 2 | 1024 w (4096 B) | [`src/core0_main.c`](src/core0_main.c) | Transitoria (autoeliminación) | Carga config de Flash, sincroniza umbrales ADC/anti-bolus/calibración con Core 1, inicializa I2C/PCAL9555 y Wi-Fi CYW43, lanza `MQTT_Task` y `WiFi_Keepalive`, y se destruye (`vTaskDelete`). |
+| `MQTT_Rx` | `mqtt_rx_task` | 2 | 1024 w (4096 B)<br>*(MINIMAL × 8)* | Def: [`src/mqtt_client.c`](src/mqtt_client.c)<br>Crea: [`src/core0_main.c`](src/core0_main.c) | Activa | Procesa cola de mensajes MQTT entrantes, desempaqueta envelope JSON (`{"cid":N,"cmd":"..."}`), ejecuta el comando mediante el despachador unificado y emite ACK QoS 1. |
+| `MQTT_Task` | `mqtt_client_task` | 2 | 512 w (2048 B)<br>*(MINIMAL × 4)* | Def: [`src/mqtt_client.c`](src/mqtt_client.c)<br>Crea: [`src/core0_main.c`](src/core0_main.c) | Activa (lanzada por `Init`) | Inicializa el cliente lwIP MQTT, configura tópicos del dispositivo, gestiona la conexión con el broker y publica presencia online/LWT. |
+| `MqttCons` | `task_mqtt_consumer` | 2 (`MQTT_CONS_PRIORITY`) | 768 w (3072 B)<br>*(MINIMAL × 6)* | [`src/mqtt_consumer.c`](src/mqtt_consumer.c) | Activa | Consumidor EDA: mantiene el snapshot del sistema y publica telemetría periódica multi-rate (`sensors` 500 ms, `motion` 1 s, `session` 2 s) y eventos de FSM o alarma. |
+| `HmiCons` | `task_hmi_consumer` | 2 (`HMI_CONS_PRIORITY`) | 512 w (2048 B)<br>*(MINIMAL × 4)* | [`src/hmi_consumer.c`](src/hmi_consumer.c) | Activa | Consumidor EDA: actualiza el snapshot del estado clínico de UI (`ui_state`) y despacha eventos a widgets LVGL. |
+| `TFT` | `task_tft` | 2 (`tskIDLE_PRIORITY + 2`) | 4096 w (16384 B / 16 KB) | [`src/core0_main.c`](src/core0_main.c) | Condicional (`ENABLE_TFT`) | Ciclo principal de visualización TFT y motor LVGL: inicializa display ST7789, ejecuta `modulo_tft_run_once()` cada 5 ms y actualiza widgets interactivos. |
+| `CLI` | `task_cli` | 1 | 384 w (1536 B)<br>*(MINIMAL × 3)* | [`src/core0_main.c`](src/core0_main.c) | Activa | Línea de comandos por consola serie (UART/USB CDC): lectura no bloqueante de caracteres, soporte de retroceso/eco y envío a `cmd_dispatch_string()`. |
+| `Blinky` | `task_blinky` | 1 | 512 w (2048 B)<br>*(MINIMAL × 4)* | [`src/core0_main.c`](src/core0_main.c) | Activa | Indicador visual LED onboard (CYW43): pulso rápido con Wi-Fi conectado, pulso lento en espera o latido mínimo de bajo consumo si Wi-Fi está apagado. |
+| `WiFi_Keepalive` | `wifi_keepalive_task` | 1 | 1024 w (4096 B) | [`src/core0_main.c`](src/core0_main.c) | Activa (lanzada por `Init`) | Supervisa periódicamente (cada 10 s) el enlace TCP/IP Wi-Fi y ejecuta reconexiones automáticas si el link cae. |
+| `IO_Expander` | `task_io_expander` | 1 | 384 w (1536 B)<br>*(MINIMAL × 3)* | Def: [`src/io_expander.c`](src/io_expander.c)<br>Crea: [`src/io_expander.c`](src/io_expander.c) | Activa (si PCAL9555 responde) | Sondeo I2C a 20 Hz con debounce de 100 ms de pulsadores de hardware (Play/Stop, Bolo, presencia jeringa), verificación acústica inicial del buzzer (2 beeps) y emisión de `EV_ACT_IO_EXP_INPUT`. |
+| `CmdExample` | `task_example_internal_cmd` | 1 | 256 w (1024 B)<br>*(MINIMAL × 2)* | [`src/core0_main.c`](src/core0_main.c) | Activa | Tarea de prueba interna: inicializa parámetros clínicos de jeringa (`Pump_Init`, `Pump_SelectSyringe`) y permanece en reposo periódico. |
+| `SysMon` | `task_system_monitor` | 1 | 384 w (1536 B)<br>*(MINIMAL × 3)* | [`src/core0_main.c`](src/core0_main.c) | Condicional (`ENABLE_SYS_HEALTH_MONITOR`) | Diagnóstico de salud: lee la temperatura interna del micro vía ADC e imprime el *High Water Mark* (stack libre mínimo histórico) de cada tarea FreeRTOS activa. |
+
+#### Tareas del Kernel de FreeRTOS
+
+| Nombre Tarea | Prioridad | Stack (Words / Bytes) | Archivo | Rol / Responsabilidad |
+|---|---|---|---|---|
+| `IDLE` | 0 (`tskIDLE_PRIORITY`) | 128 w (512 B) | `freertos/tasks.c` | Tarea ociosa del sistema; se ejecuta cuando no hay tareas de aplicación en estado Ready y gestiona la limpieza de memoria de tareas eliminadas. |
+| `Tmr Svc` (`prvTimerTask`) | 3 (`configTIMER_TASK_PRIORITY`) | 128 w (512 B) | `freertos/timers.c` | Tarea demonio de gestión de timers por software (`configUSE_TIMERS = 1`). |
+
 ---
 
 ## Arquitectura de Eventos Pub-Sub (EDA)
@@ -128,6 +156,7 @@ Actualmente, estos comandos son accesibles mediante la consola serial y se utili
 | `reconnect` | Efectúa un reseteo *suave* (Soft Reset) del hardware Wi-Fi desasociándolo de su actual red (LwIP leave) obligándolo a re-engancharse y conectar MQTT con la nueva configuración sin reiniciar el procesador. |
 | `net_disable` | Apaga el chip Wi-Fi (desactiva RF y tareas de red) para máximo ahorro de batería. |
 | `net_enable` | Enciende el chip Wi-Fi y restaura la conectividad de red a sus valores guardados. |
+| `adc` o `read_adc` | Lee y muestra de forma inmediata el valor raw (0-4095) y en voltios (0-3.3V) del sensor de fuerza / oclusión. |
 | `log_en,<HDR>` | Activa una categoría de log de diagnóstico en el serial. Usar `ALL` para activar todas. |
 | `log_dis,<HDR>` | Desactiva una categoría de log de diagnóstico. Usar `ALL` para silenciar todo. |
 

@@ -48,7 +48,7 @@
 // --- FSM Velocities ---
 #define FSM_HOME_VELOCITY_UMS 1500.0f
 #define FSM_SEARCH_VELOCITY_UMS 1200.0f
-#define POS_JERINGA_TEST_UM 10000.0f
+#define POS_JERINGA_TEST_UM 90000.0f
 
 // --- Motor Drive Profile Thresholds ---
 #define MOTOR_THRESH_LOW_UMS                                                   \
@@ -82,10 +82,10 @@
 
 // --- ADC Voltage Threshold Defaults (Volts) ---
 #define ADC_THRESH_SYRINGE_REACHED_V_DEFAULT                                   \
-  2.0f // Umbral detección inicio de jeringa (contacto)
-#define ADC_THRESH_OCCLUSION_V_DEFAULT 3.0f // Umbral detección oclusión
+  0.3f // Umbral detección inicio de jeringa (contacto)
+#define ADC_THRESH_OCCLUSION_V_DEFAULT 1.0f // Umbral detección oclusión
 #define ADC_THRESH_OCC_RELEASE_V_DEFAULT                                       \
-  2.0f // Umbral alivio de presión tras release
+  0.5f // Umbral alivio de presión tras release
 
 // --- Clinical API Defaults ---
 #define PURGE_FLOW_RATE_MLH 1000.0f
@@ -111,37 +111,38 @@
 #define I2C0_SCL_PIN 13
 #define I2C0_BAUDRATE_HZ 400000 // Fast-mode 400 kHz
 #define I2C0_BUS_INST i2c0
-#define I2C0_TIMEOUT_US 25000   // 25 ms timeout para transferencias I2C
+#define I2C0_TIMEOUT_US 25000 // 25 ms timeout para transferencias I2C
 
 // --- PCAL9555 GPIO Expander ---
 #define PCAL9555_I2C_ADDR_DEFAULT 0x20
 #define PCAL9555_POLL_INTERVAL_MS 50 // Polling a 20 Hz en Core 0
-#define PCAL9555_DEBOUNCE_COUNT 2   // 2 muestras consecutivas estables (100 ms)
+#define PCAL9555_DEBOUNCE_COUNT 2 // 2 muestras consecutivas estables (100 ms)
 
 // Canales individuales del PCAL9555 (0 a 15)
-#define EXP_PIN_SW_PLAY_STOP       0   // P0_0 (IN, Pulsador Play/Stop)
-#define EXP_PIN_SW_BOLUS           1   // P0_1 (IN, Pulsador Bolo)
-#define EXP_PIN_SW_DETECT_H        2   // P0_2 (IN, Deteccion de jeringa)
-#define EXP_PIN_LED_ALARM          3   // P0_3 (OUT, LED Alarma)
-#define EXP_PIN_LED_BATT_STATUS    4   // P0_4 (OUT, LED Estado Bateria)
-#define EXP_PIN_P0_5_AUX           5   // P0_5 (NC, Auxiliar no conectado)
-#define EXP_PIN_P0_6_AUX           6   // P0_6 (NC, Auxiliar no conectado)
-#define EXP_PIN_P0_7_AUX           7   // P0_7 (NC, Auxiliar no conectado)
-#define EXP_PIN_OFF_CNTL           8   // P1_0 (OUT, Control de auto-apagado)
-#define EXP_PIN_CHRG_STATUS        9   // P1_1 (IN, Estado de carga)
-#define EXP_PIN_BATT_INSTALL       10  // P1_2 (IN, Deteccion bateria)
-#define EXP_PIN_P1_3_NC            11  // P1_3 (NC, No conectado)
-#define EXP_PIN_P1_4_NC            12  // P1_4 (NC, No conectado)
-#define EXP_PIN_P1_5_NC            13  // P1_5 (NC, No conectado)
-#define EXP_PIN_BUZZER_CNTL        14  // P1_6 (OUT, Buzzer acustico)
-#define EXP_PIN_FRC_SENS_CALIB     15  // P1_7 (OUT, Calibracion sensor fuerza)
+#define EXP_PIN_SW_PLAY_STOP 0    // P0_0 (IN, Pulsador Play/Stop)
+#define EXP_PIN_SW_BOLUS 1        // P0_1 (IN, Pulsador Bolo)
+#define EXP_PIN_SW_DETECT_H 2     // P0_2 (IN, Deteccion de jeringa)
+#define EXP_PIN_LED_ALARM 3       // P0_3 (OUT, LED Alarma)
+#define EXP_PIN_LED_BATT_STATUS 4 // P0_4 (OUT, LED Estado Bateria)
+#define EXP_PIN_P0_5_AUX 5        // P0_5 (NC, Auxiliar no conectado)
+#define EXP_PIN_P0_6_AUX 6        // P0_6 (NC, Auxiliar no conectado)
+#define EXP_PIN_P0_7_AUX 7        // P0_7 (NC, Auxiliar no conectado)
+#define EXP_PIN_OFF_CNTL 8        // P1_0 (OUT, Control de auto-apagado)
+#define EXP_PIN_CHRG_STATUS 9     // P1_1 (IN, Estado de carga)
+#define EXP_PIN_BATT_INSTALL 10   // P1_2 (IN, Deteccion bateria)
+#define EXP_PIN_P1_3_NC 11        // P1_3 (NC, No conectado)
+#define EXP_PIN_P1_4_NC 12        // P1_4 (NC, No conectado)
+#define EXP_PIN_P1_5_NC 13        // P1_5 (NC, No conectado)
+#define EXP_PIN_BUZZER_CNTL 14    // P1_6 (OUT, Buzzer acustico)
+#define EXP_PIN_FRC_SENS_CALIB 15 // P1_7 (OUT, Calibracion sensor fuerza)
 
 // Mascaras de configuracion inicial de hardware:
 // 1 = Input (P0: bits 0,1,2,5,6,7 = 0xE7; P1: bits 1,2,3,4,5 = 0x3E -> 0x3EE7)
-#define PCAL9555_DIR_MASK_DEFAULT     0x3EE7u
-#define PCAL9555_PULL_EN_DEFAULT      0x3EE7u // Pull-up activo en entradas y NCs anti-flotacion
-#define PCAL9555_PULL_SEL_DEFAULT     0xFFFFu // 1 = Pull-up interno 100k
-#define PCAL9555_OUTPUTS_DEFAULT      0x0000u // Todas las salidas apagadas en boot
+#define PCAL9555_DIR_MASK_DEFAULT 0x3EE7u
+#define PCAL9555_PULL_EN_DEFAULT                                               \
+  0x3EE7u // Pull-up activo en entradas y NCs anti-flotacion
+#define PCAL9555_PULL_SEL_DEFAULT 0xFFFFu // 1 = Pull-up interno 100k
+#define PCAL9555_OUTPUTS_DEFAULT 0x0000u  // Todas las salidas apagadas en boot
 
 // --- Hardware Init Constants ---
 #define TMC2209_UART_BAUD 57600

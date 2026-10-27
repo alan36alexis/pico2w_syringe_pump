@@ -103,7 +103,7 @@ void touch_driver_init(void) {
     // Inicializar TIRQ (Interrupción)
     gpio_init(PIN_TIRQ);
     gpio_set_dir(PIN_TIRQ, GPIO_IN);
-    gpio_pull_up(PIN_TIRQ);
+    //gpio_pull_up(PIN_TIRQ);
 
     gpio_set_irq_enabled(PIN_TIRQ, GPIO_IRQ_EDGE_FALL, true);
 
