@@ -11,6 +11,7 @@
 #include "syringe_pump_api.h"
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdint.h>
 #define HOME_RESET_TIMEOUT_MS 65000U
 #define HOME_STATE_POLL_MS 10U
 
@@ -29,6 +30,17 @@ typedef enum {
     MODO_POR_TIEMPO = 5
 } modo_t;
 
+// CUENTAS PARA EL ADC
+#define ADC_REF_VOLTAGE     3.3f
+#define ADC_MAX_COUNTS      4095.0f
+
+// Definición de umbrales en Volts
+#define VOLT_MIN_0_PCT      0.24f
+#define VOLT_MAX_100_PCT    0.50f
+
+// Conversión a cuentas del ADC (12 bits)
+#define ADC_RAW_MIN         ((uint16_t)((VOLT_MIN_0_PCT / ADC_REF_VOLTAGE) * ADC_MAX_COUNTS))   // ~298
+#define ADC_RAW_MAX         ((uint16_t)((VOLT_MAX_100_PCT / ADC_REF_VOLTAGE) * ADC_MAX_COUNTS))  // ~620
 
 
 
@@ -41,6 +53,7 @@ int32_t modo_seleccionado;
 int32_t metodo_seleccionado;
 int32_t tipo_jeringa;
 int32_t set_micrometros;
+float value_occlusion;
 static bool manual_micrometers_target_selected;
 char str_modo_seleccionado[100] = { 0 };
 char str_tipo_jeringa[100] = { 0 };
@@ -175,6 +188,24 @@ static void infusion_test_timer_cb(lv_timer_t *timer) {
 void actualizar_seteo_por_metodo(int metodo);
 void teclado_add_char(const char *c);
 void teclado_del();
+
+
+void actualizar_porcentaje_oclusion_adc(void) {
+    uint16_t raw_adc = core1_get_occlusion_adc_raw();
+    int32_t porcentaje = 0;
+
+    if (raw_adc <= ADC_RAW_MIN) {
+        porcentaje = 0;
+    } else if (raw_adc >= ADC_RAW_MAX) {
+        porcentaje = 100;
+    } else {
+        // Interpolación lineal entre 0.24V (298 cuentas) y 0.50V (620 cuentas)
+        porcentaje = (int32_t)(((float)(raw_adc - ADC_RAW_MIN) / (float)(ADC_RAW_MAX - ADC_RAW_MIN)) * 100.0f);
+    }
+
+    // Guardamos el resultado en la variable de prueba
+    set_var_value_battery_charge(porcentaje);
+}
 
 static void battery_simulation_timer_cb(lv_timer_t *timer) {
     (void)timer;
@@ -320,6 +351,16 @@ void set_var_value_battery_charge(int32_t value) {
     if (value < 0) value = 0;
     if (value > 100) value = 100;
     value_battery_charge = value;
+}
+
+extern float get_var_value_occlusion() {
+    return value_occlusion;
+}
+
+void set_var_value_occlusion(float value) {
+    if (value < 0) value = 0;
+    if (value > 100) value = 100;
+    value_occlusion = value;
 }
 
 const char *get_var_str_metodo_seleccionado() {

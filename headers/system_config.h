@@ -83,9 +83,9 @@
 // --- ADC Voltage Threshold Defaults (Volts) ---
 #define ADC_THRESH_SYRINGE_REACHED_V_DEFAULT                                   \
   0.3f // Umbral detección inicio de jeringa (contacto)
-#define ADC_THRESH_OCCLUSION_V_DEFAULT 1.0f // Umbral detección oclusión
+#define ADC_THRESH_OCCLUSION_V_DEFAULT 0.5f // Umbral detección oclusión
 #define ADC_THRESH_OCC_RELEASE_V_DEFAULT                                       \
-  0.5f // Umbral alivio de presión tras release
+  0.3f // Umbral alivio de presión tras release
 
 // --- Clinical API Defaults ---
 #define PURGE_FLOW_RATE_MLH 1000.0f

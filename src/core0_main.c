@@ -395,6 +395,6 @@ void core0_main_setup(void) {
   // task_ui_input: prioridad más alta para capturar input antes del frame LVGL
   xTaskCreate(task_ui_input, "UI_Input", 512, NULL, tskIDLE_PRIORITY + 3, NULL);
   // task_tft: 4096 words (16 KB) — LVGL necesita stack generoso
-  xTaskCreate(task_tft, "TFT", 4096, NULL, tskIDLE_PRIORITY + 2, NULL);
+  xTaskCreate(task_tft, "TFT", 1024 * 2, NULL, tskIDLE_PRIORITY + 2, NULL);
 #endif
 }

@@ -30,7 +30,7 @@ typedef enum {
 // Flow global variables
 
 enum FlowGlobalVariables {
-    FLOW_GLOBAL_VARIABLE_NONE
+    FLOW_GLOBAL_VARIABLE_RTC_TIME = 0
 };
 
 // Native global variables
@@ -63,6 +63,8 @@ extern int32_t get_var_set_micrometros();
 extern void set_var_set_micrometros(int32_t value);
 extern int32_t get_var_value_battery_charge();
 extern void set_var_value_battery_charge(int32_t value);
+extern float get_var_value_occlusion();
+extern void set_var_value_occlusion(float value);
 
 #ifdef __cplusplus
 }
