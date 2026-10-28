@@ -152,6 +152,7 @@ class PumpContext:
     target_volume_ml:         float      = 0.0
     infused_volume_ml:        float      = 0.0
     current_rate_ml_h:        float      = 0.0
+    target_rate_ml_h:         float      = 0.0
     current_pressure_mmhg:    float      = 10.0
     current_pressure_psi:     float      = 0.193
     occlusion_threshold_mmhg: float      = OCC_THRESHOLDS[3]
@@ -162,6 +163,16 @@ class PumpContext:
     progress_pct:             float      = 0.0
     fsm_state:                Core1State = Core1State.ST_READY_AT_HOME
     alarms:                   PumpAlarms = field(default_factory=PumpAlarms)
+    pcal_inputs:              dict       = field(default_factory=lambda: {
+        "sw_play_stop": 1,
+        "sw_bolus": 1,
+        "sw_detect_h": 0,
+        "chrg_status": 0,
+        "batt_install": 0
+    })
+    override_lsw_start:       Optional[int] = None
+    override_lsw_end:         Optional[int] = None
+    override_vin:             Optional[float] = None
 
 # ---------------------------------------------------------------------------
 # Modelo de Presión
@@ -374,6 +385,100 @@ class SyringePumpSimulator:
                 f'"fsm_state":{int(ctx.fsm_state)}}}'
             )
 
+    def get_realtime_json(self) -> str:
+        with self._lock:
+            ctx = self._ctx
+
+            # 1. Limit switches (GP10: LSW_START, GP11: LSW_END)
+            if ctx.override_lsw_start is not None:
+                at_start = ctx.override_lsw_start
+            else:
+                at_start = 1 if (ctx.fsm_state in (Core1State.ST_HOMING, Core1State.ST_RELEASING_LSW_START) or ctx.position_mm <= 0.05) else 0
+
+            if ctx.override_lsw_end is not None:
+                at_end = ctx.override_lsw_end
+            else:
+                at_end = 1 if (ctx.fsm_state in (Core1State.ST_END_OF_TRAVEL, Core1State.ST_RELEASING_LSW_END) or ctx.position_mm >= 60.0) else 0
+
+            # 2. ADC Channels (FRC_SENS GP26, BUB_SENS GP27, VIN_SENS GP28)
+            p_ratio = min(max(ctx.current_pressure_mmhg / max(ctx.occlusion_threshold_mmhg, 100.0), 0.0), 1.25)
+            frc_v = min(3.3, max(0.0, 0.72 + (p_ratio * 1.85) + random.gauss(0, 0.008)))
+            frc_raw = int(frc_v * 4095.0 / 3.3)
+
+            if ctx.alarms.bubble_in_line:
+                bub_v = max(0.0, 0.35 + random.gauss(0, 0.02))
+            else:
+                bub_v = min(3.3, 3.10 + random.gauss(0, 0.015))
+            bub_raw = int(bub_v * 4095.0 / 3.3)
+
+            # VIN_SENS (GP28 - ADC2): Li-Ion 4S (10V - 26V rango, óptimo 12.0V - 16.8V)
+            # Divisor resistivo: 100k serie + 10k paralelo a GND => Factor 11:1 (V_adc = V_in / 11)
+            if ctx.override_vin is not None:
+                vin_supply = max(0.0, ctx.override_vin + random.gauss(0, 0.01))
+            else:
+                vin_supply = 15.60 + random.gauss(0, 0.02)  # Batería 4S nominal (~3.9V / celda)
+
+            vin_adc_v = min(3.3, max(0.0, vin_supply / 11.0))
+            vin_raw = int(vin_adc_v * 4095.0 / 3.3)
+
+            # 3. Motor PAP (TMC2209)
+            is_moving = ctx.fsm_state in (
+                Core1State.ST_DISPENSING, Core1State.ST_HOMING,
+                Core1State.ST_SEARCHING_SYRINGE, Core1State.ST_OCCLUSION_RELEASE,
+                Core1State.ST_SEARCHING_EOT, Core1State.ST_CALIB_SEEK_START,
+                Core1State.ST_CALIB_SEEK_END
+            )
+            ena = 1 if is_moving else 0
+
+            if ctx.fsm_state in (Core1State.ST_HOMING, Core1State.ST_OCCLUSION_RELEASE, Core1State.ST_CALIB_SEEK_START):
+                dir_val = 0
+                dir_str = "REVERSE"
+            elif is_moving:
+                dir_val = 1
+                dir_str = "FORWARD"
+            else:
+                dir_val = 0
+                dir_str = "IDLE"
+
+            # StallGuard (SG_RESULT: 0 - 1023)
+            if not is_moving:
+                sg = 0
+            elif ctx.fsm_state in (Core1State.ST_OCCLUSION_STOPPING, Core1State.ST_OCCLUSION_RELEASE):
+                sg = random.randint(18, 48)
+            elif ctx.current_pressure_mmhg >= (ctx.occlusion_threshold_mmhg * 0.8):
+                sg = random.randint(65, 115)
+            elif ctx.fsm_state == Core1State.ST_DISPENSING:
+                sg = int(max(75, 420 - (p_ratio * 240) + random.gauss(0, 8)))
+            else:
+                sg = int(max(90, 390 + random.gauss(0, 12)))
+
+            data = {
+                "lsw": {
+                    "start": at_start,
+                    "end": at_end
+                },
+                "encoder": {
+                    "count": ctx.encoder_count,
+                    "position_mm": round(ctx.position_mm, 2)
+                },
+                "adc": {
+                    "frc_sens_v": round(frc_v, 3),
+                    "frc_sens_raw": frc_raw,
+                    "bub_sens_v": round(bub_v, 3),
+                    "bub_sens_raw": bub_raw,
+                    "vin_sens_v": round(vin_supply, 2),
+                    "vin_sens_raw": vin_raw
+                },
+                "pcal9555": dict(ctx.pcal_inputs),
+                "motor": {
+                    "ena": ena,
+                    "dir": dir_val,
+                    "dir_str": dir_str,
+                    "stallguard": sg
+                }
+            }
+            return json.dumps(data)
+
     # -----------------------------------------------------------------------
     # Parser de Comandos (Pipeline idéntico a cmd_dispatcher.c)
     # -----------------------------------------------------------------------
@@ -418,6 +523,7 @@ class SyringePumpSimulator:
                             rate_ml_h = vel_ums * 3600.0 * self._syringe_area_mm2 / 1e6
                             ctx.target_volume_ml  = min(ctx.infused_volume_ml + target_ml, self._syringe.max_capacity_ml)
                             ctx.current_rate_ml_h = rate_ml_h
+                            ctx.target_rate_ml_h  = rate_ml_h
                             ctx.session_id += 1
                             self._set_fsm_state(Core1State.ST_DISPENSING)
                             return ("accepted", None)
@@ -451,7 +557,7 @@ class SyringePumpSimulator:
             if cmd in ("fsm_cont", "fsm_resume"):
                 if ctx.fsm_state in (Core1State.ST_OCCLUSION_PAUSED, Core1State.ST_SET_NEW_DISPENSE):
                     if ctx.current_rate_ml_h <= 0:
-                        ctx.current_rate_ml_h = 50.0 # valor nominal de respaldo
+                        ctx.current_rate_ml_h = ctx.target_rate_ml_h if ctx.target_rate_ml_h > 0 else 50.0
                     self._set_fsm_state(Core1State.ST_DISPENSING)
                     return ("accepted", None)
                 return ("rejected", "invalid_state")
@@ -522,9 +628,48 @@ class SyringePumpSimulator:
             with self._lock:
                 self._ctx.alarms = PumpAlarms()
                 self._pressure_model.release()
-                if self._ctx.fsm_state in (Core1State.ST_FAULT, Core1State.ST_OCCLUSION_PAUSED, Core1State.ST_OCCLUSION_STOPPING):
+                self._ctx.override_lsw_start = None
+                self._ctx.override_lsw_end = None
+                self._ctx.override_vin = None
+                self._ctx.pcal_inputs = {
+                    "sw_play_stop": 1,
+                    "sw_bolus": 1,
+                    "sw_detect_h": 0,
+                    "chrg_status": 0,
+                    "batt_install": 0
+                }
+                if self._ctx.fsm_state == Core1State.ST_FAULT:
                     self._set_fsm_state(Core1State.ST_READY_AT_HOME)
             log.info(f"[{self.device_id}] SIM: Fallas limpiadas y presión normalizada")
+
+        elif cmd.startswith("sim_vin,"):
+            try:
+                val = float(cmd[8:].strip())
+                with self._lock:
+                    self._ctx.override_vin = val
+                log.info(f"[{self.device_id}] SIM: VIN_SENS override -> {val:.2f}V")
+            except ValueError:
+                pass
+
+        elif cmd.startswith("sim_pcal,"):
+            parts = cmd[9:].split(",")
+            if len(parts) == 2:
+                key, val = parts[0].strip(), int(parts[1])
+                with self._lock:
+                    if key in self._ctx.pcal_inputs:
+                        self._ctx.pcal_inputs[key] = val
+                        log.info(f"[{self.device_id}] SIM: PCAL9555 {key} -> {val}")
+
+        elif cmd.startswith("sim_lsw,"):
+            parts = cmd[8:].split(",")
+            if len(parts) == 2:
+                sw, val = parts[0].strip().lower(), int(parts[1])
+                with self._lock:
+                    if sw == "start":
+                        self._ctx.override_lsw_start = val
+                    elif sw == "end":
+                        self._ctx.override_lsw_end = val
+                    log.info(f"[{self.device_id}] SIM: LSW {sw} override -> {val}")
 
         elif cmd.startswith("infuse,"):
             parts = cmd[7:].split(",")
@@ -534,6 +679,7 @@ class SyringePumpSimulator:
                 with self._lock:
                     self._ctx.target_volume_ml = min(self._ctx.infused_volume_ml + target_ml, self._syringe.max_capacity_ml)
                     self._ctx.current_rate_ml_h = rate_ml_h
+                    self._ctx.target_rate_ml_h  = rate_ml_h
                     self._ctx.session_id += 1
                     self._set_fsm_state(Core1State.ST_DISPENSING)
                 log.info(f"[{self.device_id}] SIM: Infundiendo {rate_ml_h:.1f} mL/h hasta {target_ml:.1f} mL")
@@ -572,6 +718,7 @@ class PumpMQTTClient:
 
         # Tópicos modernos EDA
         self.topic_sensors   = f"bj/{self._id}/telemetry/sensors"
+        self.topic_realtime  = f"bj/{self._id}/telemetry/realtime"
         self.topic_motion    = f"bj/{self._id}/telemetry/motion"
         self.topic_session   = f"bj/{self._id}/telemetry/session"
         self.topic_event     = f"bj/{self._id}/event"
@@ -646,10 +793,11 @@ class PumpMQTTClient:
                 client.publish(self.topic_cmd_ack, json.dumps(ack), qos=1)
 
     def _telemetry_thread(self):
-        """Publicador multi-rate de telemetría (500 ms sensors, 1000 ms motion, 2000 ms session)"""
-        t_sensors = 0.0
-        t_motion  = 0.0
-        t_session = 0.0
+        """Publicador multi-rate de telemetría (500 ms sensors, 500 ms realtime, 1000 ms motion, 2000 ms session)"""
+        t_sensors  = 0.0
+        t_realtime = 0.0
+        t_motion   = 0.0
+        t_session  = 0.0
 
         while not self._stop_event.is_set():
             now = time.time()
@@ -659,6 +807,11 @@ class PumpMQTTClient:
                 if now - t_sensors >= (PERIOD_SENSORS_MS / 1000.0):
                     self._client.publish(self.topic_sensors, self.sim.get_sensors_json(), qos=0)
                     t_sensors = now
+
+                # Real-time Hardware Telemetry (500 ms)
+                if now - t_realtime >= (PERIOD_SENSORS_MS / 1000.0):
+                    self._client.publish(self.topic_realtime, self.sim.get_realtime_json(), qos=0)
+                    t_realtime = now
 
                 # Motion (1000 ms)
                 if now - t_motion >= (PERIOD_MOTION_MS / 1000.0):
@@ -702,8 +855,9 @@ class PumpMQTTClient:
         threading.Thread(target=self._event_thread,     daemon=True, name="event").start()
 
         log.info(f"[{self._id}] Simulador EDA corriendo.")
-        log.info(f"[{self._id}] Telemetría Sensors → {self.topic_sensors} (500ms)")
-        log.info(f"[{self._id}] Telemetría Motion  → {self.topic_motion} (1000ms)")
+        log.info(f"[{self._id}] Telemetría Sensors   → {self.topic_sensors} (500ms)")
+        log.info(f"[{self._id}] Telemetría Real-time → {self.topic_realtime} (500ms)")
+        log.info(f"[{self._id}] Telemetría Motion    → {self.topic_motion} (1000ms)")
         log.info(f"[{self._id}] Telemetría Session → {self.topic_session} (2000ms)")
         log.info(f"[{self._id}] Eventos FSM       → {self.topic_event}")
         log.info(f"[{self._id}] Canal Comandos     ← {self.topic_cmd}")

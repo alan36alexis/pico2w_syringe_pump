@@ -4,8 +4,10 @@
 #include "crosscore_logger.h"
 #include "config_manager.h"
 #include "mqtt_client.h"
+#include "core0_main.h"
 #include "core1_main.h"
 #include "system_queues.h"
+#include "serial_consumer.h"
 #include "pico/cyw43_arch.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -15,7 +17,7 @@
 #define CMD_ACTION_LOWLEVEL 0xFF
 
 static inline void print_fsm_rejected(void) {
-    printf("CMD : ERR=rejected fsm=%s\n", get_state_name(cmd_gate_get_fsm_state()));
+    serial_log("CMD", "ERR=rejected fsm=%s", get_state_name(cmd_gate_get_fsm_state()));
 }
 
 static CmdDispatchResult_t dispatch_result(bool ok, const char *reason,
@@ -61,7 +63,7 @@ CmdDispatchResult_t cmd_dispatch_string(const char *str, CmdSource_t src, int32_
     if (strncmp(str, "fsm_dispense,", 13) == 0) {
         float target = 0.0f, vel = 0.0f;
         if (sscanf(str + 13, "%f,%f", &target, &vel) != 2) {
-            printf("CMD : ERR=bad_format use=fsm_dispense,TARGET_UM,VELOCITY_UMS\n");
+            serial_log("CMD", "ERR=bad_format use=fsm_dispense,TARGET_UM,VELOCITY_UMS");
             return dispatch_result(false, "bad_format", src, (uint8_t)PUMP_ACTION_START_DISPENSE);
         }
         bool ok = cmd_gate_execute(PUMP_ACTION_START_DISPENSE, target, vel);
@@ -128,7 +130,7 @@ CmdDispatchResult_t cmd_dispatch_string(const char *str, CmdSource_t src, int32_
         tmp[sizeof(tmp) - 1] = '\0';
         char *comma = strchr(tmp, ',');
         if (!comma) {
-            printf("CMD : ERR=bad_format use=nsteps,STEPS,FREQ_HZ\n");
+            serial_log("CMD", "ERR=bad_format use=nsteps,STEPS,FREQ_HZ");
             return dispatch_result(false, "bad_format", src, CMD_ACTION_LOWLEVEL);
         }
         *comma = '\0';
@@ -143,20 +145,88 @@ CmdDispatchResult_t cmd_dispatch_string(const char *str, CmdSource_t src, int32_
         strcmp(str, "ADC") == 0 || strcmp(str, "READ_ADC") == 0) {
         uint16_t raw = core1_get_occlusion_adc_raw();
         float volt = (float)raw * 3.3f / 4095.0f;
-        printf("ADC : raw=%u volt=%.3fV\n", raw, volt);
+        serial_log("ADC", "raw=%u volt=%.3fV", raw, volt);
         return dispatch_result(true, "ok", src, CMD_ACTION_LOWLEVEL);
     }
     if (strncmp(str, "log_en,", 7) == 0) {
         log_filter_set(str + 7, true);
+        serial_log("CFG", "log_en=%s", str + 7);
         return dispatch_result(true, "ok", src, CMD_ACTION_LOWLEVEL);
     }
     if (strncmp(str, "log_dis,", 8) == 0) {
         log_filter_set(str + 8, false);
+        serial_log("CFG", "log_dis=%s", str + 8);
         return dispatch_result(true, "ok", src, CMD_ACTION_LOWLEVEL);
     }
 
     // ------------------------------------------------------------------
-    // Configuration commands
+    // Wi-Fi Profiles & Scan Commands
+    // ------------------------------------------------------------------
+    if (strncmp(str, "wifi_add,", 9) == 0) {
+        char tmp[140];
+        strncpy(tmp, str + 9, sizeof(tmp) - 1);
+        tmp[sizeof(tmp) - 1] = '\0';
+        char *p_ssid = tmp;
+        char *p_pass = strchr(p_ssid, ',');
+        if (!p_pass) {
+            serial_log("CFG", "ERR=bad_format use=wifi_add,<ssid>,<pass>[,<mqtt_ip>[,<port>]]");
+            return dispatch_result(false, "bad_format", src, CMD_ACTION_LOWLEVEL);
+        }
+        *p_pass = '\0';
+        p_pass++;
+        char *p_ip = strchr(p_pass, ',');
+        char *p_port_str = NULL;
+        if (p_ip) {
+            *p_ip = '\0';
+            p_ip++;
+            p_port_str = strchr(p_ip, ',');
+            if (p_port_str) {
+                *p_port_str = '\0';
+                p_port_str++;
+            }
+        }
+        uint16_t port = (p_port_str && p_port_str[0] != '\0') ? (uint16_t)atoi(p_port_str) : 1883;
+        bool ok = config_wifi_profile_add(p_ssid, p_pass, p_ip, port);
+        if (ok) {
+            wifi_manager_notify();
+        }
+        return dispatch_result(ok, ok ? "ok" : "err", src, CMD_ACTION_LOWLEVEL);
+    }
+    if (strncmp(str, "wifi_del,", 9) == 0) {
+        bool ok = config_wifi_profile_del(str + 9);
+        if (ok) {
+            wifi_manager_notify();
+        }
+        return dispatch_result(ok, ok ? "ok" : "err", src, CMD_ACTION_LOWLEVEL);
+    }
+    if (strcmp(str, "wifi_list") == 0 || strcmp(str, "WIFI_LIST") == 0) {
+        WifiProfile_t profiles[MAX_WIFI_PROFILES];
+        int count = config_wifi_profile_get_all(profiles, MAX_WIFI_PROFILES);
+        serial_log("CFG", "profiles count=%d max=%d active='%s' broker=%s:%d",
+                   count, MAX_WIFI_PROFILES,
+                   g_sys_config.wifi_ssid, g_sys_config.mqtt_ip, g_sys_config.mqtt_port);
+        for (int i = 0; i < count; i++) {
+            serial_log("CFG", "prof [%d/%d] ssid='%-20s' sec=%s broker=%s:%d",
+                   i + 1, count,
+                   profiles[i].ssid,
+                   (profiles[i].pass[0] != '\0') ? "WPA2" : "OPEN",
+                   profiles[i].mqtt_ip,
+                   profiles[i].mqtt_port);
+        }
+        return dispatch_result(true, "ok", src, CMD_ACTION_LOWLEVEL);
+    }
+    if (strcmp(str, "wifi_scan") == 0 || strcmp(str, "WIFI_SCAN") == 0) {
+        wifi_manager_scan_and_print();
+        return dispatch_result(true, "ok", src, CMD_ACTION_LOWLEVEL);
+    }
+    if (strncmp(str, "wifi_connect,", 13) == 0) {
+        const char *target_ssid = str + 13;
+        wifi_manager_force_connect(target_ssid);
+        return dispatch_result(true, "ok", src, CMD_ACTION_LOWLEVEL);
+    }
+
+    // ------------------------------------------------------------------
+    // Legacy Configuration commands
     // ------------------------------------------------------------------
     if (strncmp(str, "config_wifi,", 12) == 0) {
         char tmp[128];
@@ -164,11 +234,12 @@ CmdDispatchResult_t cmd_dispatch_string(const char *str, CmdSource_t src, int32_
         tmp[sizeof(tmp) - 1] = '\0';
         char *comma = strchr(tmp, ',');
         if (!comma) {
-            printf("CFG : ERR=bad_format use=config_wifi,SSID,PASS\n");
+            serial_log("CFG", "ERR=bad_format use=config_wifi,SSID,PASS");
             return dispatch_result(false, "bad_format", src, CMD_ACTION_LOWLEVEL);
         }
         *comma = '\0';
         config_set_wifi(tmp, comma + 1);
+        wifi_manager_notify();
         return dispatch_result(true, "ok", src, CMD_ACTION_LOWLEVEL);
     }
     if (strncmp(str, "config_mqtt,", 12) == 0) {
@@ -177,7 +248,7 @@ CmdDispatchResult_t cmd_dispatch_string(const char *str, CmdSource_t src, int32_
         tmp[sizeof(tmp) - 1] = '\0';
         char *comma = strchr(tmp, ',');
         if (!comma) {
-            printf("CFG : ERR=bad_format use=config_mqtt,IP,PORT\n");
+            serial_log("CFG", "ERR=bad_format use=config_mqtt,IP,PORT");
             return dispatch_result(false, "bad_format", src, CMD_ACTION_LOWLEVEL);
         }
         *comma = '\0';
@@ -186,6 +257,7 @@ CmdDispatchResult_t cmd_dispatch_string(const char *str, CmdSource_t src, int32_
     }
     if (strncmp(str, "set_ssid,", 9) == 0) {
         config_set_wifi_ssid(str + 9);
+        wifi_manager_notify();
         return dispatch_result(true, "ok", src, CMD_ACTION_LOWLEVEL);
     }
     if (strncmp(str, "set_wpass,", 10) == 0) {
@@ -206,13 +278,13 @@ CmdDispatchResult_t cmd_dispatch_string(const char *str, CmdSource_t src, int32_
         tmp[sizeof(tmp) - 1] = '\0';
         char *c1 = strchr(tmp, ',');
         if (!c1) {
-            printf("CFG : ERR=bad_format use=config_thresholds,V_SYR,V_OCC,V_REL\n");
+            serial_log("CFG", "ERR=bad_format use=config_thresholds,V_SYR,V_OCC,V_REL");
             return dispatch_result(false, "bad_format", src, CMD_ACTION_LOWLEVEL);
         }
         *c1 = '\0';
         char *c2 = strchr(c1 + 1, ',');
         if (!c2) {
-            printf("CFG : ERR=bad_format use=config_thresholds,V_SYR,V_OCC,V_REL\n");
+            serial_log("CFG", "ERR=bad_format use=config_thresholds,V_SYR,V_OCC,V_REL");
             return dispatch_result(false, "bad_format", src, CMD_ACTION_LOWLEVEL);
         }
         *c2 = '\0';
@@ -250,7 +322,7 @@ CmdDispatchResult_t cmd_dispatch_string(const char *str, CmdSource_t src, int32_
         } else if (strcmp(val, "auto") == 0 || strcmp(val, "1") == 0 || strcmp(val, "true") == 0) {
             auto_en = true;
         } else {
-            printf("CFG : ERR=bad_format use=config_antibolus,<auto|manual|1|0>\n");
+            serial_log("CFG", "ERR=bad_format use=config_antibolus,<auto|manual|1|0>");
             return dispatch_result(false, "bad_format", src, CMD_ACTION_LOWLEVEL);
         }
         config_set_antibolus_mode(auto_en);
@@ -261,10 +333,12 @@ CmdDispatchResult_t cmd_dispatch_string(const char *str, CmdSource_t src, int32_
         return dispatch_result(true, "ok", src, CMD_ACTION_LOWLEVEL);
     }
     if (strncmp(str, "config_info", 11) == 0) {
-        printf("CFG : ssid=\"%s\" ip=%s port=%u syr=%.2fV occ=%.2fV rel=%.2fV antibolus=%s\n",
+        serial_log("CFG", "ssid=\"%s\" ip=%s port=%u profiles=%d/%d syr=%.2fV occ=%.2fV rel=%.2fV antibolus=%s",
                g_sys_config.wifi_ssid,
                g_sys_config.mqtt_ip,
                g_sys_config.mqtt_port,
+               g_sys_config.wifi_profile_count,
+               MAX_WIFI_PROFILES,
                g_sys_config.thresh_syringe_contact_v,
                g_sys_config.thresh_occlusion_v,
                g_sys_config.thresh_occ_release_v,
@@ -276,24 +350,27 @@ CmdDispatchResult_t cmd_dispatch_string(const char *str, CmdSource_t src, int32_
     // Network commands
     // ------------------------------------------------------------------
     if (strncmp(str, "reconnect", 9) == 0) {
-        printf("NET : reconnecting wifi=1 mqtt=1\n");
+        serial_log("NET", "reconnect wifi=1 mqtt=1");
         cyw43_arch_lwip_begin();
         cyw43_wifi_leave(&cyw43_state, CYW43_ITF_STA);
         cyw43_arch_lwip_end();
         mqtt_client_force_reconnect();
+        wifi_manager_notify();
         return dispatch_result(true, "ok", src, CMD_ACTION_LOWLEVEL);
     }
     if (strncmp(str, "net_disable", 11) == 0) {
-        printf("NET : wifi_disabled=1\n");
+        serial_log("NET", "wifi_disabled=1");
         config_set_wifi_enabled(false);
         mqtt_client_force_reconnect();
         cyw43_arch_disable_sta_mode();
+        wifi_manager_notify();
         return dispatch_result(true, "ok", src, CMD_ACTION_LOWLEVEL);
     }
     if (strncmp(str, "net_enable", 10) == 0) {
-        printf("NET : wifi_enabled=1\n");
+        serial_log("NET", "wifi_enabled=1");
         config_set_wifi_enabled(true);
         cyw43_arch_enable_sta_mode();
+        wifi_manager_notify();
         return dispatch_result(true, "ok", src, CMD_ACTION_LOWLEVEL);
     }
 
@@ -314,6 +391,6 @@ CmdDispatchResult_t cmd_dispatch_string(const char *str, CmdSource_t src, int32_
         }
     }
 
-    printf("CMD : UNKNOWN cmd=\"%s\"\n", str);
+    serial_log("CMD", "UNKNOWN cmd=\"%s\"", str);
     return dispatch_result(false, "unknown_cmd", src, CMD_ACTION_LOWLEVEL);
 }

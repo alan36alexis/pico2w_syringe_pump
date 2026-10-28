@@ -86,6 +86,12 @@
 #define ADC_THRESH_OCCLUSION_V_DEFAULT 0.5f // Umbral detección oclusión
 #define ADC_THRESH_OCC_RELEASE_V_DEFAULT                                       \
   0.3f // Umbral alivio de presión tras release
+#define ADC_THRESH_BUBBLE_AIR_V_DEFAULT                                       \
+  1.5f // Umbral óptico detección de aire (<1.5V = aire, ~3.1V = líquido)
+
+// --- Emulación / Mock Encapsulado para Hardware Ausente (Pico 2 W pelada) ---
+#define ENABLE_MOCK_PCAL9555                                                   \
+  1 // 1 = Arranca mock si PCAL9555 no responde en I2C0; 0 = deshabilitado
 
 // --- Clinical API Defaults ---
 #define PURGE_FLOW_RATE_MLH 1000.0f
@@ -101,7 +107,9 @@
 #define LIMIT_SW_START_PIN 10
 #define LIMIT_SW_END_PIN 11
 #define ADC_PIN 26
-#define ADC_CHANNEL 0 // GPIO28 = ADC channel 2
+#define ADC_CHANNEL 0 // GPIO26 = ADC channel 0 (FRC_SENS)
+#define ADC_PIN_BUBBLE 27
+#define ADC_CHANNEL_BUBBLE 1 // GPIO27 = ADC channel 1 (BUB_SENS)
 #define ENCODER_PIN_A 6
 #define ENCODER_PIN_B 7
 #define USE_UART_MODE true

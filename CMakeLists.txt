@@ -102,6 +102,7 @@ add_executable(pico2w_syringe_pump
     src/i2c_bus.c
     src/pcal9555.c
     src/io_expander.c
+    src/mock_pcal9555.c
     ${UI_SOURCES}
     ${EEZ_SOURCES}
 )

@@ -5,6 +5,7 @@
 #include "serial_consumer.h"
 #include "system_queues.h"
 #include "io_expander.h"
+#include "mock_pcal9555.h"
 
 // Descomentar o comentar esta linea para habilitar/deshabilitar el monitoreo de
 // salud del sistema
@@ -29,41 +30,363 @@
 #include "hardware/adc.h"
 #endif
 #include "queue.h"
+#include "semphr.h"
 #include "syringe_pump_api.h"
 #include "task.h"
 #include <stdio.h>
 
 void vApplicationStackOverflowHook(TaskHandle_t xTask, char *pcTaskName) {
   (void)xTask;
-  printf("\n[ERR]: *** STACK OVERFLOW en tarea: %s ***\n", pcTaskName);
+  serial_log("!ALM", "STACK_OVERFLOW task=%s", pcTaskName);
   __breakpoint(); // Detiene el debugger en este punto
   for (;;)
     ;
+}
+
+#define MAX_SCANNED_APS 16
+#define WIFI_CONNECT_TIMEOUT_MS 20000
+#define WIFI_SCAN_TIMEOUT_MS    5000
+
+typedef struct {
+  char ssid[MAX_SSID_LEN];
+  int16_t rssi;
+  uint8_t auth_mode;
+  uint8_t channel;
+} ScannedAp_t;
+
+typedef struct {
+  ScannedAp_t aps[MAX_SCANNED_APS];
+  int count;
+} ScanContext_t;
+
+typedef struct {
+  int profile_idx;
+  int16_t rssi;
+  bool visible_in_scan;
+} WifiCandidate_t;
+
+static TaskHandle_t s_wifi_task_handle = NULL;
+static char s_forced_ssid[MAX_SSID_LEN] = {0};
+static int16_t s_connected_rssi = 0;
+
+// Buffers estáticos en .bss para evitar desbordar el stack de tareas FreeRTOS
+static ScanContext_t s_scan_ctx;
+static cyw43_wifi_scan_options_t s_scan_options;
+static SemaphoreHandle_t s_scan_mutex = NULL;
+
+static int wifi_scan_result_cb(void *env, const cyw43_ev_scan_result_t *result) {
+  if (!result || result->ssid_len == 0) return 0;
+  ScanContext_t *ctx = (ScanContext_t *)env;
+  if (!ctx) return 0;
+
+  // Sanear longitud máxima a 31 caracteres (+1 para null terminator)
+  size_t len = result->ssid_len;
+  if (len >= MAX_SSID_LEN) {
+    len = MAX_SSID_LEN - 1;
+  }
+
+  char temp_ssid[MAX_SSID_LEN];
+  memcpy(temp_ssid, result->ssid, len);
+  temp_ssid[len] = '\0';
+
+  // Evitar duplicados por múltiples BSSID/canales del mismo AP
+  for (int i = 0; i < ctx->count; i++) {
+    if (strcmp(ctx->aps[i].ssid, temp_ssid) == 0) {
+      if (result->rssi > ctx->aps[i].rssi) {
+        ctx->aps[i].rssi = result->rssi;
+        ctx->aps[i].channel = result->channel;
+      }
+      return 0;
+    }
+  }
+
+  if (ctx->count < MAX_SCANNED_APS) {
+    memcpy(ctx->aps[ctx->count].ssid, temp_ssid, len + 1);
+    ctx->aps[ctx->count].rssi = result->rssi;
+    ctx->aps[ctx->count].auth_mode = result->auth_mode;
+    ctx->aps[ctx->count].channel = result->channel;
+    ctx->count++;
+  }
+  return 0;
+}
+
+static int wifi_scan_perform(uint32_t timeout_ms) {
+  if (s_scan_mutex == NULL) {
+    s_scan_mutex = xSemaphoreCreateMutex();
+  }
+  if (xSemaphoreTake(s_scan_mutex, pdMS_TO_TICKS(1000)) != pdTRUE) {
+    serial_log("!NET", "wifi_scan=BUSY");
+    return -1;
+  }
+
+  s_scan_ctx.count = 0;
+  memset(&s_scan_options, 0, sizeof(s_scan_options));
+
+  // Asegurar que no haya un escaneo previo colgado en el driver
+  if (cyw43_wifi_scan_active(&cyw43_state)) {
+    uint32_t wait_prev = 0;
+    while (cyw43_wifi_scan_active(&cyw43_state) && wait_prev < 2000) {
+      vTaskDelay(pdMS_TO_TICKS(50));
+      wait_prev += 50;
+    }
+  }
+
+  cyw43_arch_lwip_begin();
+  int err = cyw43_wifi_scan(&cyw43_state, &s_scan_options, &s_scan_ctx, wifi_scan_result_cb);
+  cyw43_arch_lwip_end();
+
+  if (err != 0) {
+    serial_log("!NET", "wifi_scan=FAIL err=%d", err);
+    xSemaphoreGive(s_scan_mutex);
+    return err;
+  }
+
+  uint32_t elapsed = 0;
+  while (cyw43_wifi_scan_active(&cyw43_state)) {
+    vTaskDelay(pdMS_TO_TICKS(100));
+    elapsed += 100;
+    if (elapsed >= timeout_ms) {
+      break;
+    }
+  }
+
+  // Si venció el timeout pero el hardware aún reporta escaneo activo, esperar a que cierre
+  // para evitar colisiones con cyw43_wifi_join o cyw43_wifi_leave
+  if (cyw43_wifi_scan_active(&cyw43_state)) {
+    uint32_t wait_drain = 0;
+    while (cyw43_wifi_scan_active(&cyw43_state) && wait_drain < 2000) {
+      vTaskDelay(pdMS_TO_TICKS(100));
+      wait_drain += 100;
+    }
+  }
+
+  xSemaphoreGive(s_scan_mutex);
+  return 0;
+}
+
+void wifi_manager_notify(void) {
+  if (s_wifi_task_handle != NULL) {
+    xTaskNotifyGive(s_wifi_task_handle);
+  }
+}
+
+void wifi_manager_force_connect(const char *ssid) {
+  if (!ssid || ssid[0] == '\0') return;
+  strncpy(s_forced_ssid, ssid, MAX_SSID_LEN - 1);
+  s_forced_ssid[MAX_SSID_LEN - 1] = '\0';
+  serial_log("NET", "wifi=FORCE_REQ ssid='%s'", s_forced_ssid);
+  cyw43_arch_lwip_begin();
+  cyw43_wifi_leave(&cyw43_state, CYW43_ITF_STA);
+  cyw43_arch_lwip_end();
+  wifi_manager_notify();
+}
+
+void wifi_manager_scan_and_print(void) {
+  serial_log("NET", "scan=START");
+  int err = wifi_scan_perform(WIFI_SCAN_TIMEOUT_MS);
+  if (err != 0) {
+    serial_log("!NET", "scan=FAIL err=%d", err);
+    return;
+  }
+  serial_log("NET", "scan count=%d", s_scan_ctx.count);
+  for (int i = 0; i < s_scan_ctx.count; i++) {
+    const char *sec = "OPEN";
+    if (s_scan_ctx.aps[i].auth_mode == CYW43_AUTH_WPA2_AES_PSK ||
+        s_scan_ctx.aps[i].auth_mode == CYW43_AUTH_WPA2_MIXED_PSK) {
+      sec = "WPA2";
+    } else if (s_scan_ctx.aps[i].auth_mode == CYW43_AUTH_WPA_TKIP_PSK) {
+      sec = "WPA";
+    }
+    bool saved = (config_wifi_profile_find(s_scan_ctx.aps[i].ssid) != NULL);
+    serial_log("NET", "scan ssid='%-20s' rssi=%d ch=%d sec=%s saved=%d",
+               s_scan_ctx.aps[i].ssid,
+               s_scan_ctx.aps[i].rssi,
+               s_scan_ctx.aps[i].channel,
+               sec,
+               saved ? 1 : 0);
+  }
+}
+
+/**
+ * @brief Escanea redes y selecciona inteligentemente el perfil guardado con
+ * mejor señal (mayor RSSI). Si se especificó una red forzada, conecta a esa directamente.
+ */
+static int wifi_connect_smart(void) {
+  // Caso A: Se solicitó forzar un SSID específico
+  if (s_forced_ssid[0] != '\0') {
+    char target[MAX_SSID_LEN];
+    strncpy(target, s_forced_ssid, sizeof(target));
+    target[sizeof(target) - 1] = '\0';
+    s_forced_ssid[0] = '\0'; // Consumir solicitud forzada
+
+    const WifiProfile_t *prof = config_wifi_profile_find(target);
+    const char *pw = NULL;
+    const char *broker_ip = g_sys_config.mqtt_ip;
+    uint16_t broker_port = g_sys_config.mqtt_port;
+
+    if (prof != NULL) {
+      pw = (prof->pass[0] != '\0') ? prof->pass : NULL;
+      broker_ip = prof->mqtt_ip;
+      broker_port = prof->mqtt_port;
+    } else if (strcmp(target, g_sys_config.wifi_ssid) == 0) {
+      pw = (g_sys_config.wifi_pass[0] != '\0') ? g_sys_config.wifi_pass : NULL;
+    }
+
+    uint32_t auth = (pw != NULL) ? CYW43_AUTH_WPA2_MIXED_PSK : CYW43_AUTH_OPEN;
+    serial_log("NET", "wifi=TRY_FORCE ssid='%s'", target);
+
+    cyw43_arch_lwip_begin();
+    cyw43_wifi_leave(&cyw43_state, CYW43_ITF_STA);
+    cyw43_arch_lwip_end();
+    vTaskDelay(pdMS_TO_TICKS(150));
+
+    int err = cyw43_arch_wifi_connect_timeout_ms(target, pw, auth, WIFI_CONNECT_TIMEOUT_MS);
+    if (err == 0) {
+      config_wifi_profile_set_active(target, pw, broker_ip, broker_port);
+      s_connected_rssi = 0;
+      mqtt_client_force_reconnect();
+      return 0;
+    }
+    serial_log("!NET", "wifi=FAIL_FORCE ssid='%s' err=%d", target, err);
+    return -1;
+  }
+
+  // Caso B: Escanear redes disponibles y ordenar perfiles guardados por RSSI
+  serial_log("NET", "wifi=SCAN");
+  wifi_scan_perform(WIFI_SCAN_TIMEOUT_MS);
+
+  // Pausa de 200 ms para que el driver CYW43 y el stack lwIP asienten el fin del escaneo
+  vTaskDelay(pdMS_TO_TICKS(200));
+
+  WifiCandidate_t candidates[MAX_WIFI_PROFILES];
+  int cand_count = 0;
+
+  for (int i = 0; i < MAX_WIFI_PROFILES; i++) {
+    if (!g_sys_config.wifi_profiles[i].valid) continue;
+
+    const char *p_ssid = g_sys_config.wifi_profiles[i].ssid;
+    int found_idx = -1;
+    for (int s = 0; s < s_scan_ctx.count; s++) {
+      if (strcmp(p_ssid, s_scan_ctx.aps[s].ssid) == 0) {
+        found_idx = s;
+        break;
+      }
+    }
+
+    candidates[cand_count].profile_idx = i;
+    if (found_idx >= 0) {
+      candidates[cand_count].rssi = s_scan_ctx.aps[found_idx].rssi;
+      candidates[cand_count].visible_in_scan = true;
+      g_sys_config.wifi_profiles[i].last_rssi = (int8_t)candidates[cand_count].rssi;
+    } else {
+      // Red no vista en escaneo (ej. beacon miss por colisión de radio o SSID oculto)
+      // Si coincide con la red activa configurada, priorizarla (-90 dBm) sobre perfiles no detectados (-100 dBm)
+      if (strcmp(p_ssid, g_sys_config.wifi_ssid) == 0) {
+        candidates[cand_count].rssi = -90;
+      } else {
+        candidates[cand_count].rssi = -100;
+      }
+      candidates[cand_count].visible_in_scan = false;
+    }
+    cand_count++;
+  }
+
+  if (cand_count == 0) {
+    serial_log("!NET", "wifi=NO_PROFILES");
+    return -1;
+  }
+
+  // Ordenar candidatos por RSSI descendente (mayor potencia de señal primero)
+  for (int i = 0; i < cand_count - 1; i++) {
+    for (int j = i + 1; j < cand_count; j++) {
+      if (candidates[j].rssi > candidates[i].rssi) {
+        WifiCandidate_t tmp = candidates[i];
+        candidates[i] = candidates[j];
+        candidates[j] = tmp;
+      }
+    }
+  }
+
+  serial_log("NET", "cand count=%d", cand_count);
+  for (int i = 0; i < cand_count; i++) {
+    int p_idx = candidates[i].profile_idx;
+    serial_log("NET", "cand [%d/%d] ssid='%s' rssi=%d det=%d broker=%s:%d",
+           i + 1, cand_count,
+           g_sys_config.wifi_profiles[p_idx].ssid,
+           candidates[i].rssi,
+           candidates[i].visible_in_scan ? 1 : 0,
+           g_sys_config.wifi_profiles[p_idx].mqtt_ip,
+           g_sys_config.wifi_profiles[p_idx].mqtt_port);
+  }
+
+  // Intentar conectar en orden de potencia
+  for (int i = 0; i < cand_count; i++) {
+    int p_idx = candidates[i].profile_idx;
+    WifiProfile_t *prof = &g_sys_config.wifi_profiles[p_idx];
+    const char *pw = (prof->pass[0] != '\0') ? prof->pass : NULL;
+    uint32_t auth = (pw != NULL) ? CYW43_AUTH_WPA2_MIXED_PSK : CYW43_AUTH_OPEN;
+
+    serial_log("NET", "wifi=TRY [%d/%d] ssid='%s'", i + 1, cand_count, prof->ssid);
+
+    cyw43_arch_lwip_begin();
+    cyw43_wifi_leave(&cyw43_state, CYW43_ITF_STA);
+    cyw43_arch_lwip_end();
+    vTaskDelay(pdMS_TO_TICKS(150));
+
+    int err = cyw43_arch_wifi_connect_timeout_ms(prof->ssid, pw, auth, WIFI_CONNECT_TIMEOUT_MS);
+    if (err == 0) {
+      config_wifi_profile_set_active(prof->ssid, prof->pass, prof->mqtt_ip, prof->mqtt_port);
+      s_connected_rssi = (int8_t)candidates[i].rssi;
+      mqtt_client_force_reconnect();
+      return 0;
+    }
+    serial_log("!NET", "wifi=FAIL ssid='%s' err=%d", prof->ssid, err);
+  }
+
+  // Dejar la interfaz limpia si fallaron todos los candidatos
+  cyw43_arch_lwip_begin();
+  cyw43_wifi_leave(&cyw43_state, CYW43_ITF_STA);
+  cyw43_arch_lwip_end();
+
+  return -1;
 }
 
 /**
  * @brief Tarea para mantener la conexion Wi-Fi
  */
 static void wifi_keepalive_task(void *params) {
+  s_wifi_task_handle = xTaskGetCurrentTaskHandle();
+
   while (1) {
     if (!g_sys_config.wifi_enabled) {
-      vTaskDelay(pdMS_TO_TICKS(10000));
+      // Wi-Fi deshabilitado (net_disable): esperar indefinidamente hasta notificación
+      ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
       continue;
     }
+
     int link_status = cyw43_tcpip_link_status(&cyw43_state, CYW43_ITF_STA);
-    if (link_status != CYW43_LINK_UP) {
-      CORE0_EMIT(EV_NET_WIFI_DISC, param, (uint32_t)link_status);
-      int err = cyw43_arch_wifi_connect_timeout_ms(
-          g_sys_config.wifi_ssid, g_sys_config.wifi_pass,
-          CYW43_AUTH_WPA2_MIXED_PSK, 30000);
-      if (err) {
-        CORE0_EMIT(EV_NET_WIFI_DISC, param, (uint32_t)err);
-      } else {
-        CORE0_EMIT(EV_NET_WIFI_CONN, wifi,
-                   ((DtoWifi_t){.rssi_dbm = 0, .channel = 0}));
-      }
+    if (link_status == CYW43_LINK_UP && s_forced_ssid[0] == '\0') {
+      // Regla de Histeresis / Estabilidad:
+      // Mantener la conexión activa sin escanear ni cambiar de red mientras el enlace siga arriba.
+      ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(5000));
+      continue;
     }
-    vTaskDelay(pdMS_TO_TICKS(10000));
+
+    // Se perdió la conexión o se solicitó forzar un SSID específico
+    CORE0_EMIT(EV_NET_WIFI_DISC, param, (uint32_t)link_status);
+    cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, 0);
+
+    int err = wifi_connect_smart();
+    if (err == 0) {
+      CORE0_EMIT(EV_NET_WIFI_CONN, wifi,
+                 ((DtoWifi_t){.rssi_dbm = s_connected_rssi, .channel = 0}));
+      cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, 1);
+    } else {
+      CORE0_EMIT(EV_NET_WIFI_DISC, param, (uint32_t)err);
+      serial_log("!NET", "wifi=NONE retry_in=60s");
+      // Backoff de 60 segundos, interrumpible inmediatamente si el usuario añade red o reconecta
+      ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(60000));
+    }
   }
 }
 
@@ -72,6 +395,7 @@ static void wifi_keepalive_task(void *params) {
  */
 static void task_init(void *params) {
   config_manager_init();
+  topics_init(g_sys_config.device_id);
 
   // Sincronizar umbrales ADC iniciales hacia Core 1
   cmd_send_set_adc_thresholds(g_sys_config.thresh_syringe_contact_v,
@@ -98,9 +422,12 @@ static void task_init(void *params) {
   // Inicializacion del bus I2C0 y del expansor PCAL9555
   if (io_expander_init(NULL)) {
     io_expander_start_task(1);
-    printf("[I2C]: PCAL9555 detectado e iniciado en 0x%02X.\n", PCAL9555_I2C_ADDR_DEFAULT);
+    serial_log("SYS", "i2c_exp=OK addr=0x%02X", PCAL9555_I2C_ADDR_DEFAULT);
   } else {
-    printf("[I2C]: AVISO: PCAL9555 no responde en 0x%02X (operando sin expansion).\n", PCAL9555_I2C_ADDR_DEFAULT);
+    serial_log("!SYS", "i2c_exp=NOT_FOUND addr=0x%02X", PCAL9555_I2C_ADDR_DEFAULT);
+#ifdef ENABLE_MOCK_PCAL9555
+    mock_pcal9555_start_task(1);
+#endif
   }
 
   // Inicializacion de GPIO y Wi-Fi chip (CYW43)
@@ -112,27 +439,26 @@ static void task_init(void *params) {
 
   if (g_sys_config.wifi_enabled) {
     cyw43_arch_enable_sta_mode();
+    vTaskDelay(pdMS_TO_TICKS(300)); // Estabilización del chip Wi-Fi tras activar STA
     CORE0_EMIT(EV_NET_WIFI_CONNECTING, param, 0); // SSID/pass not logged (security)
-    int err = cyw43_arch_wifi_connect_timeout_ms(
-        g_sys_config.wifi_ssid, g_sys_config.wifi_pass,
-        CYW43_AUTH_WPA2_MIXED_PSK, 30000);
-    if (err) {
-      CORE0_EMIT(EV_NET_WIFI_DISC, param, (uint32_t)err);
-    } else {
+    int err = wifi_connect_smart();
+    if (err == 0) {
       CORE0_EMIT(EV_NET_WIFI_CONN, wifi,
-                 ((DtoWifi_t){.rssi_dbm = 0, .channel = 0}));
+                 ((DtoWifi_t){.rssi_dbm = s_connected_rssi, .channel = 0}));
       cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, 1);
+    } else {
+      CORE0_EMIT(EV_NET_WIFI_DISC, param, (uint32_t)err);
     }
   } else {
     cyw43_arch_disable_sta_mode();
-    printf("[NET]: Wi-Fi deshabilitado (Battery Save Mode).\n");
+    serial_log("NET", "wifi=DISABLED");
   }
 
   // Iniciar la tarea cliente MQTT
   xTaskCreate(mqtt_client_task, "MQTT_Task", configMINIMAL_STACK_SIZE * 4, NULL,
               2, NULL);
 
-  xTaskCreate(wifi_keepalive_task, "WiFi_Keepalive", 1024, NULL, 1, NULL);
+  xTaskCreate(wifi_keepalive_task, "WiFi_Keepalive", 1024 * 2, NULL, 1, &s_wifi_task_handle);
 
   // Elimino la tarea para liberar recursos tras una única ejecución
   vTaskDelete(NULL);
@@ -184,7 +510,7 @@ static void task_example_internal_cmd(void *params) {
  * @brief Tarea para procesar comandos via Serial (CLI)
  */
 static void task_cli(void *params) {
-  char cli_buf[64];
+  char cli_buf[160];
   int cli_idx = 0;
 
   CORE0_EMIT(EV_SYS_CLI_READY, param, 0);
@@ -380,7 +706,7 @@ void core0_main_setup(void) {
   xTaskCreate(task_init, "Init", 1024, NULL, 2, NULL);
   xTaskCreate(task_blinky, "Blinky", configMINIMAL_STACK_SIZE * 4, NULL, 1,
               NULL);
-  xTaskCreate(task_cli, "CLI", configMINIMAL_STACK_SIZE * 3, NULL, 1, NULL);
+  xTaskCreate(task_cli, "CLI", configMINIMAL_STACK_SIZE * 6, NULL, 1, NULL);
   // mqtt_msg_t (324 B) + cmd_buf[128] + sscanf internals + publish_qos1 frame =
   // ~500 words peak
   xTaskCreate(mqtt_rx_task, "MQTT_Rx", configMINIMAL_STACK_SIZE * 8, NULL, 2,

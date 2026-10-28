@@ -16,12 +16,19 @@
 
 #include "fsm_table.h"
 #include "system_config.h"
+#include "crosscore_logger.h"
 
 #include "pico/time.h"
 
 #include <assert.h>
 #include <math.h>
 #include <stdio.h>
+
+#ifdef ENABLE_LOG_DEBUG
+#define LOG_DEBUG(...) logger_send_string(__VA_ARGS__)
+#else
+#define LOG_DEBUG(...)
+#endif
 
 /* -------------------------------------------------------------------------
  * Compile-time coverage: table sizes must match enum sentinels.
@@ -229,9 +236,9 @@ static void act_stop_on_contact(FsmCtx_t *ctx) {
     ctx->deadline_active = false;
     ctx->syringe_start_encoder_count = ctx->current_encoder_count;
     ctx->has_syringe_contact = true;
-    printf("[FSM]: Syringe engaged at encoder count %ld (%.1f um)\n",
-           (long)ctx->syringe_start_encoder_count,
-           (float)ctx->syringe_start_encoder_count * calc_um_per_pulse(ctx->use_quadrature));
+    LOG_DEBUG("[FSM]: contact enc=%ld pos=%.1fum\n",
+              (long)ctx->syringe_start_encoder_count,
+              (float)ctx->syringe_start_encoder_count * calc_um_per_pulse(ctx->use_quadrature));
 }
 
 static void act_start_dispense(FsmCtx_t *ctx) {
@@ -308,10 +315,8 @@ static void act_occ_release_move(FsmCtx_t *ctx) {
         release_um = dist_to_lsw_start;
     }
 
-    printf("[FSM]: Occlusion release move: target -%.1f um (Limits: max=%.1f, syringe_start=%.1f, pos=%.1f)\n",
-           release_um, OCCLUSION_RELEASE_MAX_UM,
-           ctx->has_syringe_contact ? (float)ctx->syringe_start_encoder_count * um_per_pulse : 0.0f,
-           current_pos_um);
+    LOG_DEBUG("[FSM]: occ_rel tgt=-%.1fum max=%.1fum pos=%.1fum\n",
+              release_um, OCCLUSION_RELEASE_MAX_UM, current_pos_um);
 
     if (release_um < CORRECTION_DEADBAND_UM) {
         release_um = CORRECTION_DEADBAND_UM;
@@ -343,7 +348,7 @@ static void act_resume_dispense_complete(FsmCtx_t *ctx) {
     if (ctx->scl) {
         ctx->scl->waiting_for_correction = false;
     }
-    printf("[FSM]: Resuming dispense — Target reached / remaining <= deadband. Completing dispense.\n");
+    LOG_DEBUG("[FSM]: resume=done\n");
 }
 
 /* Resume the original dispense: calculates remaining distance from initial target
@@ -354,8 +359,8 @@ static void act_resume_dispense(FsmCtx_t *ctx) {
     int32_t delta_counts = ctx->current_encoder_count - ctx->dispense_start_encoder_count;
     float net_moved_um = (float)delta_counts * um_per_pulse;
 
-    printf("[FSM]: Resuming dispense — Target: %.1f um, Net moved: %.1f um, Remaining: %.1f um @ %.1f um/s\n",
-           ctx->dispense_target_um, net_moved_um, remaining_um, ctx->dispense_velocity_ums);
+    LOG_DEBUG("[FSM]: resume rem=%.1fum net=%.1fum vel=%.1fum/s\n",
+              remaining_um, net_moved_um, ctx->dispense_velocity_ums);
 
     closed_loop_init_move(ctx->scl, remaining_um, ctx->dispense_velocity_ums,
                           ctx->current_encoder_count);
@@ -581,8 +586,7 @@ Core1State_t fsm_dispatch(FsmCtx_t *ctx, Core1State_t state, Core1Event_t event)
         /* Decision A (Alan, 2026-06-26): illegal transition -> ST_FAULT + log.
          * Full implementation deferred to Commit 6 pending state-by-state
          * review. Stub: log only, no fault yet. */
-        printf("[FSM]: ILLEGAL (state=%d, event=%d) — not yet faulting (Commit 6)\n",
-               (int)state, (int)event);
+        LOG_DEBUG("[!FSM]: illegal st=%d ev=%d\n", (int)state, (int)event);
     }
     return state; /* POL_IGNORE or POL_ILLEGAL stub: stay in current state */
 }

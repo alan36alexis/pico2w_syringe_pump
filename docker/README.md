@@ -30,6 +30,7 @@ El stack definido en [`docker/docker-compose.yml`](docker-compose.yml) orquesta 
 
 ### Contrato de Comunicación (Arquitectura EDA Multi-rate):
 * `bj/{id}/telemetry/sensors` (500 ms, QoS 0): Presión hidráulica (`pressure_psi`, `pressure_mmhg`).
+* `bj/{id}/telemetry/realtime` (500 ms, QoS 0): Sensores de bajo nivel (`lsw`, `encoder`, `adc`, `pcal9555`, `motor`).
 * `bj/{id}/telemetry/motion` (1000 ms, QoS 0): Cinemática del motor (`encoder_count`, `position_mm`, `speed_ums`, `progress_pct`).
 * `bj/{id}/telemetry/session` (2000 ms, QoS 0): Sesión clínica (`infused_ml`, `target_ml`, `rate_ml_h`, `elapsed_s`, `fsm_state`).
 * `bj/{id}/event` (Disparo, QoS 1): Transiciones FSM de Core 1 (0 a 20) y alarmas (`occ`, `bub`, `eot`, `drv`).
@@ -118,15 +119,26 @@ docker compose logs -f
 
 1. Abre tu navegador web e ingresa al editor de Node-RED:
    👉 **[http://localhost:1880](http://localhost:1880)**
-2. **Importar Flujos:**
+2. **Dependencia Dashboard 2.0 (si es una instalación limpia):**
+   * Este flujo utiliza nodos de `@flowfuse/node-red-dashboard` (Dashboard 2.0).
+   * Si tras iniciar un volumen limpio aparecen advertencias de nodos faltantes (`ui-base`, `ui-page`, etc.):
+     1. Haz clic en el menú superior derecho `☰` ➔ **Manage palette** (Administrar paleta).
+     2. Ve a la pestaña **Install**, busca `@flowfuse/node-red-dashboard` y haz clic en **Install**.
+     *(En despliegues subsiguientes el paquete queda persistido en el volumen Docker `nodered-data`).*
+3. **Importar Flujos:**
    * Haz clic en el menú superior derecho (tres líneas horizontales `☰`) ➔ **Import**.
    * Haz clic en **select a file to import** y selecciona el archivo [`flows_bomba.json`](flows_bomba.json) ubicado en esta carpeta (o pega su contenido en la caja de texto).
    * Selecciona **Import into: Current flow** (o nuevo flujo).
    * Haz clic en el botón rojo **Deploy** (arriba a la derecha).
-3. **Acceder al Dashboard Clínico:**
+4. **Acceder al Dashboard Clínico:**
    * Abre en una pestaña nueva:
      👉 **[http://localhost:1880/dashboard](http://localhost:1880/dashboard)**
-   * Observarás el badge de conexión en verde con el ID del simulador (`bj-deadbeef`), los gauges de caudal, el gráfico de presión hidráulica a 2 Hz y los paneles de control de la FSM.
+   * En la barra de navegación lateral izquierda encontrarás 5 secciones:
+     * **Monitor:** Badge de conexión, caudal instantáneo, curva de presión hidráulica a 2 Hz, estadísticas de infusión y pastillas de alarmas.
+     * **Control:** Mando de la máquina de estados FSM (`fsm_home`, `fsm_search`, `fsm_dispense`), parada de emergencia y disparo de fallas.
+     * **Terminal:** Consola interactiva Pub-Sub MQTT (ícono `>_`). Permite suscribirse con patrones (`bj/#`, `bj/+/event`, etc.), filtrar payloads, ver el stream en tiempo real con marcas de tiempo y publicar comandos o fallas.
+     * **Real-time:** Panel de telemetría de hardware de bajo nivel (ícono chip). Monitorea en vivo los finales de carrera (`LSW_START`, `LSW_END`), el contador del encoder, los 3 canales ADC (`FRC_SENS`, `BUB_SENS`, `VIN_SENS`), las entradas del expansor I2C `PCAL9555` y los pines del driver TMC2209 (`ENA`, `DIR`, `StallGuard`).
+     * **Gráficos:** Panel de tendencias históricas de los 3 canales ADC (`FRC_SENS`, `BUB_SENS`, `VIN_SENS`) con ventana deslizante de 1 hora (60 minutos) y botón de retorno rápido a Real-time. Accesible también desde el botón **Gráficos** de la tarjeta ADC.
 
 ---
 
@@ -227,7 +239,56 @@ mosquitto_pub -h localhost -t "bj/bj-deadbeef/cmd" -m '{"cid":13,"cmd":"fsm_resu
 mosquitto_pub -h localhost -t "bj/bj-deadbeef/cmd" -m '{"cid":14,"cmd":"stop_imm"}'
 ```
 **Resultado esperado:**
-* Detención incondicional instantánea. El caudal cae a 0.0 mL/h y la FSM vuelve al estado seguro de reposo.
+* Detención incondicional instantánea. El caudal cae a 0.0 mL/h y la FSM vuelve al estado seguro de reposo (`ST_READY_AT_HOME`).
+
+---
+
+### Prueba 9: Inyección y Detección de Burbuja de Aire en Línea
+Simula la detección por el sensor óptico de burbuja (BUB_SENS):
+```bash
+mosquitto_pub -h localhost -t "bj/bj-deadbeef/sim_fault" -m "fault_bubble"
+```
+**Resultado esperado:**
+* Se emite evento: `{"type":"alarm","code":"bub","level":2}`.
+* La FSM pasa a estado `ST_FAULT` (12) y detiene el flujo (`rate_ml_h = 0.0`).
+* La pastilla **BUB** en el dashboard se ilumina en rojo `⚠`. En la página **Real-time**, el canal ADC1 (`BUB_SENS`) cae por debajo de 1.5V y avisa `⚠ BURBUJA DE AIRE DETECTADA`.
+* Para restablecer la falla:
+```bash
+mosquitto_pub -h localhost -t "bj/bj-deadbeef/sim_fault" -m "fault_clear"
+```
+
+---
+
+### Prueba 10: Reinicio Completo de Sesión (FSM Reset)
+Para reiniciar todos los contadores acumulados (volumen infundido, tiempo transcurrido, progreso):
+```bash
+mosquitto_pub -h localhost -t "bj/bj-deadbeef/cmd" -m '{"cid":15,"cmd":"fsm_reset"}'
+```
+**Resultado esperado:**
+* El canal ACK responderá: `{"cid":15,"result":"accepted"}`.
+* Los contadores en el dashboard volverán a `0.00 mL`, `0 s` y `0.0 %`.
+* La FSM regresa a `ST_READY_AT_HOME` (3).
+
+---
+
+### Prueba 11: Inyección y Verificación de Telemetría Real-time
+Verifica en la página **Real-time** (`http://localhost:1880/dashboard/realtime`) los niveles y sensores físicos:
+```bash
+# 1. Simular batería baja en VIN_SENS (<12V inicia apagado):
+mosquitto_pub -h localhost -t "bj/bj-deadbeef/sim_fault" -m "sim_vin,11.5"
+
+# 2. Simular batería 100% cargada (16.8V en 4S):
+mosquitto_pub -h localhost -t "bj/bj-deadbeef/sim_fault" -m "sim_vin,16.8"
+
+# 3. Simular apagado por Switch ON/OFF principal (P0_2: SW_DETECT_H = 1):
+mosquitto_pub -h localhost -t "bj/bj-deadbeef/sim_fault" -m "sim_pcal,sw_detect_h,1"
+
+# 4. Simular encendido por Switch ON/OFF principal (P0_2: SW_DETECT_H = 0):
+mosquitto_pub -h localhost -t "bj/bj-deadbeef/sim_fault" -m "sim_pcal,sw_detect_h,0"
+
+# 5. Limpiar y volver a condiciones nominales (15.6V nominal):
+mosquitto_pub -h localhost -t "bj/bj-deadbeef/sim_fault" -m "fault_clear"
+```
 
 ---
 
