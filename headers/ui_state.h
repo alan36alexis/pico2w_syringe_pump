@@ -15,6 +15,7 @@ typedef struct {
     float        rate_ml_h;
     float        infused_volume_ml;
     float        target_volume_ml;
+    float        frc_sense_v;
     uint32_t     session_id;
     uint32_t     elapsed_s;
     bool         session_active;
