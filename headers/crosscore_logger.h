@@ -17,10 +17,16 @@ typedef struct {
     bool show_prg; // Progress
     bool show_enc; // Encoder
     bool show_mtr; // Motor
+    bool show_hws; // Hardware Real-Time Status (EV_HW_CORE1_STATUS)
+    bool show_net; // Network (WiFi / MQTT)
+    bool show_sys; // System health & Power
+    bool show_cmd; // CLI / MQTT Command results
+    bool show_dbg; // Core 1 / General debug
 } LogFilterConfig_t;
 
 extern LogFilterConfig_t g_log_filter;
 void log_filter_set(const char *hdr, bool state);
+bool log_filter_is_enabled(const char *tag);
 
 // Event IDs
 typedef enum {

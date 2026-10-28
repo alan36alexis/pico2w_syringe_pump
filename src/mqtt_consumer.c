@@ -2,6 +2,7 @@
 #include "system_queues.h"
 #include "mqtt_client.h"
 #include "mqtt_topics.h"
+#include "system_config.h"
 #include <stdio.h>
 #include <stdint.h>
 
@@ -26,12 +27,72 @@ typedef struct {
     uint8_t  battery_pct;
     uint32_t free_heap_bytes;
     uint8_t  mqtt_tx_drops;
+
+    // Real-Time Hardware (Core 1)
+    uint16_t frc_sens_raw;
+    float    frc_sens_v;
+    uint16_t bub_sens_raw;
+    float    bub_sens_v;
+    uint8_t  lsw_start;
+    uint8_t  lsw_end;
+    uint8_t  motor_ena;
+    uint8_t  motor_dir;
+    uint16_t motor_stallguard;
+
+    // Real-Time Hardware (Core 0 - PCAL9555 & VIN)
+    uint16_t vin_sens_raw;
+    float    vin_sens_v;
+    uint8_t  pcal_sw_play_stop;
+    uint8_t  pcal_sw_bolus;
+    uint8_t  pcal_sw_detect_h;
+    uint8_t  pcal_chrg_status;
+    uint8_t  pcal_batt_install;
 } MqttSnapshot_t;
 
-static MqttSnapshot_t s_snap = {0};
+static MqttSnapshot_t s_snap = {
+    .vin_sens_v = 15.58f,
+    .vin_sens_raw = 1757,
+    .bub_sens_v = 3.105f,
+    .bub_sens_raw = 3852,
+    .frc_sens_v = 0.735f,
+    .frc_sens_raw = 911,
+    .motor_stallguard = 240,
+    .pcal_sw_play_stop = 1,
+    .pcal_sw_bolus = 1,
+    .pcal_sw_detect_h = 0,
+    .pcal_chrg_status = 0,
+    .pcal_batt_install = 0
+};
 
 static void apply_event(const SystemEvent_t *ev) {
     switch (ev->id) {
+    case EV_HW_CORE1_STATUS:
+        s_snap.frc_sens_raw     = ev->payload.core1_hw.frc_sens_raw;
+        s_snap.frc_sens_v       = ev->payload.core1_hw.frc_sens_v;
+        s_snap.bub_sens_raw     = ev->payload.core1_hw.bub_sens_raw;
+        s_snap.bub_sens_v       = ev->payload.core1_hw.bub_sens_v;
+        s_snap.lsw_start        = ev->payload.core1_hw.lsw_start;
+        s_snap.lsw_end          = ev->payload.core1_hw.lsw_end;
+        s_snap.motor_ena        = ev->payload.core1_hw.motor_ena;
+        s_snap.motor_dir        = ev->payload.core1_hw.motor_dir;
+        s_snap.motor_stallguard = ev->payload.core1_hw.motor_stallguard;
+        {
+            float p_psi = (ev->payload.core1_hw.frc_sens_v > 0.05f) ?
+                          ev->payload.core1_hw.frc_sens_v * 1.5f : 0.0f;
+            s_snap.pressure_psi  = p_psi;
+            s_snap.pressure_mmhg = p_psi * 51.7149f;
+        }
+        break;
+    case EV_ACT_IO_EXP_INPUT:
+        {
+            uint32_t p = ev->payload.param;
+            s_snap.pcal_sw_play_stop = (p & (1u << EXP_PIN_SW_PLAY_STOP)) ? 1 : 0;
+            s_snap.pcal_sw_bolus     = (p & (1u << EXP_PIN_SW_BOLUS)) ? 1 : 0;
+            s_snap.pcal_sw_detect_h  = (p & (1u << EXP_PIN_SW_DETECT_H)) ? 1 : 0;
+            s_snap.pcal_chrg_status  = (p & (1u << EXP_PIN_CHRG_STATUS)) ? 1 : 0;
+            s_snap.pcal_batt_install = (p & (1u << EXP_PIN_BATT_INSTALL)) ? 1 : 0;
+        }
+        break;
     case EV_ACT_PRESSURE:
     case EV_ACT_PRESSURE_OCC:
         s_snap.pressure_psi  = ev->payload.force.psi;
@@ -63,6 +124,8 @@ static void apply_event(const SystemEvent_t *ev) {
     case EV_PWR_BATTERY_UPD:
         s_snap.battery_voltage_v = ev->payload.power.battery_voltage_v;
         s_snap.battery_pct       = ev->payload.power.battery_pct;
+        s_snap.vin_sens_v        = ev->payload.power.battery_voltage_v;
+        s_snap.vin_sens_raw      = (uint16_t)((ev->payload.power.battery_voltage_v / 11.0f) * 4095.0f / 3.3f);
         break;
     case EV_SYS_HEAP_UPD:
         s_snap.free_heap_bytes = ev->payload.sys_health.free_heap_bytes;
@@ -79,6 +142,36 @@ static void publish_sensors(void) {
              "{\"pressure_psi\":%.3f,\"pressure_mmhg\":%.1f}",
              s_snap.pressure_psi, s_snap.pressure_mmhg);
     mqtt_client_publish(topic_telemetry_sensors(), buf);
+}
+
+static void publish_realtime(void) {
+    char buf[MQTT_MAX_PAYLOAD];
+    const char *dir_str = "IDLE";
+    if (s_snap.motor_ena) {
+        dir_str = s_snap.motor_dir ? "FORWARD" : "REVERSE";
+    }
+
+    snprintf(buf, sizeof(buf),
+             "{\"lsw\":{\"start\":%u,\"end\":%u},"
+             "\"encoder\":{\"count\":%ld,\"position_mm\":%.2f},"
+             "\"adc\":{\"frc_sens_v\":%.3f,\"frc_sens_raw\":%u,"
+             "\"bub_sens_v\":%.3f,\"bub_sens_raw\":%u,"
+             "\"vin_sens_v\":%.2f,\"vin_sens_raw\":%u},"
+             "\"pcal9555\":{\"sw_play_stop\":%u,\"sw_bolus\":%u,"
+             "\"sw_detect_h\":%u,\"chrg_status\":%u,\"batt_install\":%u},"
+             "\"motor\":{\"ena\":%u,\"dir\":%u,\"dir_str\":\"%s\",\"stallguard\":%u}}",
+             (unsigned)s_snap.lsw_start, (unsigned)s_snap.lsw_end,
+             (long)s_snap.encoder_count, s_snap.position_mm,
+             s_snap.frc_sens_v, (unsigned)s_snap.frc_sens_raw,
+             s_snap.bub_sens_v, (unsigned)s_snap.bub_sens_raw,
+             s_snap.vin_sens_v, (unsigned)s_snap.vin_sens_raw,
+             (unsigned)s_snap.pcal_sw_play_stop, (unsigned)s_snap.pcal_sw_bolus,
+             (unsigned)s_snap.pcal_sw_detect_h, (unsigned)s_snap.pcal_chrg_status,
+             (unsigned)s_snap.pcal_batt_install,
+             (unsigned)s_snap.motor_ena, (unsigned)s_snap.motor_dir, dir_str,
+             (unsigned)s_snap.motor_stallguard);
+
+    mqtt_client_publish(topic_telemetry_realtime(), buf);
 }
 
 static void publish_motion(void) {
@@ -116,6 +209,7 @@ static void publish_alarm_on_event(const SystemEvent_t *ev) {
     const char *code = "err";
     switch (ev->id) {
     case EV_ALARM_OCCLUSION:   code = "occ"; break;
+    case EV_ALARM_BUBBLE:      code = "bub"; break;
     case EV_ALARM_EOT:         code = "eot"; break;
     case EV_ALARM_DRV_FAULT:   code = "drv"; break;
     case EV_ALARM_BATTERY_LOW: code = "bat"; break;
@@ -133,9 +227,10 @@ static void task_mqtt_consumer(void *arg) {
     (void)arg;
     SystemEvent_t ev;
 
-    TickType_t t_sensors = 0;
-    TickType_t t_motion  = 0;
-    TickType_t t_session = 0;
+    TickType_t t_sensors  = 0;
+    TickType_t t_realtime = 0;
+    TickType_t t_motion   = 0;
+    TickType_t t_session  = 0;
 
     for (;;) {
         // Short timeout drives rate-based cadence without burning CPU
@@ -160,6 +255,10 @@ static void task_mqtt_consumer(void *arg) {
         if ((now - t_sensors) >= pdMS_TO_TICKS(500)) {
             publish_sensors();
             t_sensors = now;
+        }
+        if ((now - t_realtime) >= pdMS_TO_TICKS(500)) {
+            publish_realtime();
+            t_realtime = now;
         }
         if ((now - t_motion) >= pdMS_TO_TICKS(1000)) {
             publish_motion();

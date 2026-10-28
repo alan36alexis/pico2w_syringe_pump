@@ -139,7 +139,12 @@ Actualmente, estos comandos son accesibles mediante la consola serial y se utili
 
 | Comando CLI | Descripción |
 |---|---|
-| `config_wifi,<SSID>,<PASS>`| Guarda temporalmente en RAM y usa las nuevas credenciales de Wi-Fi. |
+| `wifi_add,<SSID>,<PASS>[,<IP>[,<PORT>]]` | Agrega o actualiza una red en la lista persistente de perfiles (hasta 6 redes). Guarda en Flash y despierta la reconexión. IP y Puerto de broker son opcionales (default 1883). |
+| `wifi_del,<SSID>` | Elimina una red de la lista persistente de perfiles en Flash. |
+| `wifi_list` | Lista los perfiles Wi-Fi configurados en Flash (SSID, contraseña oculta, broker IP:Puerto) y la red activa. |
+| `wifi_scan` | Ejecuta un escaneo inmediato del espectro de 2.4 GHz e imprime todas las redes detectadas con su RSSI, canal, autenticación y si están guardadas en memoria. |
+| `wifi_connect,<SSID>` | Fuerza la conexión inmediata a un SSID específico sin importar la potencia de señal de otras redes. |
+| `config_wifi,<SSID>,<PASS>`| Actualiza credenciales de Wi-Fi en RAM/Flash y agrega a los perfiles conocidos. |
 | `config_mqtt,<IP>,<PORT>` | Guarda temporalmente en RAM y usa la nueva IP/Puerto del Broker. |
 | `config_thresholds,<V_SYR>,<V_OCC>,<V_REL>` | Configura los 3 umbrales ADC de tensión (V): inicio jeringa, oclusión y liberación. |
 | `set_syringe_thresh,<V>` | Configura el umbral de tensión (V) para detección de inicio de jeringa. |
@@ -152,10 +157,10 @@ Actualmente, estos comandos son accesibles mediante la consola serial y se utili
 | `set_mqtt_ip,<IP>` | Cambia únicamente la IP del Broker MQTT en RAM. |
 | `set_mqtt_port,<PORT>`| Cambia únicamente el Puerto del Broker MQTT en RAM. |
 | `config_save` | Escribe los valores de RAM en la Memoria Flash profunda de forma definitiva. (Solo funcionará si el motor no se está moviendo). |
-| `config_info` | Muestra un resumen de variables actuales cargadas en el gestor. |
-| `reconnect` | Efectúa un reseteo *suave* (Soft Reset) del hardware Wi-Fi desasociándolo de su actual red (LwIP leave) obligándolo a re-engancharse y conectar MQTT con la nueva configuración sin reiniciar el procesador. |
+| `config_info` | Muestra un resumen de variables actuales cargadas en el gestor (SSID, Broker IP:Port, perfiles, umbrales). |
+| `reconnect` | Efectúa un reseteo *suave* (Soft Reset) del hardware Wi-Fi desasociándolo de su actual red (LwIP leave) obligándolo a re-escanear, re-engancharse y conectar MQTT sin reiniciar el procesador. |
 | `net_disable` | Apaga el chip Wi-Fi (desactiva RF y tareas de red) para máximo ahorro de batería. |
-| `net_enable` | Enciende el chip Wi-Fi y restaura la conectividad de red a sus valores guardados. |
+| `net_enable` | Enciende el chip Wi-Fi y restaura la conectividad de red iniciando escaneo inteligente. |
 | `adc` o `read_adc` | Lee y muestra de forma inmediata el valor raw (0-4095) y en voltios (0-3.3V) del sensor de fuerza / oclusión. |
 | `log_en,<HDR>` | Activa una categoría de log de diagnóstico en el serial. Usar `ALL` para activar todas. |
 | `log_dis,<HDR>` | Desactiva una categoría de log de diagnóstico. Usar `ALL` para silenciar todo. |
@@ -165,15 +170,23 @@ Actualmente, estos comandos son accesibles mediante la consola serial y se utili
 | Header | Descripción |
 |---|---|
 | `ALL` | Activa / desactiva todas las categorías a la vez. |
+| `NET` | Conectividad de red (Wi-Fi scan, conexión, RSSI, canal, broker MQTT). |
+| `SYS` | Salud del sistema (heap, temperatura, alimentación/batería, heartbeat). |
+| `CMD` | Respuestas de comandos serie y MQTT. |
+| `DBG` | Diagnóstico general y mensajes internos de Core 1. |
 | `TGT` | Target de movimiento (distancia y velocidad solicitados). |
 | `CFG` | Configuración del driver aplicada (microsteps, corriente, chopper). |
 | `KIN` | Cinemática calculada (um/paso, total de micropasos). |
 | `PRF` | Perfil de aceleración calculado (frecuencias, segmentos). |
-| `FSM` | Transiciones de estado de la FSM. |
-| `ADC` | Lecturas del ADC. |
-| `PRG` | Progreso del movimiento en curso (porcentaje). |
-| `ENC` | Lecturas del encoder (posición y velocidad). |
-| `MTR` | Eventos de parada del motor. |
+| `FSM` | Transiciones de estado y eventos de la FSM. |
+| `ADC` | Lecturas y umbrales del ADC (fuerza, oclusión). |
+| `PRG` | Progreso del movimiento en curso (porcentaje y posición mm). |
+| `ENC` | Lecturas del encoder (cuentas, posición y velocidad). |
+| `MTR` | Eventos y parámetros de movimiento del motor. |
+| `HWS` | Telemetría de hardware en tiempo real (ADC fuerza, burbuja, switches, motor). |
+
+> [!NOTE]
+> Todos los mensajes de log serie siguen el formato unificado `@ <sec>.<dec> <TAG> : <key>=<val>`. Las alarmas críticas y de seguridad (prefijadas con `!`, ej. `!ALM`, `!OCC`, `!NET`) se imprimen siempre y no pueden silenciarse por diseño (IEC 60601-1-8 / IEC 62304).
 
 ### Tópicos MQTT
 

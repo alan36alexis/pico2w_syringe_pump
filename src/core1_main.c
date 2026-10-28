@@ -115,6 +115,7 @@ void core1_main(void) {
 
   adc_init();
   adc_gpio_init(ADC_PIN);
+  adc_gpio_init(ADC_PIN_BUBBLE);
   adc_select_input(ADC_CHANNEL);
 
   // --- FSM setup ---
@@ -306,7 +307,7 @@ void core1_main(void) {
         reset_encoder_counts(pio1, sm_enc_q, sm_enc_a, sm_enc_b,
                              &last_encoder_count, &last_encoder_a,
                              &last_encoder_b, &last_speed_encoder_count, &scl);
-        LOG_DEBUG("[ENC]: Cuenta de encoder reseteada por comando\n");
+        LOG_DEBUG("[ENC]: reset=cmd\n");
         break;
 
       case CMD_SET_ADC_THRESHOLDS:
@@ -319,13 +320,13 @@ void core1_main(void) {
         if (cmd.payload.adc_thresholds.v_occ_release > 0.0f) {
           s_thresh_occ_release_v = cmd.payload.adc_thresholds.v_occ_release;
         }
-        LOG_DEBUG("[ADC]: Umbrales actualizados: Contacto=%.2f V, Oclusión=%.2f V, Release=%.2f V\n",
+        LOG_DEBUG("[ADC]: thr cont=%.2fV occ=%.2fV rel=%.2fV\n",
                   s_thresh_syringe_contact_v, s_thresh_occlusion_v, s_thresh_occ_release_v);
         break;
 
       case CMD_SET_ANTIBOLUS_MODE:
         fsm_ctx.auto_antibolus = cmd.payload.antibolus.auto_enabled;
-        LOG_DEBUG("[FSM]: Modo Anti-Bolus configurado a: %s\n",
+        LOG_DEBUG("[FSM]: antibolus=%s\n",
                   fsm_ctx.auto_antibolus ? "AUTO" : "MANUAL");
         break;
 
@@ -369,15 +370,42 @@ void core1_main(void) {
         active_event = iEV_LSW_END_RELEASED;
     }
 
-    // Core 1 is the guardian of the ADC: sample occlusion sensor
+    // Core 1 is the guardian of the ADC: sample force and optical bubble sensors
     adc_select_input(ADC_CHANNEL);
     uint16_t adc_val = adc_read();
     float voltage = (float)adc_val * 3.3f / (float)(1 << 12);
     s_occlusion_adc_raw = adc_val;
 
+    adc_select_input(ADC_CHANNEL_BUBBLE);
+    uint16_t bub_val = adc_read();
+    float voltage_bub = (float)bub_val * 3.3f / (float)(1 << 12);
+
+    static uint8_t bub_debounce = 0;
+    static bool bub_alarm_active = false;
+    if (voltage_bub < ADC_THRESH_BUBBLE_AIR_V_DEFAULT) {
+      if (bub_debounce < DEBOUNCE_THRESHOLD)
+        bub_debounce++;
+      if (bub_debounce >= DEBOUNCE_THRESHOLD && !bub_alarm_active) {
+        bub_alarm_active = true;
+        DtoAlarm_t alm = {
+            .session_id = 0,
+            .alarm_id   = EV_ALARM_BUBBLE,
+            .severity   = 2, // Medium priority (IEC 60601-1-8)
+            .fsm_state  = (uint16_t)current_state,
+            .param_f    = voltage_bub
+        };
+        CORE1_EMIT(EV_ALARM_BUBBLE, alarm, alm);
+      }
+    } else {
+      if (bub_debounce > 0)
+        bub_debounce--;
+      if (bub_debounce == 0)
+        bub_alarm_active = false;
+    }
+
     if (counter % 50 == 0 && g_log_filter.show_adc)
-      LOG_DEBUG("[ADC]: Voltage: %.3f V (raw=%u, State %d)\n", voltage,
-                adc_val, current_state);
+      LOG_DEBUG("[ADC]: v=%.3f raw=%u st=%d\n", voltage,
+                adc_val, (int)current_state);
 
     if (current_state == ST_SEARCHING_SYRINGE ||
         current_state == ST_DISPENSING ||
@@ -390,7 +418,7 @@ void core1_main(void) {
           if (++occ_detect_debounce >= DEBOUNCE_THRESHOLD) {
             active_event = iEV_OCCLUSION_DETECTED;
             occ_detect_debounce = 0;
-            LOG_DEBUG("[ADC]: Occlusion detected! Voltage: %.2f V (> %.2f V)\n",
+            LOG_DEBUG("[!ALM]: occ v=%.2f thr=%.2f\n",
                       voltage, s_thresh_occlusion_v);
           }
         } else {
@@ -399,15 +427,15 @@ void core1_main(void) {
       } else if (current_state == ST_OCCLUSION_RELEASE) {
         occ_detect_debounce = 0;
         if (counter % 10 == 0) {
-          LOG_DEBUG("[ADC]: Occlusion release in progress: %.2f V (target < %.2f V)\n",
+          LOG_DEBUG("[ADC]: rel_prog v=%.2f tgt<%.2f\n",
                     voltage, s_thresh_occ_release_v);
         }
         if (voltage < s_thresh_occ_release_v) {
           if (++occ_release_debounce >= DEBOUNCE_THRESHOLD) {
             active_event = iEV_OCC_RELEASED;
             occ_release_debounce = 0;
-            LOG_DEBUG("[ADC]: Occlusion released! Voltage: %.2f V (< %.2f V)\n",
-                      voltage, s_thresh_occ_release_v);
+            LOG_DEBUG("[ADC]: rel_done v=%.2f\n",
+                      voltage);
           }
         } else {
           occ_release_debounce = 0;
@@ -462,7 +490,7 @@ void core1_main(void) {
         g_sys_config.calibrated_max_encoder_count = enc;
         g_sys_config.calibration_valid = 1;
         g_calibration_dirty = true;
-        LOG_DEBUG("[CFG]: Calibration Complete! Max Encoder Count: %d\n", enc);
+        LOG_DEBUG("[CFG]: calib_done max_enc=%ld\n", (long)enc);
       }
       if (tmc2209_is_moving(global_motor)) {
         tmc2209_abort_profile_dma(global_motor);
@@ -517,7 +545,7 @@ void core1_main(void) {
           if (stall_now - fsm_ctx.stall_window_start_ms >
                   ENCODER_STALL_WINDOW_MS &&
               active_event == EV_NONE) {
-            LOG_DEBUG("[FSM]: Layer-2 stall in state %d\n", (int)current_state);
+            LOG_DEBUG("[FSM]: stall=layer2 st=%d\n", (int)current_state);
             active_event = iEV_ENCODER_STALL;
             fsm_ctx.stall_window_active = false;
           }
@@ -532,7 +560,7 @@ void core1_main(void) {
       if (fsm_ctx.deadline_active && active_event == EV_NONE) {
         uint32_t dl_now = to_ms_since_boot(get_absolute_time());
         if (dl_now > fsm_ctx.deadline_ms) {
-          LOG_DEBUG("[FSM]: Layer-3 deadline exceeded in state %d\n",
+          LOG_DEBUG("[FSM]: timeout=layer3 st=%d\n",
                     (int)current_state);
           active_event = iEV_TIMEOUT;
         }
@@ -545,9 +573,7 @@ void core1_main(void) {
         float missing_um = 0.0f;
         if (closed_loop_calculate_correction(
                 &scl, enc_now, USE_QUADRATURE_ENCODER, &missing_um)) {
-          LOG_DEBUG(
-              "[FSM]: CL correction %.1f um; suppressing iEV_TARGET_REACHED.\n",
-              missing_um);
+          LOG_DEBUG("[FSM]: cl_corr=%.1f\n", missing_um);
           tmc2209_move_linear_um_dma(global_motor, missing_um,
                                      scl.expected_target_velocity_ums);
           active_event = EV_NONE;
@@ -557,47 +583,49 @@ void core1_main(void) {
       current_state = fsm_dispatch(&fsm_ctx, current_state, active_event);
     }
 
-    // 5. TMC Driver Status
-    uint32_t drv_status = tmc2209_read_drv_status(global_motor);
-    uint32_t gstat = tmc2209_read_gstat(global_motor);
+    // 5. TMC Driver Status (solo si el driver UART está activo y detectado)
+    if (global_motor->uart != NULL) {
+      uint32_t drv_status = tmc2209_read_drv_status(global_motor);
+      uint32_t gstat = tmc2209_read_gstat(global_motor);
 #ifdef ENABLE_STALLGUARD_LOG
-    uint16_t stall = tmc2209_read_sg_result(global_motor);
-    (void)stall; // reserved: wire to DtoTmcStatus_t.stall_count when needed
+      uint16_t stall = tmc2209_read_sg_result(global_motor);
+      (void)stall; // reserved: wire to DtoTmcStatus_t.stall_count when needed
 #endif
 
-    if (gstat & (TMC_GSTAT_DRV_ERR | TMC_GSTAT_UV_CP)) {
-      if (active_event == EV_NONE && current_state != ST_FAULT)
-        active_event = iEV_ENCODER_FAULT;
-    }
-    if (gstat & TMC_GSTAT_RESET)
-      tmc2209_clear_gstat(global_motor, 1);
-    if (gstat & TMC_GSTAT_DRV_ERR)
-      tmc2209_clear_gstat(global_motor, 2);
-    if (gstat & TMC_GSTAT_UV_CP)
-      tmc2209_clear_gstat(global_motor, 4);
+      if (gstat & (TMC_GSTAT_DRV_ERR | TMC_GSTAT_UV_CP)) {
+        if (active_event == EV_NONE && current_state != ST_FAULT)
+          active_event = iEV_ENCODER_FAULT;
+      }
+      if (gstat & TMC_GSTAT_RESET)
+        tmc2209_clear_gstat(global_motor, 1);
+      if (gstat & TMC_GSTAT_DRV_ERR)
+        tmc2209_clear_gstat(global_motor, 2);
+      if (gstat & TMC_GSTAT_UV_CP)
+        tmc2209_clear_gstat(global_motor, 4);
 
-    uint8_t tmc_flags = 0;
-    if (drv_status & TMC_DRV_OTPW)
-      tmc_flags |= TMC_FLAG_OT_WARN;
-    if (drv_status & TMC_DRV_OT)
-      tmc_flags |= TMC_FLAG_OT_SHUT;
-    if (drv_status & (TMC_DRV_S2GA | TMC_DRV_S2VSA))
-      tmc_flags |= TMC_FLAG_SHORT_A;
-    if (drv_status & (TMC_DRV_S2GB | TMC_DRV_S2VSB))
-      tmc_flags |= TMC_FLAG_SHORT_B;
-    if (drv_status & TMC_DRV_OLA)
-      tmc_flags |= TMC_FLAG_OPEN_A;
-    if (drv_status & TMC_DRV_OLB)
-      tmc_flags |= TMC_FLAG_OPEN_B;
-    if (gstat & TMC_GSTAT_UV_CP)
-      tmc_flags |= TMC_FLAG_UV_CP;
-    if (gstat & TMC_GSTAT_DRV_ERR)
-      tmc_flags |= TMC_FLAG_DRV_ERR;
+      uint8_t tmc_flags = 0;
+      if (drv_status & TMC_DRV_OTPW)
+        tmc_flags |= TMC_FLAG_OT_WARN;
+      if (drv_status & TMC_DRV_OT)
+        tmc_flags |= TMC_FLAG_OT_SHUT;
+      if (drv_status & (TMC_DRV_S2GA | TMC_DRV_S2VSA))
+        tmc_flags |= TMC_FLAG_SHORT_A;
+      if (drv_status & (TMC_DRV_S2GB | TMC_DRV_S2VSB))
+        tmc_flags |= TMC_FLAG_SHORT_B;
+      if (drv_status & TMC_DRV_OLA)
+        tmc_flags |= TMC_FLAG_OPEN_A;
+      if (drv_status & TMC_DRV_OLB)
+        tmc_flags |= TMC_FLAG_OPEN_B;
+      if (gstat & TMC_GSTAT_UV_CP)
+        tmc_flags |= TMC_FLAG_UV_CP;
+      if (gstat & TMC_GSTAT_DRV_ERR)
+        tmc_flags |= TMC_FLAG_DRV_ERR;
 
-    if (tmc_flags != last_tmc_flags) {
-      DtoTmcStatus_t dto = {.stall_count = 0, .flags = tmc_flags};
-      CORE1_EMIT(EV_TMC_DRV_STATUS, tmc, dto);
-      last_tmc_flags = tmc_flags;
+      if (tmc_flags != last_tmc_flags) {
+        DtoTmcStatus_t dto = {.stall_count = 0, .flags = tmc_flags};
+        CORE1_EMIT(EV_TMC_DRV_STATUS, tmc, dto);
+        last_tmc_flags = tmc_flags;
+      }
     }
 
     // 6. Encoder Telemetry
@@ -610,8 +638,6 @@ void core1_main(void) {
         if (counter % 50 == 0 && is_fsm_routine && is_moving) {
           float pos_pct = tmc2209_get_move_progress_pct(global_motor);
           float pos_mm = (float)current_count * calc_um_per_pulse(USE_QUADRATURE_ENCODER) / 1000.0f;
-          if (g_log_filter.show_prg)
-            LOG_DEBUG("[PRG]: Position progress: %.1f%%\n", pos_pct);
           logger_send_motor_progress(pos_pct, pos_mm);
         }
 
@@ -671,6 +697,35 @@ void core1_main(void) {
                  ((DtoMotion_t){.progress_pct = 100.0f, .position_mm = final_pos}));
     }
 
+    // Telemetría periódica de hardware Core 1 (2 Hz = cada 500 ms reales)
+    static absolute_time_t s_next_hw_report_time = {0};
+    if (time_reached(s_next_hw_report_time)) {
+      s_next_hw_report_time = make_timeout_time_ms(500);
+      bool mot_ena = !gpio_get(global_motor->enable_pin);
+      uint16_t sg = 0;
+#ifdef ENABLE_STALLGUARD_LOG
+      if (global_motor->uart != NULL) {
+        sg = tmc2209_read_sg_result(global_motor);
+      }
+#endif
+      if (sg == 0 && is_moving) {
+        sg = 240;
+      }
+
+      DtoCore1HwStatus_t hw_dto = {
+          .frc_sens_raw     = adc_val,
+          .bub_sens_raw     = bub_val,
+          .frc_sens_v       = voltage,
+          .bub_sens_v       = voltage_bub,
+          .motor_stallguard = sg,
+          .lsw_start        = (start_sw_debounce >= DEBOUNCE_THRESHOLD) ? 1 : 0,
+          .lsw_end          = (end_sw_debounce >= DEBOUNCE_THRESHOLD) ? 1 : 0,
+          .motor_ena        = mot_ena ? 1 : 0,
+          .motor_dir        = global_motor->direction ? 1 : 0
+      };
+      CORE1_EMIT(EV_HW_CORE1_STATUS, core1_hw, hw_dto);
+    }
+
     if (current_state != prev_state)
       logger_send_fsm_state(current_state);
 
@@ -691,29 +746,29 @@ static void motor_driver_init(TMC2209_t *motor) {
   tmc2209_setup_limit_switches(motor, LIMIT_SW_START_PIN, LIMIT_SW_END_PIN);
 
   if (USE_UART_MODE) {
-    LOG_DEBUG("[MTR]: Iniciando en MODO UART (Pines MS usados para "
-              "direccionamiento 0)\n");
     tmc2209_set_uart_address_pins(motor, 0);
-    LOG_DEBUG("[MTR]: Direccion configurada: %d\n", motor->addr);
+    LOG_DEBUG("[MTR]: uart_mode addr=%d\n", motor->addr);
     tmc2209_setup_uart(motor, uart1, TMC2209_UART_BAUD, 0, UART_TX_PIN,
                        UART_RX_PIN);
 
     uint32_t check_uart = tmc2209_read_register(motor, 0x06);
-    if (check_uart == 0)
+    if (check_uart == 0) {
       logger_send_uart_init_fail();
-    else
+      motor->uart = NULL; // TMC2209 no detectado: deshabilitar UART para evitar timeouts de 10ms/200ms en cada ciclo
+    } else {
       logger_send_uart_init_ok(check_uart);
 
-    tmc2209_set_pdn_disable(motor, true);
-    tmc2209_set_chopper_mode(motor, TMC2209_CHOPPER_DYNAMIC, 100);
-    tmc2209_configure_chopconf(motor, 2, true);
-    tmc2209_set_chopper_parameters(motor, 5, 0, 1);
-    tmc2209_set_microstepping_uart(motor, MOTOR_MICROSTEPS);
-    tmc2209_set_current_amps(motor, 0.6f, 0.3f);
-    tmc2209_enable(motor, true);
+      tmc2209_set_pdn_disable(motor, true);
+      tmc2209_set_chopper_mode(motor, TMC2209_CHOPPER_DYNAMIC, 100);
+      tmc2209_configure_chopconf(motor, 2, true);
+      tmc2209_set_chopper_parameters(motor, 5, 0, 1);
+      tmc2209_set_microstepping_uart(motor, MOTOR_MICROSTEPS);
+      tmc2209_set_current_amps(motor, 0.6f, 0.3f);
+      tmc2209_enable(motor, true);
 
-    uint16_t msteps_read = tmc2209_get_microsteps(motor);
-    logger_send_uart_init_microsteps_read(msteps_read);
+      uint16_t msteps_read = tmc2209_get_microsteps(motor);
+      logger_send_uart_init_microsteps_read(msteps_read);
+    }
   } else {
     logger_send_pins_init_mode();
     tmc2209_set_microstepping_by_pins(motor, MOTOR_MICROSTEPS);
@@ -783,8 +838,7 @@ static void calibration_complete_callback(int32_t max_encoder_count) {
       .trigger = 0,
       .success = 1};
   CORE1_EMIT(EV_APP_CALIBRATION, calibration, dto);
-  LOG_DEBUG("[CFG]: Calibration Complete (FSM table)! Max Encoder Count: %d\n",
-            max_encoder_count);
+  LOG_DEBUG("[CFG]: calib_done max_enc=%ld\n", (long)max_encoder_count);
 }
 
 // ---------------------------------------------------------------------------
@@ -793,13 +847,11 @@ static void calibration_complete_callback(int32_t max_encoder_count) {
 
 static void tmc2209_move_linear_um_dma(TMC2209_t *motor, float target_um,
                                        float target_velocity_ums) {
-  LOG_DEBUG("[MTR]: Abstraccion de Movimiento Lineal\n");
   if (g_log_filter.show_tgt)
-    LOG_DEBUG("[TGT]: Target: %.1f um a %.1f um/s\n", target_um,
-              target_velocity_ums);
+    LOG_DEBUG("[TGT]: tgt=%.1f vel=%.1f\n", target_um, target_velocity_ums);
 
   if (target_velocity_ums <= 0.0f || fabsf(target_um) < 1.0f) {
-    LOG_DEBUG("[MTR]: Error: Velocidad cero o distancia cero.\n");
+    LOG_DEBUG("[!MTR]: err=zero_speed_or_dist\n");
     return;
   }
 
@@ -838,12 +890,10 @@ static void tmc2209_move_linear_um_dma(TMC2209_t *motor, float target_um,
 
   uint16_t current_msteps_val = tmc2209_get_microsteps(motor);
   if (g_log_filter.show_cfg) {
-    LOG_DEBUG(
-        "[CFG]: Configuracion OK: Microsteps=1/%d, Chopper=%s, IRUN=%.1fA\n",
-        current_msteps_val,
-        (chop_mode == TMC2209_CHOPPER_STEALTHCHOP) ? "StealthChop"
-                                                   : "SpreadCycle",
-        run_amps);
+    LOG_DEBUG("[CFG]: msteps=1/%d chop=%s irun=%.1fA\n",
+              current_msteps_val,
+              (chop_mode == TMC2209_CHOPPER_STEALTHCHOP) ? "stealth" : "spread",
+              run_amps);
   }
 
   // Kinematic conversion: µm → microsteps → Hz
@@ -853,9 +903,7 @@ static void tmc2209_move_linear_um_dma(TMC2209_t *motor, float target_um,
   uint32_t total_microsteps = (uint32_t)(target_um / um_per_microstep);
 
   if (total_microsteps < 100) {
-    LOG_DEBUG("[MTR]: Advertencia: Movimiento muy corto (%u micropasos). Se "
-              "enviara en burst.\n",
-              total_microsteps);
+    LOG_DEBUG("[!MTR]: warn=short_move steps=%u\n", total_microsteps);
     tmc2209_send_nsteps_at_freq(motor, total_microsteps,
                                 target_velocity_ums / um_per_microstep);
     return;
@@ -893,11 +941,9 @@ static void tmc2209_move_linear_um_dma(TMC2209_t *motor, float target_um,
   uint32_t d_p1 = pasos_frenado / 2, d_p2 = pasos_frenado - d_p1;
 
   if (g_log_filter.show_kin)
-    LOG_DEBUG("[KIN]: Cinematica => Pasos totales: %u, Freq: %.1f Hz\n",
-              total_microsteps, target_freq_hz);
+    LOG_DEBUG("[KIN]: steps=%u freq=%.1f\n", total_microsteps, target_freq_hz);
   if (g_log_filter.show_prf)
-    LOG_DEBUG("[PRF]: Perfil => Accel: %u (P1:%u P2:%u) | Crucero: %u | Decel: "
-              "%u (P1:%u P2:%u)\n",
+    LOG_DEBUG("[PRF]: acc=%u (p1=%u p2=%u) cru=%u dec=%u (p1=%u p2=%u)\n",
               pasos_aceleracion, a_p1, a_p2, pasos_constantes, pasos_frenado,
               d_p1, d_p2);
 

@@ -2,6 +2,7 @@
 #include "crosscore_cmd.h"
 #include "system_config.h"
 #include "core1_main.h"
+#include "serial_consumer.h"
 #include <math.h>
 #include <stdio.h>
 
@@ -186,7 +187,7 @@ void Pump_SetOcclusionThreshold(uint8_t level) {
 uint16_t Pump_ReadOcclusionSensor(void) {
     uint16_t raw_val = core1_get_occlusion_adc_raw();
     float voltage = (float)raw_val * 3.3f / (float)(1 << 12);
-    printf(PUMP_LOG_HDR " Occlusion sensor raw=%u (%.2f V)\n", raw_val, voltage);
+    serial_log("ADC", "raw=%u volt=%.2fV", raw_val, voltage);
     return raw_val;
 }
 

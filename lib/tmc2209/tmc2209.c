@@ -732,7 +732,7 @@ uint32_t tmc2209_read_register(TMC2209_t *motor, uint8_t reg) {
 
   uint8_t rx_buf[16];
   int idx = 0;
-  absolute_time_t timeout = make_timeout_time_ms(200);
+  absolute_time_t timeout = make_timeout_time_ms(10);
   int64_t time_diff = absolute_time_diff_us(get_absolute_time(), timeout);
   // printf("timeout: %lld\n", time_diff);
   while (!time_reached(timeout) && idx < 16) {

@@ -74,11 +74,6 @@ static bool touch_get_xy(uint16_t *x, uint16_t *y) {
     // Verificación de doble check: si el pin volvió a subir, reseteamos la bandera
     if (gpio_get(PIN_TIRQ)) touch_pressed = false;
 
-
-    // 🔥 PRINTF DE TESTEO 🔥
-    // Muestra: Valores Crudos -> Coordenadas calculadas en Píxeles
-    printf("TOUCH -> Raw[%4d, %4d] | Pixel[%3d, %3d]\n", raw_x, raw_y, *x, *y);
-
     return true;
 }
 

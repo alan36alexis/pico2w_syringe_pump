@@ -15,7 +15,12 @@ LogFilterConfig_t g_log_filter = {
     .show_adc = false,
     .show_prg = false,
     .show_enc = false,
-    .show_mtr = true
+    .show_mtr = true,
+    .show_hws = false,
+    .show_net = true,
+    .show_sys = true,
+    .show_cmd = true,
+    .show_dbg = true
 };
 
 void log_filter_set(const char *hdr, bool state) {
@@ -29,6 +34,11 @@ void log_filter_set(const char *hdr, bool state) {
         g_log_filter.show_prg = state;
         g_log_filter.show_enc = state;
         g_log_filter.show_mtr = state;
+        g_log_filter.show_hws = state;
+        g_log_filter.show_net = state;
+        g_log_filter.show_sys = state;
+        g_log_filter.show_cmd = state;
+        g_log_filter.show_dbg = state;
     } else if (strcmp(hdr, "TGT") == 0) g_log_filter.show_tgt = state;
     else if (strcmp(hdr, "CFG") == 0) g_log_filter.show_cfg = state;
     else if (strcmp(hdr, "KIN") == 0) g_log_filter.show_kin = state;
@@ -38,6 +48,35 @@ void log_filter_set(const char *hdr, bool state) {
     else if (strcmp(hdr, "PRG") == 0) g_log_filter.show_prg = state;
     else if (strcmp(hdr, "ENC") == 0) g_log_filter.show_enc = state;
     else if (strcmp(hdr, "MTR") == 0) g_log_filter.show_mtr = state;
+    else if (strcmp(hdr, "MOT") == 0) g_log_filter.show_mtr = state;
+    else if (strcmp(hdr, "HWS") == 0) g_log_filter.show_hws = state;
+    else if (strcmp(hdr, "NET") == 0) g_log_filter.show_net = state;
+    else if (strcmp(hdr, "SYS") == 0) g_log_filter.show_sys = state;
+    else if (strcmp(hdr, "CMD") == 0) g_log_filter.show_cmd = state;
+    else if (strcmp(hdr, "DBG") == 0) g_log_filter.show_dbg = state;
+}
+
+bool log_filter_is_enabled(const char *tag) {
+    if (!tag || tag[0] == '\0') return true;
+    if (tag[0] == '!') return true; // Alarms and errors are never silenced
+    if (strncmp(tag, "FSM", 3) == 0) return g_log_filter.show_fsm;
+    if (strncmp(tag, "NET", 3) == 0) return g_log_filter.show_net;
+    if (strncmp(tag, "MOT", 3) == 0) return g_log_filter.show_mtr;
+    if (strncmp(tag, "MTR", 3) == 0) return g_log_filter.show_mtr;
+    if (strncmp(tag, "TMC", 3) == 0) return g_log_filter.show_mtr;
+    if (strncmp(tag, "ENC", 3) == 0) return g_log_filter.show_enc;
+    if (strncmp(tag, "PRG", 3) == 0) return g_log_filter.show_prg;
+    if (strncmp(tag, "TGT", 3) == 0) return g_log_filter.show_tgt;
+    if (strncmp(tag, "CFG", 3) == 0) return g_log_filter.show_cfg;
+    if (strncmp(tag, "KIN", 3) == 0) return g_log_filter.show_kin;
+    if (strncmp(tag, "PRF", 3) == 0) return g_log_filter.show_prf;
+    if (strncmp(tag, "ADC", 3) == 0) return g_log_filter.show_adc;
+    if (strncmp(tag, "ACT", 3) == 0) return g_log_filter.show_adc;
+    if (strncmp(tag, "HWS", 3) == 0) return g_log_filter.show_hws;
+    if (strncmp(tag, "SYS", 3) == 0) return g_log_filter.show_sys;
+    if (strncmp(tag, "CMD", 3) == 0) return g_log_filter.show_cmd;
+    if (strncmp(tag, "DBG", 3) == 0) return g_log_filter.show_dbg;
+    return true;
 }
 
 static Core1State_t s_prev_fsm_state = (Core1State_t)0;
