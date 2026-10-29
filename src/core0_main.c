@@ -615,7 +615,6 @@ static void task_system_monitor(void *params) {
 #include "lvgl.h"
 #include "screens.h"
 #include "vars.h"
-#include "vars.h"
 
 static void task_ui_input(void *params) {
   (void)params;
@@ -653,6 +652,9 @@ static void task_tft(void *params) {
       progress_pct = state.progress_pct;
       update_progress = true;
     }
+
+     // --- Actualización del medidor de oclusión ---
+    actualizar_porcentaje_oclusion(state.frc_sense_v);
 
     if (update_progress) {
       if (progress_pct < 0.0f) progress_pct = 0.0f;

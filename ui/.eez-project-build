@@ -15,6 +15,7 @@
     "ui.h",
     "ui_image_battery_icon_2.c",
     "ui_image_bomba_png_1.c",
+    "ui_image_jeringa_real_png.c",
     "ui_image_utn_logo.c",
     "vars.h"
   ]

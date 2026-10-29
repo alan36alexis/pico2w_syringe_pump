@@ -3,6 +3,7 @@
 #include "FreeRTOS.h"
 #include "semphr.h"
 #include "system_events.h"
+#include "core1_main.h"
 
 static UIState_t    s_state  = {0};
 static SemaphoreHandle_t s_mutex = NULL;
@@ -38,14 +39,6 @@ void ui_state_update_from_event(const LogMessage_t *msg) {
     xSemaphoreGive(s_mutex);
 }
 
-UIState_t ui_state_get_snapshot(void) {
-    UIState_t snap = {0};
-    if (s_mutex && xSemaphoreTake(s_mutex, portMAX_DELAY) == pdTRUE) {
-        snap = s_state;
-        xSemaphoreGive(s_mutex);
-    }
-    return snap;
-}
 
 void ui_state_update_from_system_event(const SystemEvent_t *ev) {
     if (!s_mutex) return;
@@ -101,4 +94,15 @@ void ui_state_update_from_system_event(const SystemEvent_t *ev) {
     }
 
     xSemaphoreGive(s_mutex);
+}
+
+UIState_t ui_state_get_snapshot(void) {
+    UIState_t snap = {0};
+    if (s_mutex && xSemaphoreTake(s_mutex, portMAX_DELAY) == pdTRUE) {
+        snap = s_state;
+        // 12 bits (0 a 4095) con VREF = 3.3V
+        snap.frc_sense_v = (float)core1_get_occlusion_adc_raw() * 3.3f / 4095.0f;
+        xSemaphoreGive(s_mutex);
+    }
+    return snap;
 }

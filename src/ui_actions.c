@@ -9,11 +9,16 @@
 #include "system_config.h"
 #include "system_queues.h"
 #include "syringe_pump_api.h"
+#include "ui_state.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
 #define HOME_RESET_TIMEOUT_MS 65000U
 #define HOME_STATE_POLL_MS 10U
+#define V_OCC_MIN   0.24f
+#define V_OCC_MAX   0.50
+#define OCCLUSION_FILTER_ALPHA       0.05f   // Coeficiente EMA (filtro pasa-bajos)
+#define OCCLUSION_UPDATE_INTERVAL_MS 250U    // Intervalo de actualización en pantalla (ms)
 
 static lv_timer_t *home_sequence_timer;
 static uint16_t home_sequence_wait_ms;
@@ -172,7 +177,8 @@ static bool ui_calculate_dispense_motion(float *target_um, float *velocity_ums) 
 }
 
 #if INFUSION_UI_SIMULATION
-static lv_timer_t *infusion_test_timer;
+static lv_timer_t *infusion_test_timer = NULL;
+static bool s_infusion_sim_paused = false;
 
 static void infusion_test_timer_cb(lv_timer_t *timer) {
     (void)timer;
@@ -180,6 +186,7 @@ static void infusion_test_timer_cb(lv_timer_t *timer) {
     if (progress >= 100.0f) {
         progress = 100.0f;
         lv_timer_pause(infusion_test_timer);
+        s_infusion_sim_paused = true;
     }
     set_var_value_infusion_test(progress);
 }
@@ -190,21 +197,43 @@ void teclado_add_char(const char *c);
 void teclado_del();
 
 
-void actualizar_porcentaje_oclusion_adc(void) {
-    uint16_t raw_adc = core1_get_occlusion_adc_raw();
-    int32_t porcentaje = 0;
+void actualizar_porcentaje_oclusion(float frc_sense_v) {
+    static float s_filtered_v = -1.0f;
+    static uint32_t s_last_update_ms = 0;
+    static int32_t s_last_displayed_pct = -1;
 
-    if (raw_adc <= ADC_RAW_MIN) {
-        porcentaje = 0;
-    } else if (raw_adc >= ADC_RAW_MAX) {
-        porcentaje = 100;
+    // Inicialización en la primera muestra
+    if (s_filtered_v < 0.0f) {
+        s_filtered_v = frc_sense_v;
     } else {
-        // Interpolación lineal entre 0.24V (298 cuentas) y 0.50V (620 cuentas)
-        porcentaje = (int32_t)(((float)(raw_adc - ADC_RAW_MIN) / (float)(ADC_RAW_MAX - ADC_RAW_MIN)) * 100.0f);
+        // Filtro pasa-bajos IIR / EMA para atenuar ruido rápido del ADC
+        s_filtered_v += OCCLUSION_FILTER_ALPHA * (frc_sense_v - s_filtered_v);
     }
 
-    // Guardamos el resultado en la variable de prueba
-    set_var_value_battery_charge(porcentaje);
+    // Limitar la tasa de refresco visual para evitar parpadeo constante
+    if (lv_tick_elaps(s_last_update_ms) < OCCLUSION_UPDATE_INTERVAL_MS) {
+        return;
+    }
+    s_last_update_ms = lv_tick_get();
+
+    float porcentaje = 0.0f;
+    if (s_filtered_v <= V_OCC_MIN) {
+        porcentaje = 0.0f;
+    } else if (s_filtered_v >= V_OCC_MAX) {
+        porcentaje = 100.0f;
+    } else {
+        porcentaje = ((s_filtered_v - V_OCC_MIN) / (V_OCC_MAX - V_OCC_MIN)) * 100.0f;
+    }
+
+    int32_t rounded_pct = (int32_t)(porcentaje + 0.5f);
+    if (rounded_pct < 0) rounded_pct = 0;
+    if (rounded_pct > 100) rounded_pct = 100;
+
+    // Solo actualizar si hay un cambio respecto al valor anterior
+    if (rounded_pct != s_last_displayed_pct) {
+        s_last_displayed_pct = rounded_pct;
+        set_var_value_occlusion((float)rounded_pct);
+    }
 }
 
 static void battery_simulation_timer_cb(lv_timer_t *timer) {
@@ -358,9 +387,9 @@ extern float get_var_value_occlusion() {
 }
 
 void set_var_value_occlusion(float value) {
-    if (value < 0) value = 0;
-    if (value > 100) value = 100;
-    value_occlusion = value;
+    if (value < 0.0f) value = 0.0f;
+    if (value > 100.0f) value = 100.0f;
+    value_occlusion = (float)(int32_t)(value + 0.5f);
 }
 
 const char *get_var_str_metodo_seleccionado() {
@@ -644,21 +673,39 @@ void action_reanudar_infusion(lv_event_t *e) {
     (void)e;
 #if INFUSION_UI_SIMULATION
     if (!infusion_test_timer) {
+        // Primera vez o reinicio tras completar 100%
+        if (get_var_value_infusion_test() >= 100.0f) {
+            set_var_value_infusion_test(0.0f);
+        }
         infusion_test_timer = lv_timer_create(infusion_test_timer_cb, 100, NULL);
+        s_infusion_sim_paused = false;
+    } else if (!s_infusion_sim_paused) {
+        // Si está corriendo la simulación, pausar
+        lv_timer_pause(infusion_test_timer);
+        s_infusion_sim_paused = true;
     } else {
+        // Si estaba pausada, reanudar
+        if (get_var_value_infusion_test() >= 100.0f) {
+            set_var_value_infusion_test(0.0f);
+        }
         lv_timer_resume(infusion_test_timer);
+        s_infusion_sim_paused = false;
     }
-/* #else
-    char command[48];
-    snprintf(command, sizeof(command), "fsm_dispense,%.1f,%.1f",
-             INFUSION_TEST_TARGET_UM, INFUSION_TEST_SPEED_UMS);
-    CmdDispatchResult_t result =
-        cmd_dispatch_string(command, CMD_SRC_HMI, -1);
-    if (result.accepted) {
-        set_var_value_infusion_test(0.0f);
-    }
-#endif */
 #else
+    Core1State_t state = cmd_gate_get_fsm_state();
+
+    // 1. Si está en marcha la infusión (ST_DISPENSING), pausarla
+    if (state == ST_DISPENSING) {
+        CmdDispatchResult_t res = cmd_dispatch_string("pause", CMD_SRC_HMI, -1);
+        if (res.accepted) {
+            ui_report_dispatch_debug("infusion pausada (pause comand sent)");
+        } else {
+            ui_report_dispatch_debug("fallo al pausar infusion");
+        }
+        return;
+    }
+
+    // 2. Si no está dispensando (ej: en reposo o tras haber sido pausada), iniciar/reanudar con fsm_dispense
     float target_um = 0.0f;
     float velocity_ums = 0.0f;
     if (!ui_calculate_dispense_motion(&target_um, &velocity_ums)) {
@@ -678,14 +725,9 @@ void action_reanudar_infusion(lv_event_t *e) {
     char command[64];
     snprintf(command, sizeof(command), "fsm_dispense,%.1f,%.1f",
              target_um, velocity_ums);
-    char diagnostic[56];
-    snprintf(diagnostic, sizeof(diagnostic), "fsm_dispense target=%.1f um vel=%.1f um/s",
-             target_um, velocity_ums);
-    ui_report_dispatch_debug(diagnostic);
-    CmdDispatchResult_t result =
-        cmd_dispatch_string(command, CMD_SRC_HMI, -1);
+
+    CmdDispatchResult_t result = cmd_dispatch_string(command, CMD_SRC_HMI, -1);
     if (result.accepted) {
-        set_var_value_infusion_test(0.0f);
         ui_report_dispatch_debug("dispense command accepted");
     } else {
         char diagnostic[56];
@@ -701,6 +743,7 @@ void action_stop_infusion(lv_event_t *e) {
 #if INFUSION_UI_SIMULATION
     if (infusion_test_timer) {
         lv_timer_pause(infusion_test_timer);
+        s_infusion_sim_paused = true;
     }
 #else
     (void)cmd_dispatch_string("stop", CMD_SRC_HMI, -1);

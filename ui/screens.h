@@ -19,9 +19,10 @@ enum ScreensEnum {
     SCREEN_ID_MENU_LOCAL_MODO = 6,
     SCREEN_ID_MENU_LOCAL_PARAMETROS = 7,
     SCREEN_ID_MENU_LOCAL_PARAMETROS_TEST = 8,
-    SCREEN_ID_MENU_LOCAL_PARAMETROS_CONFIRM = 9,
-    SCREEN_ID_MENU_LOCAL_PARAMETROS_TEST_1 = 10,
-    _SCREEN_ID_LAST = 10
+    SCREEN_ID_MENU_LOCAL_INFUSIONANDO = 9,
+    SCREEN_ID_MENU_LOCAL_PARAMETROS_CONFIRM = 10,
+    SCREEN_ID_MENU_LOCAL_PARAMETROS_TEST_1 = 11,
+    _SCREEN_ID_LAST = 11
 };
 
 typedef struct _objects_t {
@@ -33,10 +34,10 @@ typedef struct _objects_t {
     lv_obj_t *menu_local_modo;
     lv_obj_t *menu_local_parametros;
     lv_obj_t *menu_local_parametros_test;
+    lv_obj_t *menu_local_infusionando;
     lv_obj_t *menu_local_parametros_confirm;
     lv_obj_t *menu_local_parametros_test_1;
     lv_obj_t *obj0;
-    lv_obj_t *obj0__obj0;
     lv_obj_t *btn_inicio;
     lv_obj_t *obj1;
     lv_obj_t *obj2;
@@ -44,9 +45,9 @@ typedef struct _objects_t {
     lv_obj_t *obj4;
     lv_obj_t *obj5;
     lv_obj_t *obj6;
+    lv_obj_t *obj7;
     lv_obj_t *btn_inicio_1;
     lv_obj_t *btn_inicio_2;
-    lv_obj_t *obj7;
     lv_obj_t *obj8;
     lv_obj_t *obj9;
     lv_obj_t *obj10;
@@ -56,58 +57,58 @@ typedef struct _objects_t {
     lv_obj_t *obj14;
     lv_obj_t *obj15;
     lv_obj_t *obj16;
-    lv_obj_t *menu_modo_1;
     lv_obj_t *obj17;
     lv_obj_t *obj18;
     lv_obj_t *obj19;
+    lv_obj_t *menu_modo_1;
     lv_obj_t *obj20;
-    lv_obj_t *container_jeringa_2;
     lv_obj_t *obj21;
     lv_obj_t *obj22;
-    lv_obj_t *container_jeringa_1;
     lv_obj_t *obj23;
     lv_obj_t *obj24;
-    lv_obj_t *container_jeringa_3;
+    lv_obj_t *container_jeringa_2;
     lv_obj_t *obj25;
     lv_obj_t *obj26;
-    lv_obj_t *container_jeringa;
+    lv_obj_t *container_jeringa_1;
     lv_obj_t *obj27;
     lv_obj_t *obj28;
+    lv_obj_t *container_jeringa_3;
     lv_obj_t *obj29;
     lv_obj_t *obj30;
+    lv_obj_t *container_jeringa;
     lv_obj_t *obj31;
     lv_obj_t *obj32;
     lv_obj_t *obj33;
     lv_obj_t *obj34;
     lv_obj_t *obj35;
-    lv_obj_t *menu_modo;
     lv_obj_t *obj36;
     lv_obj_t *obj37;
     lv_obj_t *obj38;
     lv_obj_t *obj39;
     lv_obj_t *obj40;
+    lv_obj_t *menu_modo;
     lv_obj_t *obj41;
     lv_obj_t *obj42;
     lv_obj_t *obj43;
     lv_obj_t *obj44;
     lv_obj_t *obj45;
-    lv_obj_t *container_caudal;
     lv_obj_t *obj46;
     lv_obj_t *obj47;
-    lv_obj_t *container_tiempo;
     lv_obj_t *obj48;
     lv_obj_t *obj49;
-    lv_obj_t *container_volumen;
     lv_obj_t *obj50;
     lv_obj_t *obj51;
-    lv_obj_t *teclado_num;
     lv_obj_t *obj52;
+    lv_obj_t *container_caudal;
     lv_obj_t *obj53;
     lv_obj_t *obj54;
+    lv_obj_t *container_tiempo;
     lv_obj_t *obj55;
     lv_obj_t *obj56;
+    lv_obj_t *container_volumen;
     lv_obj_t *obj57;
     lv_obj_t *obj58;
+    lv_obj_t *teclado_num;
     lv_obj_t *obj59;
     lv_obj_t *obj60;
     lv_obj_t *obj61;
@@ -122,7 +123,6 @@ typedef struct _objects_t {
     lv_obj_t *obj70;
     lv_obj_t *obj71;
     lv_obj_t *obj72;
-    lv_obj_t *bar_infusion_occ;
     lv_obj_t *obj73;
     lv_obj_t *obj74;
     lv_obj_t *obj75;
@@ -133,14 +133,13 @@ typedef struct _objects_t {
     lv_obj_t *obj80;
     lv_obj_t *obj81;
     lv_obj_t *obj82;
-    lv_obj_t *bar_infusion;
-    lv_obj_t *bar_infusion_occ_1;
     lv_obj_t *obj83;
     lv_obj_t *obj84;
     lv_obj_t *obj85;
     lv_obj_t *obj86;
     lv_obj_t *obj87;
     lv_obj_t *obj88;
+    lv_obj_t *bar_infusion_occ_3;
     lv_obj_t *obj89;
     lv_obj_t *obj90;
     lv_obj_t *obj91;
@@ -149,11 +148,11 @@ typedef struct _objects_t {
     lv_obj_t *obj94;
     lv_obj_t *obj95;
     lv_obj_t *obj96;
-    lv_obj_t *container_caudal_2;
     lv_obj_t *obj97;
     lv_obj_t *obj98;
-    lv_obj_t *teclado_num_1;
     lv_obj_t *obj99;
+    lv_obj_t *bar_infusion_1;
+    lv_obj_t *bar_infusion_occ_2;
     lv_obj_t *obj100;
     lv_obj_t *obj101;
     lv_obj_t *obj102;
@@ -163,6 +162,45 @@ typedef struct _objects_t {
     lv_obj_t *obj106;
     lv_obj_t *obj107;
     lv_obj_t *obj108;
+    lv_obj_t *obj109;
+    lv_obj_t *obj110;
+    lv_obj_t *obj111;
+    lv_obj_t *obj112;
+    lv_obj_t *obj113;
+    lv_obj_t *obj114;
+    lv_obj_t *obj115;
+    lv_obj_t *obj116;
+    lv_obj_t *obj117;
+    lv_obj_t *bar_infusion;
+    lv_obj_t *bar_infusion_occ_1;
+    lv_obj_t *obj118;
+    lv_obj_t *obj119;
+    lv_obj_t *obj120;
+    lv_obj_t *obj121;
+    lv_obj_t *obj122;
+    lv_obj_t *obj123;
+    lv_obj_t *obj124;
+    lv_obj_t *obj125;
+    lv_obj_t *obj126;
+    lv_obj_t *obj127;
+    lv_obj_t *obj128;
+    lv_obj_t *obj129;
+    lv_obj_t *obj130;
+    lv_obj_t *obj131;
+    lv_obj_t *container_caudal_2;
+    lv_obj_t *obj132;
+    lv_obj_t *obj133;
+    lv_obj_t *teclado_num_1;
+    lv_obj_t *obj134;
+    lv_obj_t *obj135;
+    lv_obj_t *obj136;
+    lv_obj_t *obj137;
+    lv_obj_t *obj138;
+    lv_obj_t *obj139;
+    lv_obj_t *obj140;
+    lv_obj_t *obj141;
+    lv_obj_t *obj142;
+    lv_obj_t *obj143;
 } objects_t;
 
 extern objects_t objects;
@@ -190,6 +228,9 @@ void tick_screen_menu_local_parametros();
 
 void create_screen_menu_local_parametros_test();
 void tick_screen_menu_local_parametros_test();
+
+void create_screen_menu_local_infusionando();
+void tick_screen_menu_local_infusionando();
 
 void create_screen_menu_local_parametros_confirm();
 void tick_screen_menu_local_parametros_confirm();

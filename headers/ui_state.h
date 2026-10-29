@@ -42,4 +42,7 @@ void ui_state_update_from_system_event(const SystemEvent_t *ev);
 // Llamar desde task_tft en cada tick LVGL.
 UIState_t ui_state_get_snapshot(void);
 
+// Actualizar el medidor/porcentaje de oclusion a partir del voltaje del sensor (frc_sense_v).
+void actualizar_porcentaje_oclusion(float frc_sense_v);
+
 #endif // UI_STATE_H
