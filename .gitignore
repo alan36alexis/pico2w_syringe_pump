@@ -1,3 +1,6 @@
 build
 !.vscode/*
 implementation_plan.md
+.cache/
+__pycache__/
+*.pyc

@@ -10,21 +10,29 @@
 extern "C" {
 #endif
 
-// Placeholder for user credentials
+// Credenciales de redes conocidas (Casa y Móvil)
+#define WIFI_SSID_HOME          "Telecentro-c220"
+#define WIFI_PASSWORD_HOME      "QCW6G53HNLYG"
+#define MQTT_BROKER_IP_HOME     "192.168.0.15"
+
+#define WIFI_SSID_MOBILE        "Kupa"
+#define WIFI_PASSWORD_MOBILE    ""
+#define MQTT_BROKER_IP_MOBILE   "10.75.224.223"
+
 #ifndef WIFI_SSID
-#define WIFI_SSID "Telecentro-c220" //"UTN_2022"
+#define WIFI_SSID WIFI_SSID_HOME
 #endif
 
 #ifndef WIFI_PASSWORD
-#define WIFI_PASSWORD "QCW6G53HNLYG" //"utn.2022"
+#define WIFI_PASSWORD WIFI_PASSWORD_HOME
 #endif
 
 #ifndef MQTT_BROKER_IP
-#define MQTT_BROKER_IP "192.168.0.21" // MQTT broker IP
+#define MQTT_BROKER_IP MQTT_BROKER_IP_HOME
 #endif
 
 #define MQTT_BROKER_PORT  1883
-#define MQTT_MAX_PAYLOAD  256  // max bytes de cualquier payload en la cola MQTT
+#define MQTT_MAX_PAYLOAD  384  // max bytes de cualquier payload en la cola MQTT (aloja realtime JSON ~300 B)
 #define MQTT_TASK_DELAY_MS 5000
 
 void mqtt_client_queue_init(void);

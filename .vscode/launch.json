@@ -10,6 +10,14 @@
             "servertype": "openocd",
             "serverpath": "${userHome}/.pico-sdk/openocd/0.12.0+dev/openocd.exe",
             "gdbPath": "${command:raspberry-pi-pico.getGDBPath}",
+            "preLaunchTask": "Compile Project",
+            "showDevDebugOutput": "parsed",
+            "debuggerArgs": [
+                "-ex",
+                "set debug-file-directory /debug",
+                "-ex",
+                "set remotetimeout 30"
+            ],
             "device": "${command:raspberry-pi-pico.getChipUppercase}",
             "configFiles": [
                 "interface/cmsis-dap.cfg",
@@ -17,14 +25,26 @@
             ],
             "svdFile": "${userHome}/.pico-sdk/sdk/2.2.0/src/${command:raspberry-pi-pico.getChip}/hardware_regs/${command:raspberry-pi-pico.getChipUppercase}.svd",
             "runToEntryPoint": "main",
+            "hardwareBreakpoints": {
+                "require": true,
+                "limit": 8
+            },
             // Fix for no_flash binaries, where monitor reset halt doesn't do what is expected
             // Also works fine for flash binaries
             "overrideLaunchCommands": [
                 "monitor reset init",
-                "load \"${command:raspberry-pi-pico.launchTargetPath}\""
+                "monitor program \"${command:raspberry-pi-pico.launchTargetPath}\" verify",
+                "monitor reset init",
+                "mem 0x10000000 0x12000000 ro 32"
+            ],
+            "overrideRestartCommands": [
+                "monitor reset init",
+                "monitor program \"${command:raspberry-pi-pico.launchTargetPath}\" verify",
+                "monitor reset init",
+                "mem 0x10000000 0x12000000 ro 32"
             ],
             "openOCDLaunchCommands": [
-                "adapter speed 1000"
+                "adapter speed 5000"
             ]
         },
         {
@@ -36,15 +56,34 @@
             "servertype": "external",
             "gdbTarget": "localhost:3333",
             "gdbPath": "${command:raspberry-pi-pico.getGDBPath}",
+            "preLaunchTask": "Compile Project",
+            "debuggerArgs": [
+                "-ex",
+                "set debug-file-directory /debug",
+                "-ex",
+                "set remotetimeout 30"
+            ],
             "device": "${command:raspberry-pi-pico.getChipUppercase}",
             "svdFile": "${userHome}/.pico-sdk/sdk/2.2.0/src/${command:raspberry-pi-pico.getChip}/hardware_regs/${command:raspberry-pi-pico.getChipUppercase}.svd",
             "runToEntryPoint": "main",
+            "hardwareBreakpoints": {
+                "require": true,
+                "limit": 8
+            },
             // Fix for no_flash binaries, where monitor reset halt doesn't do what is expected
             // Also works fine for flash binaries
             "overrideLaunchCommands": [
                 "monitor reset init",
-                "load \"${command:raspberry-pi-pico.launchTargetPath}\""
+                "monitor program \"${command:raspberry-pi-pico.launchTargetPath}\" verify",
+                "monitor reset init",
+                "mem 0x10000000 0x12000000 ro 32"
+            ],
+            "overrideRestartCommands": [
+                "monitor reset init",
+                "monitor program \"${command:raspberry-pi-pico.launchTargetPath}\" verify",
+                "monitor reset init",
+                "mem 0x10000000 0x12000000 ro 32"
             ]
-        },
+        }
     ]
 }

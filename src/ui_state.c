@@ -3,6 +3,7 @@
 #include "FreeRTOS.h"
 #include "semphr.h"
 #include "system_events.h"
+#include "core1_main.h"
 
 static UIState_t    s_state  = {0};
 static SemaphoreHandle_t s_mutex = NULL;
@@ -38,14 +39,6 @@ void ui_state_update_from_event(const LogMessage_t *msg) {
     xSemaphoreGive(s_mutex);
 }
 
-UIState_t ui_state_get_snapshot(void) {
-    UIState_t snap = {0};
-    if (s_mutex && xSemaphoreTake(s_mutex, portMAX_DELAY) == pdTRUE) {
-        snap = s_state;
-        xSemaphoreGive(s_mutex);
-    }
-    return snap;
-}
 
 void ui_state_update_from_system_event(const SystemEvent_t *ev) {
     if (!s_mutex) return;
@@ -63,9 +56,53 @@ void ui_state_update_from_system_event(const SystemEvent_t *ev) {
     case EV_MOT_PROGRESS:
         s_state.progress_pct = ev->payload.motion.progress_pct;
         break;
+    case EV_APP_SESSION_START:
+    case EV_APP_SESSION_UPD:
+    case EV_APP_SESSION_END: {
+        const DtoSession_t *session = &ev->payload.session;
+        s_state.session_id = session->session_id;
+        s_state.target_volume_ml = session->target_volume_ml;
+        s_state.infused_volume_ml = session->infused_volume_ml;
+        s_state.rate_ml_h = session->rate_ml_h;
+        s_state.elapsed_s = session->elapsed_s;
+        s_state.session_active = ev->id != EV_APP_SESSION_END;
+        s_state.session_data_valid = true;
+
+        if (session->target_volume_ml > 0.0f) {
+            s_state.progress_pct =
+                session->infused_volume_ml * 100.0f / session->target_volume_ml;
+            if (s_state.progress_pct < 0.0f) s_state.progress_pct = 0.0f;
+            if (s_state.progress_pct > 100.0f) s_state.progress_pct = 100.0f;
+        }
+        break;
+    }
+    case EV_ALARM_OCCLUSION:
+    case EV_ALARM_EOT:
+    case EV_ALARM_DRV_FAULT:
+    case EV_ALARM_BATTERY_LOW:
+    case EV_ALARM_MAINS_LOST:
+        s_state.last_alarm_id = ev->id;
+        s_state.last_alarm_severity = ev->payload.alarm.severity;
+        s_state.last_alarm_fsm_state = ev->payload.alarm.fsm_state;
+        s_state.last_alarm_param = ev->payload.alarm.param_f;
+        s_state.alarm_event_count++;
+        if (ev->id == EV_ALARM_OCCLUSION) s_state.alarms.occlusion = true;
+        if (ev->id == EV_ALARM_DRV_FAULT) s_state.alarms.system_error = true;
+        break;
     default:
         break;
     }
 
     xSemaphoreGive(s_mutex);
+}
+
+UIState_t ui_state_get_snapshot(void) {
+    UIState_t snap = {0};
+    if (s_mutex && xSemaphoreTake(s_mutex, portMAX_DELAY) == pdTRUE) {
+        snap = s_state;
+        // 12 bits (0 a 4095) con VREF = 3.3V
+        snap.frc_sense_v = (float)core1_get_occlusion_adc_raw() * 3.3f / 4095.0f;
+        xSemaphoreGive(s_mutex);
+    }
+    return snap;
 }

@@ -152,3 +152,19 @@ bool cmd_send_calibrate(float move_velocity_ums, float seek_velocity_ums) {
     msg.payload.calibrate.seek_velocity_ums = seek_velocity_ums;
     return queue_try_add(&crosscore_cmd_queue, &msg);
 }
+
+bool cmd_send_set_adc_thresholds(float v_syringe, float v_occlusion, float v_release) {
+    Core1CmdMessage_t msg;
+    msg.id = CMD_SET_ADC_THRESHOLDS;
+    msg.payload.adc_thresholds.v_syringe_contact = v_syringe;
+    msg.payload.adc_thresholds.v_occlusion = v_occlusion;
+    msg.payload.adc_thresholds.v_occ_release = v_release;
+    return queue_try_add(&crosscore_cmd_queue, &msg);
+}
+
+bool cmd_send_set_antibolus_mode(bool auto_enabled) {
+    Core1CmdMessage_t msg;
+    msg.id = CMD_SET_ANTIBOLUS_MODE;
+    msg.payload.antibolus.auto_enabled = auto_enabled;
+    return queue_try_add(&crosscore_cmd_queue, &msg);
+}

@@ -15,6 +15,16 @@ typedef struct {
     float        rate_ml_h;
     float        infused_volume_ml;
     float        target_volume_ml;
+    float        frc_sense_v;
+    uint32_t     session_id;
+    uint32_t     elapsed_s;
+    bool         session_active;
+    bool         session_data_valid;
+    uint16_t     last_alarm_id;
+    uint8_t      last_alarm_severity;
+    uint16_t     last_alarm_fsm_state;
+    float        last_alarm_param;
+    uint32_t     alarm_event_count;
     PumpAlarms_t alarms;
 } UIState_t;
 
@@ -31,5 +41,8 @@ void ui_state_update_from_system_event(const SystemEvent_t *ev);
 // Obtener una copia consistente del estado (thread-safe).
 // Llamar desde task_tft en cada tick LVGL.
 UIState_t ui_state_get_snapshot(void);
+
+// Actualizar el medidor/porcentaje de oclusion a partir del voltaje del sensor (frc_sense_v).
+void actualizar_porcentaje_oclusion(float frc_sense_v);
 
 #endif // UI_STATE_H

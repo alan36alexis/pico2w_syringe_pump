@@ -1,8 +1,15 @@
 #include "syringe_pump_api.h"
 #include "crosscore_cmd.h"
 #include "system_config.h"
+#include "core1_main.h"
+#include "serial_consumer.h"
 #include <math.h>
 #include <stdio.h>
+
+// Encabezado de mensaje: respeta la longitud estándar de 3 caracteres de los headers del firmware ([ADC], [FSM], [CFG], etc.)
+#ifndef PUMP_LOG_HDR
+#define PUMP_LOG_HDR "[ADC]:"
+#endif
 
 #define PI 3.1415926535f
 
@@ -13,26 +20,24 @@ static float syringe_area_mm2 = 0.0f;
 
 // --- Internal Math & Kinematics ---
 
-/**
- * Translates clinical volume (mL) to linear displacement (um).
- */
-static float ml_to_um(float volume_ml) {
-    if (syringe_area_mm2 <= 0.0f) return 0.0f;
+float Pump_MlToUm(float volume_ml, float area_mm2) {
+    if (!isfinite(volume_ml) || !isfinite(area_mm2) ||
+        volume_ml < 0.0f || area_mm2 <= 0.0f) return 0.0f;
     // Volume in mm^3
     float volume_mm3 = volume_ml * 1000.0f;
     // Length in mm
-    float length_mm = volume_mm3 / syringe_area_mm2;
+    float length_mm = volume_mm3 / area_mm2;
     // Length in um
     return length_mm * 1000.0f;
 }
 
-/**
- * Translates clinical flow rate (mL/h) to linear speed (um/s).
- */
-static float ml_h_to_um_s(float rate_ml_h) {
-    // rate in mL per second
-    float rate_ml_s = rate_ml_h / 3600.0f;
-    return ml_to_um(rate_ml_s);
+float Pump_MlPerSecondToUmPerSecond(float rate_ml_s, float area_mm2) {
+    return Pump_MlToUm(rate_ml_s, area_mm2);
+}
+
+float Pump_MlPerHourToUmPerSecond(float rate_ml_h, float area_mm2) {
+    if (!isfinite(rate_ml_h) || rate_ml_h < 0.0f) return 0.0f;
+    return Pump_MlPerSecondToUmPerSecond(rate_ml_h / 3600.0f, area_mm2);
 }
 
 // --- API Implementation ---
@@ -96,11 +101,11 @@ bool Pump_Mode_Continuous(float rate_ml_h) {
     // IEC bounds validation (e.g., minimum 0.01 mL/h, maximum 2000 mL/h)
     if (rate_ml_h < 0.01f || rate_ml_h > 2000.0f) return false;
     
-    float velocity_ums = ml_h_to_um_s(rate_ml_h);
+    float velocity_ums = Pump_MlPerHourToUmPerSecond(rate_ml_h, syringe_area_mm2);
     float remaining_ml = current_syringe.max_capacity_ml - ctx.infused_volume_ml;
     
     if (remaining_ml <= 0.0f) return false;
-    float target_um = ml_to_um(remaining_ml);
+    float target_um = Pump_MlToUm(remaining_ml, syringe_area_mm2);
     
     ctx.target_volume_ml = current_syringe.max_capacity_ml; // Infuse until empty
     ctx.current_rate_ml_h = rate_ml_h;
@@ -117,8 +122,8 @@ bool Pump_Mode_Bolus(float bolus_volume_ml, float bolus_rate_ml_h) {
     float remaining_in_syringe = current_syringe.max_capacity_ml - ctx.infused_volume_ml;
     if (bolus_volume_ml > remaining_in_syringe) return false; // Cannot bolus more than available
 
-    float velocity_ums = ml_h_to_um_s(bolus_rate_ml_h);
-    float target_um = ml_to_um(bolus_volume_ml);
+    float velocity_ums = Pump_MlPerHourToUmPerSecond(bolus_rate_ml_h, syringe_area_mm2);
+    float target_um = Pump_MlToUm(bolus_volume_ml, syringe_area_mm2);
     
     // In bolus mode, the target volume is just the bolus size added to current infused
     ctx.target_volume_ml = ctx.infused_volume_ml + bolus_volume_ml;
@@ -134,8 +139,8 @@ bool Pump_Mode_Purge(void) {
     float purge_rate = PURGE_FLOW_RATE_MLH;
     float purge_volume = PURGE_VOLUME_ML;
     
-    float velocity_ums = ml_h_to_um_s(purge_rate);
-    float target_um = ml_to_um(purge_volume);
+    float velocity_ums = Pump_MlPerHourToUmPerSecond(purge_rate, syringe_area_mm2);
+    float target_um = Pump_MlToUm(purge_volume, syringe_area_mm2);
     
     ctx.state = PUMP_STATE_PURGING;
     ctx.current_rate_ml_h = purge_rate;
@@ -151,8 +156,8 @@ bool Pump_Mode_KVO(void) {
     float remaining_in_syringe = current_syringe.max_capacity_ml - ctx.infused_volume_ml;
     if (remaining_in_syringe <= 0.0f) return false; // Syringe is completely empty
     
-    float velocity_ums = ml_h_to_um_s(kvo_rate);
-    float target_um = ml_to_um(remaining_in_syringe);
+    float velocity_ums = Pump_MlPerHourToUmPerSecond(kvo_rate, syringe_area_mm2);
+    float target_um = Pump_MlToUm(remaining_in_syringe, syringe_area_mm2);
     
     ctx.state = PUMP_STATE_KVO;
     ctx.current_rate_ml_h = kvo_rate;
@@ -177,6 +182,13 @@ void Pump_SetOcclusionThreshold(uint8_t level) {
         case 3:
         default: ctx.occlusion_threshold_mmhg = OCC_THRESHOLD_L3_MMHG; break;
     }
+}
+
+uint16_t Pump_ReadOcclusionSensor(void) {
+    uint16_t raw_val = core1_get_occlusion_adc_raw();
+    float voltage = (float)raw_val * 3.3f / (float)(1 << 12);
+    serial_log("ADC", "raw=%u volt=%.2fV", raw_val, voltage);
+    return raw_val;
 }
 
 void Pump_CheckAlarms(void) {

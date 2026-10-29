@@ -1,3 +1,6 @@
 [submodule "lib/tft_touch_module"]
 	path = lib/tft_touch_module
 	url = https://github.com/AleeGallo/ProyectoFinal.git
+[submodule "lvgl"]
+	path = lvgl
+	url = https://github.com/lvgl/lvgl.git

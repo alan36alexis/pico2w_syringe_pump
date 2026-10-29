@@ -27,6 +27,34 @@ El núcleo 0 ejecuta un kernel de **FreeRTOS** y centraliza todas las entradas, 
   - Pipeline unificado de comandos (CLI / MQTT / HMI) con validación de estado FSM antes de despachar a Core 1.
   - CLI por consola serie, persistencia de configuración en Flash, monitor de salud del sistema (stack high-water-marks) y tareas de UI TFT (gated por `ENABLE_TFT`).
 
+### **Listado de Tareas de FreeRTOS (Core 0)**
+
+El kernel de FreeRTOS en el Core 0 administra las tareas de red, telemetría, consola, interfaces físicas y la arquitectura de eventos pub-sub (EDA). En la arquitectura RP2040/RP2350 (ARM Cortex-M 32 bits), el stack de FreeRTOS se especifica en palabras de 32 bits (`StackType_t = uint32_t`, donde **1 word = 4 bytes**) y `configMINIMAL_STACK_SIZE` está fijado en **128 words** (512 bytes). Las prioridades válidas van de `0` (`tskIDLE_PRIORITY`) a `5` (`configMAX_PRIORITIES = 6`).
+
+| Nombre Tarea | Función C | Prioridad | Stack (Words / Bytes) | Ubicación (Definición / Creación) | Estado / Condición | Rol / Responsabilidad |
+|---|---|---|---|---|---|---|
+| `EvBroker` | `task_event_broker` | 4 (`BROKER_PRIORITY`) | 512 w (2048 B)<br>*(MINIMAL × 4)* | [`src/event_broker.c`](src/event_broker.c) | Activa (prioridad máx.) | Broker central EDA: drena eventos de Core 1 y Core 0, actualiza espejos de estado (FSM en `cmd_gate` y presión), estampa timestamps, persiste calibración en Flash en reposo y replica hacia consumidores. |
+| `UI_Input` | `task_ui_input` | 3 (`tskIDLE_PRIORITY + 3`) | 512 w (2048 B) | [`src/core0_main.c`](src/core0_main.c) | Condicional (`ENABLE_TFT`) | Muestreo periódico (10 ms) de periféricos de entrada (touch/botones) antes del frame gráfico de LVGL. |
+| `Init` | `task_init` | 2 | 1024 w (4096 B) | [`src/core0_main.c`](src/core0_main.c) | Transitoria (autoeliminación) | Carga config de Flash, sincroniza umbrales ADC/anti-bolus/calibración con Core 1, inicializa I2C/PCAL9555 y Wi-Fi CYW43, lanza `MQTT_Task` y `WiFi_Keepalive`, y se destruye (`vTaskDelete`). |
+| `MQTT_Rx` | `mqtt_rx_task` | 2 | 1024 w (4096 B)<br>*(MINIMAL × 8)* | Def: [`src/mqtt_client.c`](src/mqtt_client.c)<br>Crea: [`src/core0_main.c`](src/core0_main.c) | Activa | Procesa cola de mensajes MQTT entrantes, desempaqueta envelope JSON (`{"cid":N,"cmd":"..."}`), ejecuta el comando mediante el despachador unificado y emite ACK QoS 1. |
+| `MQTT_Task` | `mqtt_client_task` | 2 | 512 w (2048 B)<br>*(MINIMAL × 4)* | Def: [`src/mqtt_client.c`](src/mqtt_client.c)<br>Crea: [`src/core0_main.c`](src/core0_main.c) | Activa (lanzada por `Init`) | Inicializa el cliente lwIP MQTT, configura tópicos del dispositivo, gestiona la conexión con el broker y publica presencia online/LWT. |
+| `MqttCons` | `task_mqtt_consumer` | 2 (`MQTT_CONS_PRIORITY`) | 768 w (3072 B)<br>*(MINIMAL × 6)* | [`src/mqtt_consumer.c`](src/mqtt_consumer.c) | Activa | Consumidor EDA: mantiene el snapshot del sistema y publica telemetría periódica multi-rate (`sensors` 500 ms, `motion` 1 s, `session` 2 s) y eventos de FSM o alarma. |
+| `HmiCons` | `task_hmi_consumer` | 2 (`HMI_CONS_PRIORITY`) | 512 w (2048 B)<br>*(MINIMAL × 4)* | [`src/hmi_consumer.c`](src/hmi_consumer.c) | Activa | Consumidor EDA: actualiza el snapshot del estado clínico de UI (`ui_state`) y despacha eventos a widgets LVGL. |
+| `TFT` | `task_tft` | 2 (`tskIDLE_PRIORITY + 2`) | 4096 w (16384 B / 16 KB) | [`src/core0_main.c`](src/core0_main.c) | Condicional (`ENABLE_TFT`) | Ciclo principal de visualización TFT y motor LVGL: inicializa display ST7789, ejecuta `modulo_tft_run_once()` cada 5 ms y actualiza widgets interactivos. |
+| `CLI` | `task_cli` | 1 | 384 w (1536 B)<br>*(MINIMAL × 3)* | [`src/core0_main.c`](src/core0_main.c) | Activa | Línea de comandos por consola serie (UART/USB CDC): lectura no bloqueante de caracteres, soporte de retroceso/eco y envío a `cmd_dispatch_string()`. |
+| `Blinky` | `task_blinky` | 1 | 512 w (2048 B)<br>*(MINIMAL × 4)* | [`src/core0_main.c`](src/core0_main.c) | Activa | Indicador visual LED onboard (CYW43): pulso rápido con Wi-Fi conectado, pulso lento en espera o latido mínimo de bajo consumo si Wi-Fi está apagado. |
+| `WiFi_Keepalive` | `wifi_keepalive_task` | 1 | 1024 w (4096 B) | [`src/core0_main.c`](src/core0_main.c) | Activa (lanzada por `Init`) | Supervisa periódicamente (cada 10 s) el enlace TCP/IP Wi-Fi y ejecuta reconexiones automáticas si el link cae. |
+| `IO_Expander` | `task_io_expander` | 1 | 384 w (1536 B)<br>*(MINIMAL × 3)* | Def: [`src/io_expander.c`](src/io_expander.c)<br>Crea: [`src/io_expander.c`](src/io_expander.c) | Activa (si PCAL9555 responde) | Sondeo I2C a 20 Hz con debounce de 100 ms de pulsadores de hardware (Play/Stop, Bolo, presencia jeringa), verificación acústica inicial del buzzer (2 beeps) y emisión de `EV_ACT_IO_EXP_INPUT`. |
+| `CmdExample` | `task_example_internal_cmd` | 1 | 256 w (1024 B)<br>*(MINIMAL × 2)* | [`src/core0_main.c`](src/core0_main.c) | Activa | Tarea de prueba interna: inicializa parámetros clínicos de jeringa (`Pump_Init`, `Pump_SelectSyringe`) y permanece en reposo periódico. |
+| `SysMon` | `task_system_monitor` | 1 | 384 w (1536 B)<br>*(MINIMAL × 3)* | [`src/core0_main.c`](src/core0_main.c) | Condicional (`ENABLE_SYS_HEALTH_MONITOR`) | Diagnóstico de salud: lee la temperatura interna del micro vía ADC e imprime el *High Water Mark* (stack libre mínimo histórico) de cada tarea FreeRTOS activa. |
+
+#### Tareas del Kernel de FreeRTOS
+
+| Nombre Tarea | Prioridad | Stack (Words / Bytes) | Archivo | Rol / Responsabilidad |
+|---|---|---|---|---|
+| `IDLE` | 0 (`tskIDLE_PRIORITY`) | 128 w (512 B) | `freertos/tasks.c` | Tarea ociosa del sistema; se ejecuta cuando no hay tareas de aplicación en estado Ready y gestiona la limpieza de memoria de tareas eliminadas. |
+| `Tmr Svc` (`prvTimerTask`) | 3 (`configTIMER_TASK_PRIORITY`) | 128 w (512 B) | `freertos/timers.c` | Tarea demonio de gestión de timers por software (`configUSE_TIMERS = 1`). |
+
 ---
 
 ## Arquitectura de Eventos Pub-Sub (EDA)
@@ -111,17 +139,29 @@ Actualmente, estos comandos son accesibles mediante la consola serial y se utili
 
 | Comando CLI | Descripción |
 |---|---|
-| `config_wifi,<SSID>,<PASS>`| Guarda temporalmente en RAM y usa las nuevas credenciales de Wi-Fi. |
+| `wifi_add,<SSID>,<PASS>[,<IP>[,<PORT>]]` | Agrega o actualiza una red en la lista persistente de perfiles (hasta 6 redes). Guarda en Flash y despierta la reconexión. IP y Puerto de broker son opcionales (default 1883). |
+| `wifi_del,<SSID>` | Elimina una red de la lista persistente de perfiles en Flash. |
+| `wifi_list` | Lista los perfiles Wi-Fi configurados en Flash (SSID, contraseña oculta, broker IP:Puerto) y la red activa. |
+| `wifi_scan` | Ejecuta un escaneo inmediato del espectro de 2.4 GHz e imprime todas las redes detectadas con su RSSI, canal, autenticación y si están guardadas en memoria. |
+| `wifi_connect,<SSID>` | Fuerza la conexión inmediata a un SSID específico sin importar la potencia de señal de otras redes. |
+| `config_wifi,<SSID>,<PASS>`| Actualiza credenciales de Wi-Fi en RAM/Flash y agrega a los perfiles conocidos. |
 | `config_mqtt,<IP>,<PORT>` | Guarda temporalmente en RAM y usa la nueva IP/Puerto del Broker. |
+| `config_thresholds,<V_SYR>,<V_OCC>,<V_REL>` | Configura los 3 umbrales ADC de tensión (V): inicio jeringa, oclusión y liberación. |
+| `set_syringe_thresh,<V>` | Configura el umbral de tensión (V) para detección de inicio de jeringa. |
+| `set_occ_thresh,<V>` | Configura el umbral de tensión (V) para detección de oclusión. |
+| `set_occ_rel_thresh,<V>` | Configura el umbral de tensión (V) para liberación de oclusión. |
+| `config_antibolus,<auto\|manual>` | Configura el modo anti-bolus (`auto` habilitado por defecto, o `manual`). |
+| `set_antibolus_auto,<1\|0>` | Habilita (1) o deshabilita (0) el mecanismo de anti-bolus automático. |
 | `set_ssid,<SSID>` | Cambia únicamente el SSID del Wi-Fi en RAM. |
 | `set_wpass,<PASS>` | Cambia únicamente la contraseña del Wi-Fi en RAM. |
 | `set_mqtt_ip,<IP>` | Cambia únicamente la IP del Broker MQTT en RAM. |
 | `set_mqtt_port,<PORT>`| Cambia únicamente el Puerto del Broker MQTT en RAM. |
 | `config_save` | Escribe los valores de RAM en la Memoria Flash profunda de forma definitiva. (Solo funcionará si el motor no se está moviendo). |
-| `config_info` | Muestra un resumen de variables actuales cargadas en el gestor. |
-| `reconnect` | Efectúa un reseteo *suave* (Soft Reset) del hardware Wi-Fi desasociándolo de su actual red (LwIP leave) obligándolo a re-engancharse y conectar MQTT con la nueva configuración sin reiniciar el procesador. |
+| `config_info` | Muestra un resumen de variables actuales cargadas en el gestor (SSID, Broker IP:Port, perfiles, umbrales). |
+| `reconnect` | Efectúa un reseteo *suave* (Soft Reset) del hardware Wi-Fi desasociándolo de su actual red (LwIP leave) obligándolo a re-escanear, re-engancharse y conectar MQTT sin reiniciar el procesador. |
 | `net_disable` | Apaga el chip Wi-Fi (desactiva RF y tareas de red) para máximo ahorro de batería. |
-| `net_enable` | Enciende el chip Wi-Fi y restaura la conectividad de red a sus valores guardados. |
+| `net_enable` | Enciende el chip Wi-Fi y restaura la conectividad de red iniciando escaneo inteligente. |
+| `adc` o `read_adc` | Lee y muestra de forma inmediata el valor raw (0-4095) y en voltios (0-3.3V) del sensor de fuerza / oclusión. |
 | `log_en,<HDR>` | Activa una categoría de log de diagnóstico en el serial. Usar `ALL` para activar todas. |
 | `log_dis,<HDR>` | Desactiva una categoría de log de diagnóstico. Usar `ALL` para silenciar todo. |
 
@@ -130,15 +170,23 @@ Actualmente, estos comandos son accesibles mediante la consola serial y se utili
 | Header | Descripción |
 |---|---|
 | `ALL` | Activa / desactiva todas las categorías a la vez. |
+| `NET` | Conectividad de red (Wi-Fi scan, conexión, RSSI, canal, broker MQTT). |
+| `SYS` | Salud del sistema (heap, temperatura, alimentación/batería, heartbeat). |
+| `CMD` | Respuestas de comandos serie y MQTT. |
+| `DBG` | Diagnóstico general y mensajes internos de Core 1. |
 | `TGT` | Target de movimiento (distancia y velocidad solicitados). |
 | `CFG` | Configuración del driver aplicada (microsteps, corriente, chopper). |
 | `KIN` | Cinemática calculada (um/paso, total de micropasos). |
 | `PRF` | Perfil de aceleración calculado (frecuencias, segmentos). |
-| `FSM` | Transiciones de estado de la FSM. |
-| `ADC` | Lecturas del ADC. |
-| `PRG` | Progreso del movimiento en curso (porcentaje). |
-| `ENC` | Lecturas del encoder (posición y velocidad). |
-| `MTR` | Eventos de parada del motor. |
+| `FSM` | Transiciones de estado y eventos de la FSM. |
+| `ADC` | Lecturas y umbrales del ADC (fuerza, oclusión). |
+| `PRG` | Progreso del movimiento en curso (porcentaje y posición mm). |
+| `ENC` | Lecturas del encoder (cuentas, posición y velocidad). |
+| `MTR` | Eventos y parámetros de movimiento del motor. |
+| `HWS` | Telemetría de hardware en tiempo real (ADC fuerza, burbuja, switches, motor). |
+
+> [!NOTE]
+> Todos los mensajes de log serie siguen el formato unificado `@ <sec>.<dec> <TAG> : <key>=<val>`. Las alarmas críticas y de seguridad (prefijadas con `!`, ej. `!ALM`, `!OCC`, `!NET`) se imprimen siempre y no pueden silenciarse por diseño (IEC 60601-1-8 / IEC 62304).
 
 ### Tópicos MQTT
 

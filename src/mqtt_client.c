@@ -2,6 +2,7 @@
 #include "mqtt_topics.h"
 #include "lwip/apps/mqtt.h"
 #include "cmd_dispatcher.h"
+#include "serial_consumer.h"
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -111,7 +112,7 @@ static void mqtt_connection_cb(mqtt_client_t *client, void *arg, mqtt_connection
 
         err_t err = mqtt_subscribe(client, topic_cmd(), 1, mqtt_request_cb, NULL);
         if (err != ERR_OK) {
-            printf("[MQT]: Subscribe error: %d\n", err);
+            serial_log("!NET", "ERR=mqtt_sub code=%d", err);
         }
 
         // Publish online status with retain so the dashboard always sees it
@@ -135,7 +136,7 @@ void mqtt_client_task(void *params) {
     cyw43_arch_lwip_end();
 
     if (mqtt_client == NULL) {
-        printf("[MQT]: Failed to create MQTT client\n");
+        serial_log("!NET", "ERR=mqtt_client_create");
         vTaskDelete(NULL);
         return;
     }
@@ -170,23 +171,37 @@ void mqtt_client_task(void *params) {
                 err_t err = mqtt_client_connect(mqtt_client, &broker_ip, g_sys_config.mqtt_port, mqtt_connection_cb, NULL, &ci);
                 cyw43_arch_lwip_end();
 
-                if (err != ERR_OK) {
-                    printf("[MQT]: Connection error: %d\n", err);
+                if (err != ERR_OK && err != -10 /* ERR_ISCONN: conexión ya en curso */) {
+                    serial_log("!NET", "ERR=mqtt_connect code=%d", err);
                 }
             }
             vTaskDelay(pdMS_TO_TICKS(MQTT_TASK_DELAY_MS));
         } else {
-            // Guardián del Transmisor: espera 5s en la cola
+            // Guardián del Transmisor: drenar inmediatamente la cola de salida
             if (mqtt_tx_queue != NULL) {
-                if (xQueueReceive(mqtt_tx_queue, &msg, pdMS_TO_TICKS(MQTT_TASK_DELAY_MS)) == pdTRUE) {
+                while (xQueueReceive(mqtt_tx_queue, &msg, 0) == pdTRUE) {
                     if (mqtt_connected) {
                         cyw43_arch_lwip_begin();
-                        mqtt_publish(mqtt_client, msg.topic, msg.payload, strlen(msg.payload), msg.qos, 0, mqtt_request_cb, NULL);
+                        err_t err = mqtt_publish(mqtt_client, msg.topic, msg.payload, strlen(msg.payload), msg.qos, 0, mqtt_request_cb, NULL);
                         cyw43_arch_lwip_end();
+                        if (err != ERR_OK) {
+                            serial_log("!NET", "ERR=mqtt_publish code=%d topic=%s len=%u", err, msg.topic, (unsigned)strlen(msg.payload));
+                        }
+                    }
+                }
+                // Si la cola está vacía, esperar hasta 100 ms el próximo paquete o verificación de red
+                if (xQueueReceive(mqtt_tx_queue, &msg, pdMS_TO_TICKS(100)) == pdTRUE) {
+                    if (mqtt_connected) {
+                        cyw43_arch_lwip_begin();
+                        err_t err = mqtt_publish(mqtt_client, msg.topic, msg.payload, strlen(msg.payload), msg.qos, 0, mqtt_request_cb, NULL);
+                        cyw43_arch_lwip_end();
+                        if (err != ERR_OK) {
+                            serial_log("!NET", "ERR=mqtt_publish code=%d topic=%s len=%u", err, msg.topic, (unsigned)strlen(msg.payload));
+                        }
                     }
                 }
             } else {
-                vTaskDelay(pdMS_TO_TICKS(MQTT_TASK_DELAY_MS));
+                vTaskDelay(pdMS_TO_TICKS(100));
             }
         }
     }
@@ -206,8 +221,13 @@ bool mqtt_client_publish(const char *topic, const char *payload) {
     msg.qos = 0;
 
     if (xQueueSendToBack(mqtt_tx_queue, &msg, 0) != pdTRUE) {
-        s_mqtt_tx_drops++;
-        return false;
+        // Anti-Bufferbloat: Si la cola de transmisión está llena, descartar el dato más
+        // antiguo para garantizar que la muestra fresca en tiempo real pase sin demoras acumuladas.
+        mqtt_msg_t oldest;
+        if (xQueueReceive(mqtt_tx_queue, &oldest, 0) == pdTRUE) {
+            s_mqtt_tx_drops++;
+        }
+        xQueueSendToBack(mqtt_tx_queue, &msg, 0);
     }
     return true;
 }
@@ -231,7 +251,7 @@ uint32_t mqtt_get_tx_drops(void) {
 
 void mqtt_client_force_reconnect(void) {
     if (mqtt_client != NULL && mqtt_client_is_connected(mqtt_client)) {
-        printf("[MQT]: Forcing disconnect...\n");
+        serial_log("NET", "mqtt=DISCONNECTING_FORCED");
         cyw43_arch_lwip_begin();
         mqtt_disconnect(mqtt_client);
         cyw43_arch_lwip_end();

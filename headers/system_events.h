@@ -26,6 +26,8 @@ typedef uint16_t SystemEventID_t;
 #define EV_ACT_PRESSURE_OCC  ((SystemEventID_t)0x0201)  // DtoForce_t: occlusion threshold exceeded
 #define EV_ACT_LSW_END       ((SystemEventID_t)0x0202)  // payload.param = 0
 #define EV_ACT_SYRINGE_DET   ((SystemEventID_t)0x0203)  // payload.param: 1=engaged, 0=removed
+#define EV_ACT_IO_EXP_INPUT  ((SystemEventID_t)0x0204)  // payload.param: bitmask de entradas filtradas
+#define EV_HW_CORE1_STATUS   ((SystemEventID_t)0x0205)  // DtoCore1HwStatus_t
 
 // Motor and kinematics [0x0300–0x03FF]
 #define EV_MOT_ENCODER       ((SystemEventID_t)0x0300)  // DtoMotion_t: count, position_mm
@@ -60,6 +62,7 @@ typedef uint16_t SystemEventID_t;
 #define EV_ALARM_DRV_FAULT   ((SystemEventID_t)0x0602)  // DtoAlarm_t
 #define EV_ALARM_BATTERY_LOW ((SystemEventID_t)0x0603)  // DtoAlarm_t
 #define EV_ALARM_MAINS_LOST  ((SystemEventID_t)0x0604)  // DtoAlarm_t
+#define EV_ALARM_BUBBLE      ((SystemEventID_t)0x0605)  // DtoAlarm_t: bubble detected in line
 
 // Power and supply [0x0700–0x07FF]
 #define EV_PWR_BATTERY_UPD   ((SystemEventID_t)0x0700)  // DtoPower_t
@@ -176,6 +179,18 @@ typedef struct {
     char buf[56];
 } DtoDebugStr_t;
 
+typedef struct {
+    uint16_t frc_sens_raw;    // Lectura cruda ADC0 (0-4095)
+    uint16_t bub_sens_raw;    // Lectura cruda ADC1 (0-4095)
+    float    frc_sens_v;      // Tensión en canal ADC0 (0.0 - 3.3 V)
+    float    bub_sens_v;      // Tensión en canal ADC1 (0.0 - 3.3 V)
+    uint16_t motor_stallguard;// Registro SG_RESULT del TMC2209
+    uint8_t  lsw_start;       // 1=activo (home), 0=libre
+    uint8_t  lsw_end;         // 1=activo (fin),  0=libre
+    uint8_t  motor_ena;       // 1=habilitado,    0=libre
+    uint8_t  motor_dir;       // 1=FORWARD,       0=REVERSE
+} DtoCore1HwStatus_t;
+
 // ---------------------------------------------------------------------------
 // SystemEvent_t — universal event structure
 // ---------------------------------------------------------------------------
@@ -192,19 +207,20 @@ typedef struct {
     // content. Consumers are responsible for prioritizing via EV_IS_ALARM() etc.
 
     union {
-        uint32_t         param;        // for simple events without a full DTO
-        DtoForce_t       force;
-        DtoMotion_t      motion;
-        DtoTmcStatus_t   tmc;
-        DtoWifi_t        wifi;
-        DtoFsm_t         fsm;
-        DtoSession_t     session;
-        DtoAlarm_t       alarm;
-        DtoManualOp_t    manual_op;
-        DtoPower_t       power;
-        DtoSysHealth_t   sys_health;
-        DtoCalibration_t calibration;
-        DtoDebugStr_t    dbg_str;
+        uint32_t           param;        // for simple events without a full DTO
+        DtoForce_t         force;
+        DtoMotion_t        motion;
+        DtoTmcStatus_t     tmc;
+        DtoWifi_t          wifi;
+        DtoFsm_t           fsm;
+        DtoSession_t       session;
+        DtoAlarm_t         alarm;
+        DtoManualOp_t      manual_op;
+        DtoPower_t         power;
+        DtoSysHealth_t     sys_health;
+        DtoCalibration_t   calibration;
+        DtoDebugStr_t      dbg_str;
+        DtoCore1HwStatus_t core1_hw;
     } payload;
 } SystemEvent_t;
 

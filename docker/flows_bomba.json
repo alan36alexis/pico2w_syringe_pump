@@ -1,840 +1,1416 @@
 [
-  {
-    "id": "cf_broker",
-    "type": "mqtt-broker",
-    "name": "Mosquitto Docker",
-    "broker": "mosquitto",
-    "port": "1883",
-    "clientid": "nodered_dashboard",
-    "autoConnect": true,
-    "usetls": false,
-    "protocolVersion": "4",
-    "keepalive": "60",
-    "cleansession": true
-  },
-  {
-    "id": "fl_main",
-    "type": "tab",
-    "label": "Bomba de Infusión",
-    "disabled": false,
-    "info": ""
-  },
-  {
-    "id": "cf_base",
-    "type": "ui-base",
-    "path": "/dashboard",
-    "includeClientData": true,
-    "acceptsClientConfig": ["ui-notification", "ui-control"],
-    "showPathInSidebar": false,
-    "showPageTitle": true,
-    "navigationStyle": "icon",
-    "titleBarStyle": "default"
-  },
-  {
-    "id": "cf_theme",
-    "type": "ui-theme",
-    "name": "Bomba",
-    "colors": {
-      "surface": "#1a1a2e",
-      "primary": "#1565C0",
-      "bgPage": "#121212",
-      "groupBg": "#1e1e2e",
-      "groupOutline": "#2a2a4a"
+    {
+        "id": "7bd231074a839f63",
+        "type": "tab",
+        "label": "Bomba de Infusión",
+        "disabled": false,
+        "info": ""
     },
-    "sizes": {
-      "pagePadding": "12px",
-      "groupGap": "12px",
-      "groupBorderRadius": "8px",
-      "widgetGap": "6px"
+    {
+        "id": "cf_broker",
+        "type": "mqtt-broker",
+        "name": "Mosquitto Docker",
+        "broker": "mosquitto",
+        "port": "1883",
+        "clientid": "nodered_dashboard",
+        "autoConnect": true,
+        "usetls": false,
+        "protocolVersion": "4",
+        "keepalive": "60",
+        "cleansession": true
+    },
+    {
+        "id": "cf_base",
+        "type": "ui-base",
+        "path": "/dashboard",
+        "includeClientData": true,
+        "acceptsClientConfig": [
+            "ui-notification",
+            "ui-control"
+        ],
+        "showPathInSidebar": false,
+        "navigationStyle": "icon",
+        "titleBarStyle": "fixed",
+        "headerContent": "none"
+    },
+    {
+        "id": "cf_theme",
+        "type": "ui-theme",
+        "name": "Bomba",
+        "colors": {
+            "surface": "#1a1a2e",
+            "primary": "#1565C0",
+            "bgPage": "#121212",
+            "groupBg": "#1e1e2e",
+            "groupOutline": "#2a2a4a"
+        },
+        "sizes": {
+            "pagePadding": "12px",
+            "groupGap": "12px",
+            "groupBorderRadius": "8px",
+            "widgetGap": "6px"
+        }
+    },
+    {
+        "id": "pg_mon",
+        "type": "ui-page",
+        "name": "Monitor",
+        "ui": "cf_base",
+        "path": "/monitor",
+        "icon": "home",
+        "layout": "notebook",
+        "theme": "cf_theme",
+        "order": 1,
+        "className": "",
+        "visible": true
+    },
+    {
+        "id": "pg_ctrl",
+        "type": "ui-page",
+        "name": "Control",
+        "ui": "cf_base",
+        "path": "/control",
+        "icon": "mdi-gamepad-variant",
+        "layout": "notebook",
+        "theme": "cf_theme",
+        "order": 2,
+        "className": "",
+        "visible": true
+    },
+    {
+        "id": "grp_dev",
+        "type": "ui-group",
+        "name": "Dispositivo",
+        "page": "pg_mon",
+        "width": 6,
+        "height": "1",
+        "order": 1,
+        "className": "",
+        "visible": true
+    },
+    {
+        "id": "grp_state",
+        "type": "ui-group",
+        "name": "Estado FSM",
+        "page": "pg_mon",
+        "width": 6,
+        "height": "1",
+        "order": 2,
+        "className": "",
+        "visible": true
+    },
+    {
+        "id": "grp_telem",
+        "type": "ui-group",
+        "name": "Infusión",
+        "page": "pg_mon",
+        "width": "6",
+        "height": "1",
+        "order": 4,
+        "className": "",
+        "visible": true
+    },
+    {
+        "id": "grp_rate",
+        "type": "ui-group",
+        "name": "Caudal",
+        "page": "pg_mon",
+        "width": "6",
+        "height": "1",
+        "order": 5,
+        "className": "",
+        "visible": true
+    },
+    {
+        "id": "grp_chart",
+        "type": "ui-group",
+        "name": "Presión (mmHg)",
+        "page": "pg_mon",
+        "width": "12",
+        "height": "1",
+        "order": 7,
+        "className": "",
+        "visible": true
+    },
+    {
+        "id": "grp_alm",
+        "type": "ui-group",
+        "name": "Alarmas",
+        "page": "pg_mon",
+        "width": "12",
+        "height": "1",
+        "order": 6,
+        "className": "",
+        "visible": true
+    },
+    {
+        "id": "grp_sim",
+        "type": "ui-group",
+        "name": "Simulación de Fallas HIL",
+        "page": "pg_ctrl",
+        "width": 6,
+        "height": "1",
+        "order": 3,
+        "className": "",
+        "visible": true
+    },
+    {
+        "id": "grp_ack",
+        "type": "ui-group",
+        "name": "ACK / Registro de Eventos",
+        "page": "pg_ctrl",
+        "width": 6,
+        "height": "1",
+        "order": 4,
+        "className": "",
+        "visible": true
+    },
+    {
+        "id": "1f202c6952f647b5",
+        "type": "ui-group",
+        "name": "Estado FSM Motor",
+        "page": "pg_ctrl",
+        "width": 12,
+        "height": "1",
+        "order": 1,
+        "className": "",
+        "visible": true
+    },
+    {
+        "id": "3f7e32d4f567eb5a",
+        "type": "ui-group",
+        "name": "Control Integral FSM",
+        "page": "pg_ctrl",
+        "width": 12,
+        "height": "1",
+        "order": 2,
+        "className": "",
+        "visible": true
+    },
+    {
+        "id": "6c1055863f7f5e8b",
+        "type": "mqtt in",
+        "z": "7bd231074a839f63",
+        "name": "Telemetría",
+        "topic": "bj/+/telemetry",
+        "qos": "0",
+        "datatype": "utf8",
+        "broker": "cf_broker",
+        "nl": false,
+        "rap": true,
+        "rh": 0,
+        "inputs": 0,
+        "x": 120,
+        "y": 60,
+        "wires": [
+            [
+                "79771dbf66f89d27"
+            ]
+        ]
+    },
+    {
+        "id": "222980465f5f6495",
+        "type": "mqtt in",
+        "z": "7bd231074a839f63",
+        "name": "Status",
+        "topic": "bj/+/status",
+        "qos": "1",
+        "datatype": "utf8",
+        "broker": "cf_broker",
+        "inputs": 0,
+        "x": 120,
+        "y": 120,
+        "wires": [
+            [
+                "051920efb0bf641d"
+            ]
+        ]
+    },
+    {
+        "id": "002ae9019b964201",
+        "type": "mqtt in",
+        "z": "7bd231074a839f63",
+        "name": "Eventos",
+        "topic": "bj/+/event",
+        "qos": "1",
+        "datatype": "utf8",
+        "broker": "cf_broker",
+        "inputs": 0,
+        "x": 120,
+        "y": 180,
+        "wires": [
+            [
+                "43efa54b757f289c"
+            ]
+        ]
+    },
+    {
+        "id": "890a496b79a23ef1",
+        "type": "mqtt in",
+        "z": "7bd231074a839f63",
+        "name": "ACK",
+        "topic": "bj/+/cmd/ack",
+        "qos": "1",
+        "datatype": "utf8",
+        "broker": "cf_broker",
+        "inputs": 0,
+        "x": 120,
+        "y": 240,
+        "wires": [
+            [
+                "1a292cfeac69cb9c"
+            ]
+        ]
+    },
+    {
+        "id": "b0de2a5447d80245",
+        "type": "mqtt out",
+        "z": "7bd231074a839f63",
+        "name": "CMD",
+        "topic": "",
+        "qos": "1",
+        "retain": "",
+        "broker": "cf_broker",
+        "x": 960,
+        "y": 500,
+        "wires": []
+    },
+    {
+        "id": "614e7c8aeb0d8dd4",
+        "type": "mqtt out",
+        "z": "7bd231074a839f63",
+        "name": "Sim Fault",
+        "topic": "",
+        "qos": "0",
+        "retain": "",
+        "broker": "cf_broker",
+        "x": 960,
+        "y": 580,
+        "wires": []
+    },
+    {
+        "id": "79771dbf66f89d27",
+        "type": "function",
+        "z": "7bd231074a839f63",
+        "name": "Parse Telemetría",
+        "func": "try {\n  const d = JSON.parse(msg.payload);\n  const parts = msg.topic.split('/');\n  const id = parts[1] || context.global.get('online_device_id') || 'device';\n  return [\n    { payload: d.rate },\n    { payload: d, deviceId: id },\n    { payload: d.pres, topic: id + ' pres' }\n  ];\n} catch(e) { return [null,null,null]; }",
+        "outputs": 3,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 340,
+        "y": 60,
+        "wires": [
+            [
+                "4234e88b4022e162"
+            ],
+            [
+                "79c950bbaaa9886f",
+                "abe8d2c90714fc76",
+                "7e51f54c5e6cceab"
+            ],
+            [
+                "4b06fe8c46d172bb"
+            ]
+        ]
+    },
+    {
+        "id": "051920efb0bf641d",
+        "type": "function",
+        "z": "7bd231074a839f63",
+        "name": "Parse Status",
+        "func": "try {\n  const d = JSON.parse(msg.payload);\n  if (d.id) context.global.set('online_device_id', d.id);\n  msg.payload = { state: d.state, id: d.id, fw: d.fw || 'sim', online: d.state === 'online' };\n  return msg;\n} catch(e) { return null; }",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 340,
+        "y": 120,
+        "wires": [
+            [
+                "91a08a38c7ee15a9"
+            ]
+        ]
+    },
+    {
+        "id": "43efa54b757f289c",
+        "type": "function",
+        "z": "7bd231074a839f63",
+        "name": "Format Evento",
+        "func": "try {\n  const d = (typeof msg.payload === 'object') ? msg.payload : JSON.parse(msg.payload);\n  const now = new Date();\n  const pad = (n, s=2) => String(n).padStart(s, '0');\n  const t = pad(now.getHours()) + ':' + pad(now.getMinutes()) + ':' + pad(now.getSeconds());\n  const CORE1 = [\n    'ESPERANDO (UNHOMED)','HOMING','REL_LSW_INI','LISTO EN HOME',\n    'BUSCANDO JERINGA','JERINGA ACOPLADA','DISPENSANDO','FIN DE DISPENSADO',\n    'NUEVO DISPENSADO','BUSCANDO EOT','REL_LSW_FIN','FIN DE RECORRIDO',\n    'FALLA MOTOR','OCLUSIÓN FRENANDO','LIBERANDO OCLUSIÓN','PAUSA POR OCLUSIÓN',\n    'MANUAL OVERRIDE','CALIB INI (BUSCA 0)','CALIB FIN (BUSCA MAX)','FRENANDO LSW INI','FRENANDO LSW FIN'\n  ];\n  let log = context.global.get('event_log') || [];\n  let detail, fsmMsg = null;\n  if (d.type === 'alarm') {\n    detail = 'ALARMA ' + (d.code||'').toUpperCase() + ' lvl ' + d.level;\n  } else if (d.type === 'state') {\n    const from = CORE1[d.from] !== undefined ? CORE1[d.from] : String(d.from);\n    const to   = CORE1[d.to]   !== undefined ? CORE1[d.to]   : String(d.to);\n    detail = from + ' → ' + to;\n    context.global.set('fsm_state', d.to);\n    fsmMsg = { payload: { fsm_from: d.from, fsm_to: d.to } };\n  } else {\n    detail = d.msg || JSON.stringify(d);\n  }\n  log.unshift({ time: t, tipo: d.type || 'info', detalle: detail });\n  if (log.length > 30) log = log.slice(0, 30);\n  context.global.set('event_log', log);\n  const notif = d.type === 'alarm'\n    ? { payload: '⚠ ALARMA: ' + (d.code||'').toUpperCase() + ' (nivel ' + d.level + ')', topic: 'error' }\n    : null;\n  return [{ payload: log }, notif, fsmMsg];\n} catch(e) {\n  node.error('fn_event: ' + e.message, msg);\n  return [null, null, null];\n}",
+        "outputs": 3,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 340,
+        "y": 180,
+        "wires": [
+            [
+                "8adec475dd264f07"
+            ],
+            [
+                "e6c40dfc36b8ccb2"
+            ],
+            [
+                "7e51f54c5e6cceab",
+                "94a3bd5fff359fa5"
+            ]
+        ]
+    },
+    {
+        "id": "1a292cfeac69cb9c",
+        "type": "function",
+        "z": "7bd231074a839f63",
+        "name": "Format ACK",
+        "func": "try {\n  const d = (typeof msg.payload === 'object') ? msg.payload : JSON.parse(msg.payload);\n  const now = new Date();\n  const pad = (n, s=2) => String(n).padStart(s, '0');\n  const t = `${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;\n  const res = d.result || 'unknown';\n  const detail = '#' + d.cid + ': ' + res + (d.reason ? ' (' + d.reason + ')' : '');\n  let log = context.global.get('event_log') || [];\n  log.unshift({ time: t, tipo: 'ack', detalle: detail });\n  if (log.length > 30) log = log.slice(0, 30);\n  context.global.set('event_log', log);\n  return [\n    { payload: detail, result: res, cid: d.cid },\n    { payload: log }\n  ];\n} catch(e) {\n  return [null, null];\n}",
+        "outputs": 2,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 340,
+        "y": 240,
+        "wires": [
+            [
+                "d4c4e6b8b47cc338"
+            ],
+            [
+                "8adec475dd264f07"
+            ]
+        ]
+    },
+    {
+        "id": "805bab5dba0cb67c",
+        "type": "function",
+        "z": "7bd231074a839f63",
+        "name": "Make CMD",
+        "func": "const devId = context.global.get('online_device_id') || 'bj-deadbeef';\nlet cid = (context.global.get('cmd_cid') || 0) + 1;\ncontext.global.set('cmd_cid', cid);\nmsg.topic = 'bj/' + devId + '/cmd';\nmsg.payload = JSON.stringify({ cid: cid, cmd: String(msg.payload) });\nreturn msg;",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 760,
+        "y": 500,
+        "wires": [
+            [
+                "b0de2a5447d80245"
+            ]
+        ]
+    },
+    {
+        "id": "3b9a70304bb9c4e6",
+        "type": "function",
+        "z": "7bd231074a839f63",
+        "name": "Fault Topic",
+        "func": "const devId = context.global.get('online_device_id') || 'bj-deadbeef';\nmsg.topic = 'bj/' + devId + '/sim_fault';\nreturn msg;",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 760,
+        "y": 580,
+        "wires": [
+            [
+                "614e7c8aeb0d8dd4"
+            ]
+        ]
+    },
+    {
+        "id": "91a08a38c7ee15a9",
+        "type": "ui-template",
+        "z": "7bd231074a839f63",
+        "group": "grp_dev",
+        "name": "Dispositivo",
+        "order": 1,
+        "width": 6,
+        "height": 1,
+        "format": "<template>\n  <div class=\"dev-card-compact\">\n    <div class=\"dev-status-indicator\">\n      <span class=\"dev-dot\" :class=\"{ 'is-online': isOnline }\"></span>\n      <span class=\"dev-status-text\">{{ isOnline ? 'ONLINE' : 'OFFLINE' }}</span>\n    </div>\n    <div class=\"dev-id-badge\">\n      <span class=\"dev-label\">ID:</span>\n      <span class=\"dev-val\">{{ devId }}</span>\n    </div>\n    <div class=\"dev-meta-pill\" v-if=\"fwVer\">\n      <span>FW: {{ fwVer }}</span>\n    </div>\n  </div>\n</template>\n\n<script>\nexport default {\n  computed: {\n    payload() {\n      return (this.msg && this.msg.payload) || {};\n    },\n    isOnline() {\n      return !!this.payload.online;\n    },\n    devId() {\n      return this.payload.id || '—';\n    },\n    fwVer() {\n      return this.payload.fw || '';\n    }\n  }\n}\n</script>\n\n<style>\n.dev-card-compact {\n  display: flex;\n  align-items: center;\n  flex-wrap: wrap;\n  gap: 10px;\n  padding: 6px 10px;\n  min-height: 38px;\n}\n.dev-status-indicator {\n  display: flex;\n  align-items: center;\n  gap: 6px;\n  background: rgba(255, 255, 255, 0.05);\n  border: 1px solid rgba(255, 255, 255, 0.08);\n  border-radius: 6px;\n  padding: 4px 8px;\n}\n.dev-dot {\n  width: 8px;\n  height: 8px;\n  border-radius: 50%;\n  background: #f85149;\n  box-shadow: 0 0 6px rgba(248, 81, 73, 0.4);\n}\n.dev-dot.is-online {\n  background: #3fb950;\n  box-shadow: 0 0 6px rgba(63, 185, 80, 0.6);\n}\n.dev-status-text {\n  font-size: 11px;\n  font-weight: 700;\n  letter-spacing: 0.5px;\n  color: #c9d1d9;\n}\n.dev-id-badge {\n  display: flex;\n  align-items: center;\n  gap: 5px;\n  background: rgba(88, 166, 255, 0.1);\n  border: 1px solid rgba(88, 166, 255, 0.25);\n  border-radius: 6px;\n  padding: 4px 10px;\n}\n.dev-label {\n  font-size: 10px;\n  font-weight: 600;\n  color: #8b949e;\n}\n.dev-val {\n  font-size: 13px;\n  font-weight: 700;\n  font-family: monospace;\n  color: #58a6ff;\n}\n.dev-meta-pill {\n  font-size: 10px;\n  font-family: monospace;\n  color: #8b949e;\n  background: rgba(255, 255, 255, 0.04);\n  border-radius: 4px;\n  padding: 2px 6px;\n}\n</style>",
+        "passthru": false,
+        "templateScope": "local",
+        "className": "",
+        "x": 560,
+        "y": 120,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "7e51f54c5e6cceab",
+        "type": "ui-template",
+        "z": "7bd231074a839f63",
+        "group": "grp_state",
+        "name": "Estado",
+        "order": 1,
+        "width": 6,
+        "height": 1,
+        "format": "<template>\n  <div class=\"fsm-card-compact\">\n    <div class=\"fsm-badge-block\">\n      <span class=\"fsm-badge-lbl\">BOMBA:</span>\n      <span class=\"fsm-badge-val\" :style=\"{ color: pumpColor, borderColor: pumpColor }\">\n        {{ pumpLabel }}\n      </span>\n    </div>\n    <div class=\"fsm-badge-divider\"></div>\n    <div class=\"fsm-badge-block\">\n      <span class=\"fsm-badge-lbl\">MOTOR:</span>\n      <span class=\"fsm-badge-val\" :style=\"{ color: fsmColor, borderColor: fsmColor }\">\n        <span v-if=\"fsmSt !== null\" class=\"fsm-num\">#{{ fsmSt }}</span>\n        <span>{{ fsmLabel }}</span>\n      </span>\n    </div>\n  </div>\n</template>\n\n<script>\nexport default {\n  data() {\n    return {\n      pumpSt: null,\n      fsmSt: null,\n      pumpLabels: ['DETENIDA','INFUSANDO','BOLUS','PURGA','KVO','PAUSADA','ALARMA'],\n      pumpColors: ['#8b949e','#3fb950','#58a6ff','#ff9800','#bc8cff','#d29922','#f85149'],\n      core1Labels: [\n        'ESPERANDO','HOMING','REL_LSW_INI','COLOQUE JERINGA',\n        'BUSCANDO JERINGA','JERINGA OK','DISPENSANDO','FIN DE DISPENSADO',\n        'NUEVO DISP','BUSCANDO EOT','FRENANDO EOT','FIN DE RECORRIDO',\n        'FALLA','OCLUSIÓN','OCC LIBERANDO','OCC PAUSADO',\n        'MANUAL','INICIANDO CALIBRACIÓN','CALIBRANDO...','FREN LSW INI','FREN LSW FIN'\n      ],\n      core1Colors: [\n        '#8b949e','#d29922','#d29922','#3fb950',\n        '#58a6ff','#58a6ff','#3fb950','#8b949e',\n        '#8b949e','#58a6ff','#d29922','#8b949e',\n        '#f85149','#f85149','#d29922','#ff9800',\n        '#bc8cff','#39c5cf','#39c5cf','#d29922','#d29922'\n      ]\n    };\n  },\n  computed: {\n    pumpLabel() {\n      return this.pumpSt != null ? (this.pumpLabels[this.pumpSt] || '—') : '—';\n    },\n    pumpColor() {\n      return this.pumpSt != null ? (this.pumpColors[this.pumpSt] || '#8b949e') : '#8b949e';\n    },\n    fsmLabel() {\n      return this.fsmSt != null ? (this.core1Labels[this.fsmSt] || String(this.fsmSt)) : 'SIN DATOS';\n    },\n    fsmColor() {\n      return this.fsmSt != null ? (this.core1Colors[this.fsmSt] || '#8b949e') : '#8b949e';\n    }\n  },\n  watch: {\n    'msg.payload': {\n      immediate: true,\n      handler(d) {\n        if (!d) return;\n        if (d.st != null)     this.pumpSt = d.st;\n        if (d.fsm_to != null) this.fsmSt  = d.fsm_to;\n      }\n    }\n  }\n}\n</script>\n\n<style>\n.fsm-card-compact {\n  display: flex;\n  align-items: center;\n  justify-content: space-around;\n  gap: 12px;\n  padding: 6px 10px;\n  min-height: 38px;\n}\n.fsm-badge-block {\n  display: flex;\n  align-items: center;\n  gap: 8px;\n  min-width: 0;\n}\n.fsm-badge-lbl {\n  font-size: 10px;\n  font-weight: 700;\n  letter-spacing: 0.5px;\n  color: #8b949e;\n  white-space: nowrap;\n}\n.fsm-badge-val {\n  font-size: 12px;\n  font-weight: 700;\n  letter-spacing: 0.3px;\n  padding: 3px 10px;\n  border-radius: 6px;\n  background: rgba(255, 255, 255, 0.05);\n  border: 1px solid currentColor;\n  white-space: nowrap;\n  overflow: hidden;\n  text-overflow: ellipsis;\n  display: flex;\n  align-items: center;\n  gap: 5px;\n}\n.fsm-num {\n  font-size: 10px;\n  opacity: 0.7;\n}\n.fsm-badge-divider {\n  width: 1px;\n  height: 22px;\n  background: rgba(255, 255, 255, 0.15);\n  flex-shrink: 0;\n}\n</style>",
+        "passthru": false,
+        "templateScope": "local",
+        "className": "",
+        "x": 560,
+        "y": 60,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "79c950bbaaa9886f",
+        "type": "ui-template",
+        "z": "7bd231074a839f63",
+        "group": "grp_telem",
+        "name": "Stats Infusión",
+        "order": 1,
+        "width": 6,
+        "height": 2,
+        "format": "<template>\n  <div style=\"padding:8px;font-size:13px\">\n    <div style=\"display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid #333\">\n      <span>Infundido</span>\n      <b>{{ msg.payload && msg.payload.vol_inf != null ? msg.payload.vol_inf.toFixed(2) : '—' }} mL</b>\n    </div>\n    <div style=\"display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid #333\">\n      <span>Objetivo</span>\n      <b>{{ msg.payload && msg.payload.vol_tgt != null ? msg.payload.vol_tgt.toFixed(2) : '—' }} mL</b>\n    </div>\n    <div style=\"display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid #333\">\n      <span>Transcurrido</span>\n      <b>{{ msg.payload && msg.payload.t_ela_s ? (Math.floor(msg.payload.t_ela_s/3600)+'h '+Math.floor(msg.payload.t_ela_s%3600/60)+'m '+Math.floor(msg.payload.t_ela_s%60)+'s') : '0h 0m 0s' }}</b>\n    </div>\n    <div style=\"display:flex;justify-content:space-between;padding:5px 0\">\n      <span>Restante</span>\n      <b>{{ msg.payload && msg.payload.t_rem_h > 0 ? (msg.payload.t_rem_h * 60).toFixed(1)+' min' : '—' }}</b>\n    </div>\n  </div>\n</template>",
+        "passthru": false,
+        "templateScope": "local",
+        "className": "",
+        "x": 560,
+        "y": 180,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "4234e88b4022e162",
+        "type": "ui-gauge",
+        "z": "7bd231074a839f63",
+        "name": "Caudal",
+        "group": "grp_rate",
+        "order": 1,
+        "width": 6,
+        "height": 4,
+        "gtype": "gauge-half",
+        "gstyle": "needle",
+        "segments": [
+            {
+                "from": 0,
+                "color": "#4caf50"
+            },
+            {
+                "from": 200,
+                "color": "#ffb300"
+            },
+            {
+                "from": 400,
+                "color": "#f44336"
+            }
+        ],
+        "min": 0,
+        "max": 500,
+        "sizeThickness": 16,
+        "sizeGap": 4,
+        "sizeKeyThickness": 8,
+        "styleRounded": true,
+        "styleGlow": false,
+        "className": "",
+        "x": 560,
+        "y": 60,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "4b06fe8c46d172bb",
+        "type": "ui-chart",
+        "z": "7bd231074a839f63",
+        "group": "grp_chart",
+        "name": "Fuerza ADC",
+        "label": "Fuerza sensor ADC (mmHg)",
+        "order": 1,
+        "chartType": "line",
+        "category": "topic",
+        "categoryType": "msg",
+        "xAxisType": "time",
+        "xAxisFormat": "HH:mm:ss",
+        "removeOlder": 5,
+        "removeOlderUnit": "60",
+        "removeOlderPoints": "",
+        "colors": [
+            "#1565C0",
+            "#E53935"
+        ],
+        "width": 12,
+        "height": 4,
+        "className": "",
+        "x": 560,
+        "y": 280,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "abe8d2c90714fc76",
+        "type": "ui-template",
+        "z": "7bd231074a839f63",
+        "group": "grp_alm",
+        "name": "Alarmas",
+        "order": 1,
+        "width": 12,
+        "height": 2,
+        "format": "<template>\n  <div style=\"display:flex;flex-wrap:wrap;gap:8px;padding:8px\">\n    <span v-for=\"(v,k) in (msg.payload && msg.payload.alm || {})\" :key=\"k\"\n          :style=\"{padding:'4px 14px',borderRadius:'4px',fontWeight:'bold',fontSize:'13px',\n                   background:v?'#b71c1c':'#1b5e20',color:'#fff',transition:'background 0.3s'}\">\n      {{ k.toUpperCase() }}: {{ v ? '⚠' : '✓' }}\n    </span>\n  </div>\n</template>",
+        "passthru": false,
+        "templateScope": "local",
+        "className": "",
+        "x": 560,
+        "y": 380,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "94a3bd5fff359fa5",
+        "type": "ui-template",
+        "z": "7bd231074a839f63",
+        "group": "1f202c6952f647b5",
+        "name": "Estado FSM",
+        "order": 1,
+        "width": 12,
+        "height": 2,
+        "format": "<template>\n  <div style=\"background:#161b22;border:1px solid #30363d;border-radius:8px;padding:12px 18px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif\">\n    <div style=\"display:flex;align-items:center;gap:14px\">\n      <div :style=\"{width:'16px',height:'16px',borderRadius:'50%',background:fsmColor,boxShadow:'0 0 10px '+fsmColor,flexShrink:0,transition:'background 0.3s'}\"></div>\n      <div>\n        <div style=\"font-size:10px;color:#8b949e;letter-spacing:.08em;font-weight:700\">ESTADO MOTOR (CORE 1 FSM)</div>\n        <div :style=\"{fontSize:'22px',fontWeight:'800',color:fsmColor,letterSpacing:'.02em',transition:'color 0.3s'}\">\n          {{ fsmLabel }}\n        </div>\n      </div>\n    </div>\n    <div style=\"display:flex;gap:10px;align-items:center\">\n      <span v-if=\"fsmSt !== null\" style=\"font-size:11px;font-family:monospace;background:#0d1117;border:1px solid #30363d;padding:4px 10px;border-radius:6px;color:#8b949e\">\n        ID: <b>#{{ fsmSt }}</b>\n      </span>\n      <span :style=\"{fontSize:'11px',fontWeight:'700',padding:'4px 10px',borderRadius:'6px',background:badgeBg,color:fsmColor,border:'1px solid '+fsmColor}\">\n        {{ fsmCategory }}\n      </span>\n    </div>\n  </div>\n</template>\n<script>\nconst CORE1_LABELS = [\n  'ESPERANDO (UNHOMED)','HOMING','REL_LSW_INI','LISTO EN HOME',\n  'BUSCANDO JERINGA','JERINGA ACOPLADA','DISPENSANDO','FIN DE DISPENSADO',\n  'NUEVO DISPENSADO','BUSCANDO EOT','REL_LSW_FIN','FIN DE RECORRIDO',\n  'FALLA MOTOR','OCLUSIÓN FRENANDO','LIBERANDO OCLUSIÓN','PAUSA POR OCLUSIÓN',\n  'MANUAL OVERRIDE','CALIB INI (BUSCA 0)','CALIB FIN (BUSCA MAX)','FRENANDO LSW INI','FRENANDO LSW FIN'\n];\nconst CORE1_COLORS = [\n  '#8b949e','#e3b341','#e3b341','#3fb950',\n  '#58a6ff','#58a6ff','#3fb950','#8b949e',\n  '#8b949e','#58a6ff','#e3b341','#f85149',\n  '#f85149','#f85149','#e3b341','#d29922',\n  '#bc8cff','#39c5bb','#39c5bb','#e3b341','#e3b341'\n];\nexport default {\n  computed: {\n    fsmPayload() {\n      return (this.msg && this.msg.payload) || {};\n    },\n    fsmSt() {\n      if (this.fsmPayload.fsm_to !== undefined && this.fsmPayload.fsm_to !== null) {\n        return Number(this.fsmPayload.fsm_to);\n      }\n      if (this.fsmPayload.fsm_state !== undefined && this.fsmPayload.fsm_state !== null) {\n        return Number(this.fsmPayload.fsm_state);\n      }\n      return 3; // Default LISTO EN HOME\n    },\n    fsmLabel() {\n      return CORE1_LABELS[this.fsmSt] || ('ESTADO #' + this.fsmSt);\n    },\n    fsmColor() {\n      return CORE1_COLORS[this.fsmSt] || '#8b949e';\n    },\n    badgeBg() {\n      if (this.fsmSt === 6) return 'rgba(46,160,67,0.15)';\n      if (this.fsmSt >= 12 && this.fsmSt <= 15) return 'rgba(248,81,73,0.15)';\n      return 'rgba(110,118,129,0.15)';\n    },\n    fsmCategory() {\n      if (this.fsmSt === 6) return 'ACTIVO';\n      if (this.fsmSt >= 12 && this.fsmSt <= 15) return 'ALERTA / PAUSA';\n      if (this.fsmSt === 3) return 'STANDBY';\n      return 'TRANSICIÓN';\n    }\n  }\n}\n</script>",
+        "passthru": false,
+        "templateScope": "local",
+        "className": "",
+        "x": 700,
+        "y": 600,
+        "wires": [
+            []
+        ],
+        "storeState": true
+    },
+    {
+        "id": "39587ccdfc73cfb9",
+        "type": "ui-template",
+        "z": "7bd231074a839f63",
+        "group": "3f7e32d4f567eb5a",
+        "name": "Control FSM",
+        "order": 1,
+        "width": 12,
+        "height": 10,
+        "format": "<template>\n  <div style=\"padding:10px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;color:#e6edf3\">\n\n    <!-- SECCIÓN A: PARADAS DE SEGURIDAD (INCONDICIONALES) -->\n    <div style=\"display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px\">\n      <!-- STOP INMEDIATO -->\n      <button @click=\"sendCmd('stop_imm')\"\n        style=\"background:linear-gradient(135deg,#da3633,#b62324);color:#fff;border:1px solid #f85149;border-radius:6px;padding:12px;font-size:13px;font-weight:800;cursor:pointer;letter-spacing:.05em;display:flex;align-items:center;justify-content:center;gap:8px;box-shadow:0 0 10px rgba(218,54,51,0.4)\">\n        🛑 PARADA INMEDIATA (EMERGENCIA)\n      </button>\n\n      <!-- STOP SUAVE -->\n      <button @click=\"sendCmd('stop')\"\n        style=\"background:#21262d;color:#e3b341;border:1px solid #d29922;border-radius:6px;padding:12px;font-size:13px;font-weight:700;cursor:pointer;letter-spacing:.05em;display:flex;align-items:center;justify-content:center;gap:8px\">\n        ⏸ DETENCIÓN SUAVE (STOP)\n      </button>\n    </div>\n\n    <!-- SECCIÓN B: COMANDOS PARAMÉTRICOS (Home, Buscar Jeringa, Dispensar) -->\n    <div style=\"display:grid;grid-template-columns:repeat(auto-fit, minmax(230px, 1fr));gap:10px;margin-bottom:12px\">\n\n      <!-- IR A HOME -->\n      <div style=\"background:#161b22;border:1px solid #30363d;border-radius:6px;padding:10px\">\n        <div style=\"font-size:11px;font-weight:700;color:#58a6ff;margin-bottom:6px;letter-spacing:.04em\">↩ IR A HOME (ORIGEN)</div>\n        <div style=\"font-size:10px;color:#8b949e;margin-bottom:3px\">Velocidad (µm/s)</div>\n        <input type=\"number\" v-model.number=\"homeVel\" min=\"100\" max=\"5000\" step=\"100\"\n          style=\"width:100%;box-sizing:border-box;background:#0d1117;color:#fff;border:1px solid #30363d;border-radius:4px;padding:6px 8px;font-size:13px;margin-bottom:8px\" />\n        <button @click=\"sendCmd('fsm_home,' + homeVel.toFixed(1))\"\n          style=\"width:100%;padding:7px;background:#1f6feb;color:#fff;border:none;border-radius:4px;font-size:12px;cursor:pointer;font-weight:700\">\n          Iniciar Homing\n        </button>\n      </div>\n\n      <!-- BUSCAR JERINGA -->\n      <div style=\"background:#161b22;border:1px solid #30363d;border-radius:6px;padding:10px\">\n        <div style=\"font-size:11px;font-weight:700;color:#39c5bb;margin-bottom:6px;letter-spacing:.04em\">🔍 BUSCAR JERINGA</div>\n        <div style=\"font-size:10px;color:#8b949e;margin-bottom:3px\">Velocidad búsqueda (µm/s)</div>\n        <input type=\"number\" v-model.number=\"searchVel\" min=\"50\" max=\"1000\" step=\"50\"\n          style=\"width:100%;box-sizing:border-box;background:#0d1117;color:#fff;border:1px solid #30363d;border-radius:4px;padding:6px 8px;font-size:13px;margin-bottom:8px\" />\n        <button @click=\"sendCmd('fsm_search,' + searchVel.toFixed(1))\"\n          style=\"width:100%;padding:7px;background:#0284c7;color:#fff;border:none;border-radius:4px;font-size:12px;cursor:pointer;font-weight:700\">\n          Buscar Acople\n        </button>\n      </div>\n\n      <!-- DISPENSAR (VTBI) -->\n      <div style=\"background:#161b22;border:1px solid #30363d;border-radius:6px;padding:10px\">\n        <div style=\"font-size:11px;font-weight:700;color:#3fb950;margin-bottom:6px;letter-spacing:.04em\">► DISPENSAR (VTBI)</div>\n        <div style=\"display:flex;gap:6px;margin-bottom:6px\">\n          <div style=\"flex:1\">\n            <div style=\"font-size:9px;color:#8b949e;margin-bottom:2px\">Volumen (µm)</div>\n            <input type=\"number\" v-model.number=\"dispTarget\" min=\"0\" step=\"1000\"\n              style=\"width:100%;box-sizing:border-box;background:#0d1117;color:#fff;border:1px solid #30363d;border-radius:4px;padding:4px 6px;font-size:12px\" />\n          </div>\n          <div style=\"flex:1\">\n            <div style=\"font-size:9px;color:#8b949e;margin-bottom:2px\">Velocidad (µm/s)</div>\n            <input type=\"number\" v-model.number=\"dispVel\" min=\"1\" max=\"5000\" step=\"100\"\n              style=\"width:100%;box-sizing:border-box;background:#0d1117;color:#fff;border:1px solid #30363d;border-radius:4px;padding:4px 6px;font-size:12px\" />\n          </div>\n        </div>\n        <button @click=\"dispTarget > 0 && dispVel > 0 && sendCmd('fsm_dispense,' + dispTarget.toFixed(1) + ',' + dispVel.toFixed(1))\"\n          :disabled=\"dispTarget <= 0 || dispVel <= 0\"\n          :style=\"{width:'100%',padding:'7px',background:'#238636',color:'#fff',border:'none',borderRadius:'4px',fontSize:'12px',cursor:'pointer',fontWeight:'700',opacity:(dispTarget>0&&dispVel>0)?1:0.4}\">\n          Iniciar Dispensado\n        </button>\n      </div>\n\n    </div>\n\n    <!-- SECCIÓN C: ACCIONES FSM DIRECTAS (Sin parámetros) -->\n    <div style=\"background:#161b22;border:1px solid #30363d;border-radius:6px;padding:10px;margin-bottom:12px\">\n      <div style=\"font-size:11px;font-weight:700;color:#d2a8ff;margin-bottom:8px;letter-spacing:.04em\">ACCIONES FSM DIRECTAS</div>\n      <div style=\"display:grid;grid-template-columns:repeat(auto-fit, minmax(130px, 1fr));gap:8px\">\n        <button @click=\"sendCmd('fsm_cont')\"\n          style=\"padding:8px 10px;background:#21262d;border:1px solid #3fb950;color:#3fb950;border-radius:4px;font-size:11px;font-weight:700;cursor:pointer\">\n          ▶ Continuar\n        </button>\n        <button @click=\"sendCmd('fsm_resume')\"\n          style=\"padding:8px 10px;background:#21262d;border:1px solid #58a6ff;color:#58a6ff;border-radius:4px;font-size:11px;font-weight:700;cursor:pointer\">\n          🔄 Reanudar\n        </button>\n        <button @click=\"sendCmd('fsm_occ_rel')\"\n          style=\"padding:8px 10px;background:#21262d;border:1px solid #d29922;color:#e3b341;border-radius:4px;font-size:11px;font-weight:700;cursor:pointer\">\n          ↩ Lib. Oclusión\n        </button>\n        <button @click=\"sendCmd('fsm_search_eot')\"\n          style=\"padding:8px 10px;background:#21262d;border:1px solid #bc8cff;color:#d2a8ff;border-radius:4px;font-size:11px;font-weight:700;cursor:pointer\">\n          🏁 Buscar EOT\n        </button>\n        <button @click=\"sendCmd('fsm_calibrate')\"\n          style=\"padding:8px 10px;background:#21262d;border:1px solid #39c5bb;color:#79c0ff;border-radius:4px;font-size:11px;font-weight:700;cursor:pointer\">\n          ⚙ Calibrar\n        </button>\n        <button @click=\"sendCmd('fsm_reset')\"\n          style=\"padding:8px 10px;background:#21262d;border:1px solid #f85149;color:#ff7b72;border-radius:4px;font-size:11px;font-weight:700;cursor:pointer\">\n          ↺ Reset FSM\n        </button>\n        <button @click=\"sendCmd('fsm_enc_reset')\"\n          style=\"padding:8px 10px;background:#21262d;border:1px solid #8b949e;color:#c9d1d9;border-radius:4px;font-size:11px;font-weight:700;cursor:pointer\">\n          📏 Reset Encoder\n        </button>\n      </div>\n    </div>\n\n    <!-- SECCIÓN D: CONFIGURACIÓN ANTI-BOLUS -->\n    <div style=\"background:#161b22;border:1px solid #30363d;border-radius:6px;padding:10px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px\">\n      <div>\n        <div style=\"font-size:11px;font-weight:700;color:#e6edf3\">MODO ANTI-BOLUS (Retroceso automático post-oclusión)</div>\n        <div style=\"font-size:10px;color:#8b949e\">Alivia la sobrepresión acumulada en tubuladura antes de pausar</div>\n      </div>\n      <div style=\"display:flex;gap:6px\">\n        <button @click=\"sendCmd('config_antibolus,auto')\"\n          style=\"padding:5px 14px;background:#238636;color:#fff;border:none;border-radius:4px;font-size:11px;font-weight:700;cursor:pointer\">\n          ✔ Auto\n        </button>\n        <button @click=\"sendCmd('config_antibolus,manual')\"\n          style=\"padding:5px 14px;background:#21262d;color:#8b949e;border:1px solid #30363d;border-radius:4px;font-size:11px;font-weight:700;cursor:pointer\">\n          Manual\n        </button>\n      </div>\n    </div>\n\n  </div>\n</template>\n<script>\nexport default {\n  data() {\n    return {\n      homeVel: 1500,\n      searchVel: 200,\n      dispTarget: 30000,\n      dispVel: 500\n    };\n  },\n  methods: {\n    sendCmd(cmdStr) {\n      this.send({ payload: cmdStr });\n    }\n  }\n}\n</script>",
+        "passthru": false,
+        "templateScope": "local",
+        "className": "",
+        "x": 700,
+        "y": 680,
+        "wires": [
+            [
+                "805bab5dba0cb67c"
+            ]
+        ]
+    },
+    {
+        "id": "d4c4e6b8b47cc338",
+        "type": "ui-template",
+        "z": "7bd231074a839f63",
+        "group": "grp_ack",
+        "order": 1,
+        "width": 6,
+        "height": 2,
+        "name": "Último ACK",
+        "label": "Último ACK",
+        "format": "<template>\n  <div style=\"background:#0d1117;border:1px solid #30363d;border-radius:6px;padding:8px 12px;display:flex;justify-content:space-between;align-items:center;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif\">\n    <span style=\"font-size:11px;color:#8b949e;font-weight:600\">ÚLTIMO ACK RECIBIDO</span>\n    <span :style=\"{fontWeight:'700',fontFamily:'monospace',fontSize:'13px',color:ackColor,padding:'2px 8px',borderRadius:'4px',background:ackBg,border:'1px solid '+ackColor}\">\n      {{ ackText }}\n    </span>\n  </div>\n</template>\n<script>\nexport default {\n  computed: {\n    ackText() {\n      return (this.msg && this.msg.payload) || 'Esperando comandos...';\n    },\n    isAccepted() {\n      return String(this.ackText).includes('accepted');\n    },\n    isRejected() {\n      return String(this.ackText).includes('rejected');\n    },\n    ackColor() {\n      if (this.isAccepted) return '#3fb950';\n      if (this.isRejected) return '#f85149';\n      return '#8b949e';\n    },\n    ackBg() {\n      if (this.isAccepted) return 'rgba(46,160,67,0.15)';\n      if (this.isRejected) return 'rgba(248,81,73,0.15)';\n      return '#21262d';\n    }\n  }\n}\n</script>",
+        "layout": "row-spread",
+        "style": false,
+        "font": "",
+        "fontSize": 14,
+        "color": "#9e9e9e",
+        "className": "",
+        "x": 560,
+        "y": 240,
+        "wires": [],
+        "storeState": true,
+        "passthru": false,
+        "templateScope": "local"
+    },
+    {
+        "id": "8adec475dd264f07",
+        "type": "ui-table",
+        "z": "7bd231074a839f63",
+        "group": "grp_ack",
+        "name": "Eventos",
+        "label": "",
+        "order": 2,
+        "width": 6,
+        "height": 8,
+        "maxrows": 30,
+        "passthru": false,
+        "autocols": false,
+        "showSearch": false,
+        "selectionType": "none",
+        "columns": [
+            {
+                "title": "Hora",
+                "key": "time",
+                "width": ""
+            },
+            {
+                "title": "Tipo",
+                "key": "tipo",
+                "width": ""
+            },
+            {
+                "title": "Detalle",
+                "key": "detalle",
+                "width": ""
+            }
+        ],
+        "className": "",
+        "x": 560,
+        "y": 300,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "e6c40dfc36b8ccb2",
+        "type": "ui-notification",
+        "z": "7bd231074a839f63",
+        "ui": "cf_base",
+        "position": "top right",
+        "colorDefault": true,
+        "color": "#f44336",
+        "displayTime": "5",
+        "showCountdown": true,
+        "outputs": 1,
+        "allowDismiss": true,
+        "dismissText": "OK",
+        "className": "",
+        "name": "Alarma Notif",
+        "x": 560,
+        "y": 180,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "5a8359caf54a2784",
+        "type": "ui-button",
+        "z": "7bd231074a839f63",
+        "group": "grp_sim",
+        "name": "",
+        "label": "▶ Infundir 50mL/h × 20mL",
+        "order": 1,
+        "width": 6,
+        "height": 1,
+        "className": "",
+        "icon": "",
+        "iconPosition": "left",
+        "payload": "infuse,50.0,20.0",
+        "payloadType": "str",
+        "topic": "",
+        "topicType": "str",
+        "buttonColor": "#1B5E20",
+        "textColor": "#fff",
+        "iconColor": "#fff",
+        "x": 120,
+        "y": 760,
+        "wires": [
+            [
+                "3b9a70304bb9c4e6"
+            ]
+        ]
+    },
+    {
+        "id": "bd2bfb1578bbfb95",
+        "type": "ui-button",
+        "z": "7bd231074a839f63",
+        "group": "grp_sim",
+        "name": "",
+        "label": "⚠ Oclusión",
+        "order": 2,
+        "width": 6,
+        "height": 1,
+        "className": "",
+        "icon": "",
+        "iconPosition": "left",
+        "payload": "fault_occ",
+        "payloadType": "str",
+        "topic": "",
+        "topicType": "str",
+        "buttonColor": "#BF360C",
+        "textColor": "#fff",
+        "iconColor": "#fff",
+        "x": 120,
+        "y": 800,
+        "wires": [
+            [
+                "3b9a70304bb9c4e6"
+            ]
+        ]
+    },
+    {
+        "id": "36e89b2a6d609795",
+        "type": "ui-button",
+        "z": "7bd231074a839f63",
+        "group": "grp_sim",
+        "name": "",
+        "label": "⚠ Burbuja",
+        "order": 3,
+        "width": 6,
+        "height": 1,
+        "className": "",
+        "icon": "",
+        "iconPosition": "left",
+        "payload": "fault_bubble",
+        "payloadType": "str",
+        "topic": "",
+        "topicType": "str",
+        "buttonColor": "#BF360C",
+        "textColor": "#fff",
+        "iconColor": "#fff",
+        "x": 120,
+        "y": 840,
+        "wires": [
+            [
+                "3b9a70304bb9c4e6"
+            ]
+        ]
+    },
+    {
+        "id": "48e88944572d7e93",
+        "type": "ui-button",
+        "z": "7bd231074a839f63",
+        "group": "grp_sim",
+        "name": "",
+        "label": "✓ Limpiar Fallas",
+        "order": 4,
+        "width": 6,
+        "height": 1,
+        "className": "",
+        "icon": "",
+        "iconPosition": "left",
+        "payload": "fault_clear",
+        "payloadType": "str",
+        "topic": "",
+        "topicType": "str",
+        "buttonColor": "#37474F",
+        "textColor": "#fff",
+        "iconColor": "#fff",
+        "x": 120,
+        "y": 880,
+        "wires": [
+            [
+                "3b9a70304bb9c4e6"
+            ]
+        ]
+    },
+    {
+        "id": "497f81c31c4e8b8b",
+        "type": "inject",
+        "z": "7bd231074a839f63",
+        "name": "Init tabla eventos",
+        "props": [
+            {
+                "p": "payload"
+            }
+        ],
+        "repeat": "",
+        "crontab": "",
+        "once": true,
+        "onceDelay": 3,
+        "topic": "",
+        "payload": "{}",
+        "payloadType": "json",
+        "x": 120,
+        "y": 360,
+        "wires": [
+            [
+                "21e698e9ee0fc01f"
+            ]
+        ]
+    },
+    {
+        "id": "21e698e9ee0fc01f",
+        "type": "function",
+        "z": "7bd231074a839f63",
+        "name": "Reload eventos",
+        "func": "var log = context.global.get('event_log') || [];\nreturn [{ payload: log }];",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 320,
+        "y": 360,
+        "wires": [
+            [
+                "8adec475dd264f07"
+            ]
+        ]
+    },
+    {
+        "id": "pg_term",
+        "type": "ui-page",
+        "name": "Terminal",
+        "ui": "cf_base",
+        "path": "/terminal",
+        "icon": "mdi-console",
+        "layout": "notebook",
+        "theme": "cf_theme",
+        "order": 3,
+        "className": "",
+        "visible": true
+    },
+    {
+        "id": "grp_term",
+        "type": "ui-group",
+        "name": "Terminal MQTT Pub-Sub",
+        "page": "pg_term",
+        "width": 12,
+        "height": "1",
+        "order": 1,
+        "disp": true,
+        "className": "",
+        "visible": true
+    },
+    {
+        "id": "n_term_in",
+        "type": "mqtt in",
+        "z": "7bd231074a839f63",
+        "name": "Terminal MQTT Sub (#)",
+        "topic": "#",
+        "qos": "0",
+        "datatype": "utf8",
+        "broker": "cf_broker",
+        "nl": false,
+        "rap": true,
+        "rh": 0,
+        "inputs": 0,
+        "x": 140,
+        "y": 960,
+        "wires": [
+            [
+                "fn_term_in"
+            ]
+        ]
+    },
+    {
+        "id": "fn_term_in",
+        "type": "function",
+        "z": "7bd231074a839f63",
+        "name": "Prep Terminal Msg",
+        "func": "let p = msg.payload;\nif (typeof p === 'object') {\n  try { p = JSON.stringify(p); } catch(e) {}\n} else {\n  p = String(p);\n}\nconst now = new Date();\nconst pad = (n, s=2) => String(n).padStart(s, '0');\nconst tStr = `${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}.${pad(now.getMilliseconds(), 3)}`;\nlet log = context.get('term_log') || [];\nconst newItem = {\n  id: msg._msgid || (Date.now() + '-' + Math.random()),\n  ts: now.getTime(),\n  topic: msg.topic || '',\n  data: p,\n  qos: msg.qos !== undefined ? msg.qos : 0,\n  retain: !!msg.retain,\n  time: tStr\n};\nlog.push(newItem);\nif (log.length > 200) {\n  log.shift();\n}\ncontext.set('term_log', log);\nreturn { payload: log };",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 360,
+        "y": 960,
+        "wires": [
+            [
+                "w_terminal"
+            ]
+        ]
+    },
+    {
+        "id": "w_terminal",
+        "type": "ui-template",
+        "z": "7bd231074a839f63",
+        "group": "grp_term",
+        "name": "Terminal Pub-Sub",
+        "order": 1,
+        "width": 12,
+        "height": 16,
+        "storeState": false,
+        "passthru": false,
+        "resendOnReconnect": false,
+        "templateScope": "local",
+        "className": "",
+        "x": 620,
+        "y": 960,
+        "wires": [
+            [
+                "n_term_out"
+            ]
+        ],
+        "format": "<template>\n  <div style=\"font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;color:#e6edf3\">\n\n    <!-- SECCIÓN 1: BARRA DE SUSCRIPCIÓN & FILTROS -->\n    <div style=\"background:#161b22;border:1px solid #30363d;border-radius:8px;padding:12px;margin-bottom:12px\">\n      <div style=\"display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;flex-wrap:wrap;gap:8px\">\n        <div style=\"display:flex;align-items:center;gap:8px\">\n          <span style=\"font-size:11px;font-weight:700;color:#58a6ff;letter-spacing:.08em\">📡 SUSCRIPCIÓN (SUB)</span>\n          <span :style=\"{display:'inline-block',width:'8px',height:'8px',borderRadius:'50%',background:paused?'#d29922':'#3fb950'}\" :title=\"paused?'Pausado':'En vivo'\"></span>\n          <span style=\"font-size:11px;color:#8b949e\">{{ paused ? 'Pausado' : 'Stream en vivo' }}</span>\n        </div>\n        <div style=\"display:flex;gap:6px;align-items:center;flex-wrap:wrap\">\n          <span style=\"font-size:11px;background:#21262d;border:1px solid #30363d;padding:2px 8px;border-radius:12px;color:#8b949e\">\n            {{ filteredMessages.length }} / {{ allMessages.length }} msgs\n          </span>\n          <button @click=\"clearMessages\" style=\"background:#21262d;border:1px solid #30363d;color:#f85149;padding:4px 10px;border-radius:4px;font-size:11px;cursor:pointer;font-weight:600\">\n            🗑 Limpiar\n          </button>\n          <button @click=\"paused = !paused\" :style=\"{background: paused ? '#d29922' : '#21262d', color: paused ? '#000' : '#e6edf3', border:'1px solid #30363d', padding:'4px 10px', borderRadius:'4px', fontSize:'11px', cursor:'pointer', fontWeight:600}\">\n            {{ paused ? '▶ Reanudar' : '⏸ Pausar' }}\n          </button>\n          <label style=\"font-size:11px;color:#8b949e;display:flex;align-items:center;gap:4px;cursor:pointer\">\n            <input type=\"checkbox\" v-model=\"autoScroll\" style=\"cursor:pointer\" />\n            Auto-scroll\n          </label>\n        </div>\n      </div>\n\n      <div style=\"display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px\">\n        <div style=\"flex:2;min-width:200px\">\n          <div style=\"font-size:10px;color:#8b949e;margin-bottom:3px\">Patrón de Tópico a Escuchar (soporta comodines + y #)</div>\n          <input type=\"text\" v-model=\"subFilter\" placeholder=\"ej. bj/# o bj/+/event\"\n            style=\"width:100%;box-sizing:border-box;background:#0d1117;color:#58a6ff;border:1px solid #30363d;border-radius:4px;padding:6px 10px;font-family:monospace;font-size:13px\" />\n        </div>\n        <div style=\"flex:1;min-width:140px\">\n          <div style=\"font-size:10px;color:#8b949e;margin-bottom:3px\">Filtrar Texto en Payload</div>\n          <input type=\"text\" v-model=\"textSearch\" placeholder=\"buscar palabra...\"\n            style=\"width:100%;box-sizing:border-box;background:#0d1117;color:#e6edf3;border:1px solid #30363d;border-radius:4px;padding:6px 10px;font-size:13px\" />\n        </div>\n      </div>\n\n      <!-- BOTONES DE FILTRO RÁPIDO -->\n      <div style=\"display:flex;gap:6px;flex-wrap:wrap;align-items:center\">\n        <span style=\"font-size:10px;color:#8b949e\">Filtros rápidos:</span>\n        <button v-for=\"p in presets\" :key=\"p.topic\" @click=\"subFilter = p.topic\"\n          :style=\"{background: subFilter === p.topic ? '#1f6feb' : '#21262d', color: '#fff', border:'none', padding:'3px 8px', borderRadius:'4px', fontSize:'11px', cursor:'pointer'}\">\n          {{ p.label }}\n        </button>\n      </div>\n    </div>\n\n    <!-- SECCIÓN 2: PANTALLA DE CONSOLA / OUTPUT DE MENSAJES -->\n    <div style=\"background:#0d1117;border:1px solid #30363d;border-radius:8px;overflow:hidden;margin-bottom:12px\">\n      <div style=\"background:#161b22;padding:6px 12px;border-bottom:1px solid #30363d;display:flex;justify-content:space-between;align-items:center\">\n        <div style=\"display:flex;align-items:center;gap:6px\">\n          <span style=\"display:inline-block;width:10px;height:10px;border-radius:50%;background:#ff5f56\"></span>\n          <span style=\"display:inline-block;width:10px;height:10px;border-radius:50%;background:#ffbd2e\"></span>\n          <span style=\"display:inline-block;width:10px;height:10px;border-radius:50%;background:#27c93f\"></span>\n          <span style=\"font-size:11px;color:#8b949e;font-family:monospace;margin-left:8px\">terminal://mqtt-stream</span>\n        </div>\n        <span v-if=\"paused\" style=\"font-size:10px;background:#d29922;color:#000;font-weight:700;padding:1px 6px;border-radius:3px\">PAUSADO</span>\n      </div>\n\n      <div id=\"term-log-container\" ref=\"logContainer\" style=\"height:380px;overflow-y:auto;padding:8px 12px;font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;font-size:12px;line-height:1.5;scroll-behavior:auto\">\n        <div v-if=\"filteredMessages.length === 0\" style=\"color:#6e7681;text-align:center;padding:40px 0\">\n          Esperando mensajes en <code style=\"color:#58a6ff\">{{ subFilter }}</code>...<br>\n          <span style=\"font-size:11px\">Publica un comando abajo o interactúa con la bomba para ver el flujo en vivo.</span>\n        </div>\n        <div v-for=\"(m, idx) in filteredMessages\" :key=\"m.id || idx\"\n          style=\"display:flex;gap:8px;padding:3px 0;border-bottom:1px solid #161b22;align-items:flex-start;word-break:break-all\">\n          <span style=\"color:#6e7681;flex-shrink:0\">{{ m.time }}</span>\n          <span :style=\"{color: getTopicColor(m.topic), fontWeight: '600', flexShrink: 0}\">{{ m.topic }}</span>\n          <span style=\"color:#8b949e;flex-shrink:0;font-size:10px;background:#21262d;padding:0 4px;border-radius:3px\">Q{{ m.qos }}</span>\n          <span style=\"color:#e6edf3;flex:1\">{{ m.data }}</span>\n          <button @click=\"copyToClipboard(m.data)\" title=\"Copiar payload\"\n            style=\"background:transparent;border:none;color:#6e7681;cursor:pointer;padding:0 4px;font-size:11px;flex-shrink:0\">\n            📋\n          </button>\n        </div>\n        <!-- ANCLAJE DE AUTOSCROLL INCONDICIONAL -->\n        <div id=\"term-bottom-anchor\" style=\"height:1px;width:100%\"></div>\n      </div>\n    </div>\n\n    <!-- SECCIÓN 3: PANEL DE PUBLICACIÓN (PUB) -->\n    <div style=\"background:#161b22;border:1px solid #30363d;border-radius:8px;padding:12px\">\n      <div style=\"display:flex;align-items:center;justify-content:space-between;margin-bottom:8px\">\n        <span style=\"font-size:11px;font-weight:700;color:#3fb950;letter-spacing:.08em\">🚀 PUBLICAR MENSAJE (PUB)</span>\n        <span style=\"font-size:11px;color:#8b949e\">Envío directo a Mosquitto</span>\n      </div>\n\n      <!-- BOTONES DE COMANDOS RÁPIDOS -->\n      <div style=\"display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px\">\n        <span style=\"font-size:10px;color:#8b949e;align-self:center\">Plantillas rápidas:</span>\n        <button v-for=\"t in pubTemplates\" :key=\"t.label\" @click=\"applyTemplate(t)\"\n          style=\"background:#21262d;border:1px solid #30363d;color:#e6edf3;padding:3px 8px;border-radius:4px;font-size:11px;cursor:pointer\">\n          {{ t.label }}\n        </button>\n      </div>\n\n      <div style=\"display:grid;grid-template-columns:1fr 2fr auto;gap:8px;align-items:flex-end\">\n        <div>\n          <div style=\"font-size:10px;color:#8b949e;margin-bottom:3px\">Tópico Destino</div>\n          <input type=\"text\" v-model=\"pubTopic\" placeholder=\"ej. bj/bj-deadbeef/cmd\"\n            style=\"width:100%;box-sizing:border-box;background:#0d1117;color:#58a6ff;border:1px solid #30363d;border-radius:4px;padding:7px 10px;font-family:monospace;font-size:13px\" />\n        </div>\n        <div>\n          <div style=\"font-size:10px;color:#8b949e;margin-bottom:3px\">Payload (JSON o Texto)</div>\n          <input type=\"text\" v-model=\"pubPayload\" placeholder='{\"cid\": 1, \"cmd\": \"fsm_home,1500\"}'\n            @keyup.enter=\"publishMessage\"\n            style=\"width:100%;box-sizing:border-box;background:#0d1117;color:#e6edf3;border:1px solid #30363d;border-radius:4px;padding:7px 10px;font-family:monospace;font-size:13px\" />\n        </div>\n        <div style=\"display:flex;gap:6px;align-items:center\">\n          <button @click=\"publishMessage\"\n            :disabled=\"!pubTopic\"\n            :style=\"{background: pubTopic ? '#238636' : '#21262d', color: '#fff', border:'none', padding:'7px 18px', borderRadius:'4px', fontSize:'13px', fontWeight:'700', cursor: pubTopic ? 'pointer' : 'not-allowed', height:'35px'}\">\n            Publicar ❯\n          </button>\n        </div>\n      </div>\n      <div v-if=\"lastPubStatus\" style=\"font-size:11px;color:#3fb950;margin-top:6px\">\n        {{ lastPubStatus }}\n      </div>\n    </div>\n\n  </div>\n</template>\n<script>\nexport default {\n  data() {\n    return {\n      subFilter: 'bj/#',\n      textSearch: '',\n      autoScroll: true,\n      paused: false,\n      clearedTime: 0,\n      pubTopic: 'bj/bj-deadbeef/cmd',\n      pubPayload: '{\"cid\": 1, \"cmd\": \"fsm_home,1500\"}',\n      lastPubStatus: '',\n      presets: [\n        { label: 'Todo (bj/#)', topic: 'bj/#' },\n        { label: 'Control (cmd/ack)', topic: 'bj/+/cmd/#' },\n        { label: 'Eventos (event)', topic: 'bj/+/event' },\n        { label: 'Sesión', topic: 'bj/+/telemetry/session' },\n        { label: 'Sensores', topic: 'bj/+/telemetry/sensors' },\n        { label: 'Cinemática', topic: 'bj/+/telemetry/motion' },\n        { label: 'Fallas (sim_fault)', topic: 'bj/+/sim_fault' },\n        { label: 'Todo el Broker (#)', topic: '#' }\n      ],\n      pubTemplates: [\n        { label: 'Home', topic: 'bj/bj-deadbeef/cmd', payload: '{\"cid\": 1, \"cmd\": \"fsm_home,1500\"}' },\n        { label: 'Buscar Jeringa', topic: 'bj/bj-deadbeef/cmd', payload: '{\"cid\": 2, \"cmd\": \"fsm_search,200\"}' },\n        { label: 'Dispensar 30mm', topic: 'bj/bj-deadbeef/cmd', payload: '{\"cid\": 3, \"cmd\": \"fsm_dispense,30000,450\"}' },\n        { label: 'Reanudar', topic: 'bj/bj-deadbeef/cmd', payload: '{\"cid\": 4, \"cmd\": \"fsm_resume\"}' },\n        { label: 'STOP Inmediato', topic: 'bj/bj-deadbeef/cmd', payload: '{\"cid\": 5, \"cmd\": \"stop_imm\"}' },\n        { label: 'Reset FSM', topic: 'bj/bj-deadbeef/cmd', payload: '{\"cid\": 6, \"cmd\": \"fsm_reset\"}' },\n        { label: 'Inyectar Oclusión', topic: 'bj/bj-deadbeef/sim_fault', payload: 'fault_occ' },\n        { label: 'Inyectar Burbuja', topic: 'bj/bj-deadbeef/sim_fault', payload: 'fault_bubble' },\n        { label: 'Limpiar Fallas', topic: 'bj/bj-deadbeef/sim_fault', payload: 'fault_clear' }\n      ]\n    };\n  },\n  computed: {\n    allMessages() {\n      if (this.paused) return this._pausedList || [];\n      const list = (this.msg && Array.isArray(this.msg.payload)) ? this.msg.payload : [];\n      this._pausedList = list;\n      return list;\n    },\n    filteredMessages() {\n      const sub = (this.subFilter || '#').trim();\n      const txt = (this.textSearch || '').toLowerCase().trim();\n      const minTs = this.clearedTime;\n      return this.allMessages.filter(m => {\n        if (m.ts && m.ts < minTs) return false;\n        if (!this.matchesSub(sub, m.topic)) return false;\n        if (txt && !m.topic.toLowerCase().includes(txt) && !m.data.toLowerCase().includes(txt)) return false;\n        return true;\n      });\n    }\n  },\n  mounted() {\n    this.scrollToBottom();\n  },\n  updated() {\n    this.scrollToBottom();\n  },\n  watch: {\n    msg() {\n      this.scrollToBottom();\n    },\n    autoScroll(val) {\n      if (val) this.scrollToBottom();\n    }\n  },\n  methods: {\n    scrollToBottom() {\n      if (!this.autoScroll || this.paused) return;\n      this.$nextTick(() => {\n        const el = this.$refs.logContainer || document.getElementById('term-log-container');\n        if (el) el.scrollTop = el.scrollHeight;\n        const anchor = document.getElementById('term-bottom-anchor');\n        if (anchor && anchor.scrollIntoView) {\n          anchor.scrollIntoView({ behavior: 'auto', block: 'end' });\n        }\n      });\n      setTimeout(() => {\n        if (!this.autoScroll || this.paused) return;\n        const el = this.$refs.logContainer || document.getElementById('term-log-container');\n        if (el) el.scrollTop = el.scrollHeight;\n      }, 50);\n    },\n    matchesSub(subPattern, topic) {\n      if (!subPattern || subPattern === '#' || subPattern === topic) return true;\n      const p = subPattern.split('/');\n      const t = topic.split('/');\n      for (let i = 0; i < p.length; i++) {\n        if (p[i] === '#') return true;\n        if (p[i] !== '+' && p[i] !== t[i]) return false;\n      }\n      return p.length === t.length;\n    },\n    getTopicColor(t) {\n      if (!t) return '#58a6ff';\n      if (t.includes('/cmd/ack')) return '#39c5bb';\n      if (t.includes('/cmd')) return '#bc8cff';\n      if (t.includes('/event')) return '#f0883e';\n      if (t.includes('/sim_fault')) return '#f85149';\n      if (t.includes('/status')) return '#7ee787';\n      if (t.includes('/sensors')) return '#79c0ff';\n      if (t.includes('/motion')) return '#d2a8ff';\n      if (t.includes('/session')) return '#58a6ff';\n      return '#58a6ff';\n    },\n    clearMessages() {\n      this.clearedTime = Date.now();\n    },\n    applyTemplate(t) {\n      this.pubTopic = t.topic;\n      this.pubPayload = t.payload;\n    },\n    publishMessage() {\n      if (!this.pubTopic) return;\n      this.send({\n        topic: this.pubTopic,\n        payload: this.pubPayload,\n        qos: 1\n      });\n      this.lastPubStatus = '✓ Publicado en ' + this.pubTopic + ' (' + new Date().toLocaleTimeString() + ')';\n      setTimeout(() => { this.lastPubStatus = ''; }, 3000);\n    },\n    copyToClipboard(text) {\n      if (navigator && navigator.clipboard) {\n        navigator.clipboard.writeText(text);\n      }\n    }\n  }\n}\n</script>"
+    },
+    {
+        "id": "n_term_out",
+        "type": "mqtt out",
+        "z": "7bd231074a839f63",
+        "name": "Terminal MQTT Pub",
+        "topic": "",
+        "qos": "1",
+        "retain": "",
+        "broker": "cf_broker",
+        "x": 880,
+        "y": 960,
+        "wires": []
+    },
+    {
+        "id": "pg_realtime",
+        "type": "ui-page",
+        "name": "Real-time",
+        "ui": "cf_base",
+        "path": "/realtime",
+        "icon": "mdi-chip",
+        "layout": "notebook",
+        "theme": "cf_theme",
+        "order": 4,
+        "className": "",
+        "visible": true
+    },
+    {
+        "id": "grp_rt_main",
+        "type": "ui-group",
+        "name": "Telemetría de Hardware en Tiempo Real",
+        "page": "pg_realtime",
+        "width": 12,
+        "height": "1",
+        "order": 1,
+        "disp": true,
+        "className": "",
+        "visible": true
+    },
+    {
+        "id": "n_rt_in",
+        "type": "mqtt in",
+        "z": "7bd231074a839f63",
+        "name": "MQTT Realtime Sub",
+        "topic": "bj/+/telemetry/realtime",
+        "qos": "0",
+        "datatype": "utf8",
+        "broker": "cf_broker",
+        "nl": false,
+        "rap": true,
+        "rh": 0,
+        "inputs": 0,
+        "x": 140,
+        "y": 1040,
+        "wires": [
+            [
+                "fn_rt_in",
+                "fn_trends_split"
+            ]
+        ]
+    },
+    {
+        "id": "fn_rt_in",
+        "type": "function",
+        "z": "7bd231074a839f63",
+        "name": "Parse Realtime Msg",
+        "func": "try {\n  const d = (typeof msg.payload === 'object') ? msg.payload : JSON.parse(msg.payload);\n  const now = new Date();\n  const pad = (n, s=2) => String(n).padStart(s, '0');\n  d._ts = `${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}.${pad(now.getMilliseconds(), 3)}`;\n  const parts = (msg.topic || '').split('/');\n  d._devId = parts[1] || 'device';\n  return { payload: d };\n} catch(e) {\n  return null;\n}",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 360,
+        "y": 1040,
+        "wires": [
+            [
+                "w_realtime"
+            ]
+        ]
+    },
+    {
+        "id": "w_realtime",
+        "type": "ui-template",
+        "z": "7bd231074a839f63",
+        "group": "grp_rt_main",
+        "name": "Hardware Real-time Monitor",
+        "order": 1,
+        "width": 12,
+        "height": 22,
+        "storeState": false,
+        "passthru": false,
+        "resendOnReconnect": false,
+        "templateScope": "local",
+        "className": "",
+        "x": 620,
+        "y": 1040,
+        "wires": [
+            []
+        ],
+        "format": "<template>\n  <div style=\"font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;color:#e6edf3\">\n\n    <!-- HEADER DE ESTADO REALTIME -->\n    <div style=\"background:#161b22;border:1px solid #30363d;border-radius:8px;padding:12px 16px;margin-bottom:12px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px\">\n      <div style=\"display:flex;align-items:center;gap:10px\">\n        <span style=\"display:inline-block;width:10px;height:10px;border-radius:50%;background:#3fb950;box-shadow:0 0 8px #3fb950\"></span>\n        <span style=\"font-weight:700;font-size:14px;letter-spacing:.05em\">SENSORES Y ACTUADORES DE HARDWARE (TIEMPO REAL)</span>\n        <span style=\"font-size:11px;background:#21262d;border:1px solid #30363d;padding:2px 8px;border-radius:12px;color:#58a6ff\">\n          {{ devId }}\n        </span>\n      </div>\n      <div style=\"display:flex;gap:12px;align-items:center;font-size:11px;color:#8b949e\">\n        <span>Tópico: <code style=\"color:#7ee787\">bj/+/telemetry/realtime</code></span>\n        <span>Muestreo: <b>500 ms (2 Hz)</b></span>\n        <span>Último sync: <b style=\"color:#e6edf3\">{{ lastTs }}</b></span>\n      </div>\n    </div>\n\n    <!-- GRID PRINCIPAL DE 4 PANELES INSTRUMENTALES -->\n    <div style=\"display:grid;grid-template-columns:repeat(auto-fit, minmax(360px, 1fr));gap:12px;margin-bottom:12px\">\n\n      <!-- TARJETA 1: MOTOR PAP Y DRIVER TMC2209 -->\n      <div style=\"background:#161b22;border:1px solid #30363d;border-radius:8px;padding:14px\">\n        <div style=\"display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;border-bottom:1px solid #21262d;padding-bottom:8px\">\n          <div style=\"font-size:12px;font-weight:700;color:#58a6ff;letter-spacing:.06em\">⚙ MOTOR PAP & DRIVER TMC2209</div>\n          <span style=\"font-size:10px;color:#8b949e\">GP2, GP3, GP8</span>\n        </div>\n\n        <!-- ENA & DIR -->\n        <div style=\"display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px\">\n          <!-- ENA PIN GP8 -->\n          <div style=\"background:#0d1117;border:1px solid #30363d;border-radius:6px;padding:10px;text-align:center\">\n            <div style=\"font-size:10px;color:#8b949e;margin-bottom:6px\">PIN ENA (GP8)</div>\n            <div :style=\"{display:'inline-flex',alignItems:'center',gap:'6px',padding:'4px 10px',borderRadius:'16px',fontWeight:'700',fontSize:'12px',background:motorEna?'rgba(46,160,67,0.2)':'rgba(110,118,129,0.2)',color:motorEna?'#3fb950':'#8b949e',border:motorEna?'1px solid #238636':'1px solid #30363d'}\">\n              <span :style=\"{width:'8px',height:'8px',borderRadius:'50%',background:motorEna?'#3fb950':'#8b949e'}\"></span>\n              {{ motorEna ? 'HABILITADO (ON)' : 'LIBRE (OFF)' }}\n            </div>\n          </div>\n\n          <!-- DIR PIN GP2 -->\n          <div style=\"background:#0d1117;border:1px solid #30363d;border-radius:6px;padding:10px;text-align:center\">\n            <div style=\"font-size:10px;color:#8b949e;margin-bottom:6px\">PIN DIR (GP2)</div>\n            <div :style=\"{display:'inline-flex',alignItems:'center',gap:'6px',padding:'4px 10px',borderRadius:'16px',fontWeight:'700',fontSize:'12px',background:dirBg,color:dirColor,border:'1px solid '+dirColor}\">\n              {{ dirLabel }}\n            </div>\n          </div>\n        </div>\n\n        <!-- STALLGUARD BAR -->\n        <div style=\"background:#0d1117;border:1px solid #30363d;border-radius:6px;padding:10px;margin-bottom:12px\">\n          <div style=\"display:flex;justify-content:space-between;align-items:center;margin-bottom:4px\">\n            <span style=\"font-size:10px;color:#8b949e\">STALLGUARD (SG_RESULT)</span>\n            <b :style=\"{fontSize:'14px',color:sgColor,fontFamily:'monospace'}\">{{ sgVal }} / 1023</b>\n          </div>\n          <div style=\"width:100%;height:8px;background:#21262d;border-radius:4px;overflow:hidden;margin-bottom:6px\">\n            <div :style=\"{width: sgPct+'%', height:'100%', background: sgColor, transition:'width 0.3s, background 0.3s'}\"></div>\n          </div>\n          <div style=\"display:flex;justify-content:space-between;font-size:9px;color:#8b949e\">\n            <span>0 (Stall / Bloqueo)</span>\n            <span :style=\"{color: sgColor, fontWeight:'bold'}\">{{ sgStatus }}</span>\n            <span>1023 (Carga Libre)</span>\n          </div>\n        </div>\n\n        <!-- ENCODER CUENTA & POSICION -->\n        <div style=\"background:#0d1117;border:1px solid #30363d;border-radius:6px;padding:10px\">\n          <div style=\"display:flex;justify-content:space-between;align-items:center\">\n            <div>\n              <div style=\"font-size:10px;color:#8b949e\">ENCODER CUADRATURA (PIO GP6/7)</div>\n              <div style=\"font-size:18px;font-weight:700;color:#79c0ff;font-family:monospace;margin-top:2px\">\n                {{ encCount.toLocaleString() }} <span style=\"font-size:11px;color:#8b949e\">pulsos</span>\n              </div>\n            </div>\n            <div style=\"text-align:right\">\n              <div style=\"font-size:10px;color:#8b949e\">POSICIÓN MECÁNICA</div>\n              <div style=\"font-size:18px;font-weight:700;color:#58a6ff;font-family:monospace;margin-top:2px\">\n                {{ encPos.toFixed(2) }} <span style=\"font-size:11px;color:#8b949e\">mm</span>\n              </div>\n            </div>\n          </div>\n        </div>\n      </div>\n\n      <!-- TARJETA 2: CANALES ADC -->\n      <div style=\"background:#161b22;border:1px solid #30363d;border-radius:8px;padding:14px\">\n        <div style=\"display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;border-bottom:1px solid #21262d;padding-bottom:8px\">\n          <div style=\"font-size:12px;font-weight:700;color:#7ee787;letter-spacing:.06em\">📊 CONVERTIDOR ADC (12 BITS, 0-3.3V)</div>\n          <div style=\"display:flex;align-items:center;gap:10px\">\n            <span style=\"font-size:10px;color:#8b949e\">GP26, GP27, GP28</span>\n            <a href=\"/dashboard/trends\" style=\"display:inline-flex;align-items:center;gap:5px;background:#21262d;border:1px solid #388bfd;color:#58a6ff;padding:3px 10px;border-radius:6px;font-size:11px;font-weight:700;text-decoration:none;cursor:pointer;box-shadow:0 1px 3px rgba(0,0,0,0.3)\">\n              📈 Gráficos\n            </a>\n          </div>\n        </div>\n\n        <!-- FRC_SENS (GP26 / ADC0) -->\n        <div style=\"background:#0d1117;border:1px solid #30363d;border-radius:6px;padding:10px;margin-bottom:8px\">\n          <div style=\"display:flex;justify-content:space-between;align-items:center;margin-bottom:4px\">\n            <span style=\"font-size:11px;font-weight:600;color:#e6edf3\">FRC_SENS (GP26 / ADC0)</span>\n            <div style=\"display:flex;gap:8px;align-items:baseline\">\n              <b style=\"font-size:14px;color:#58a6ff;font-family:monospace\">{{ frcVolt.toFixed(3) }} V</b>\n              <span style=\"font-size:10px;color:#8b949e;font-family:monospace\">raw: {{ frcRaw }}</span>\n            </div>\n          </div>\n          <div style=\"width:100%;height:6px;background:#21262d;border-radius:3px;overflow:hidden;margin-bottom:4px\">\n            <div :style=\"{width: (frcV/3.3*100)+'%', height:'100%', background: frcColor, transition:'width 0.3s'}\"></div>\n          </div>\n          <div style=\"display:flex;justify-content:space-between;font-size:9px;color:#8b949e\">\n            <span>Fuerza Émbolo / Presión Línea</span>\n            <span :style=\"{color: frcColor, fontWeight:'bold'}\">{{ frcState }}</span>\n          </div>\n        </div>\n\n        <!-- BUB_SENS (GP27 / ADC1) - SENSOR ÓPTICO -->\n        <div style=\"background:#0d1117;border:1px solid #30363d;border-radius:6px;padding:10px;margin-bottom:8px\">\n          <div style=\"display:flex;justify-content:space-between;align-items:center;margin-bottom:4px\">\n            <span style=\"font-size:11px;font-weight:600;color:#e6edf3\">BUB_SENS (GP27 / ADC1)</span>\n            <div style=\"display:flex;gap:8px;align-items:baseline\">\n              <b style=\"font-size:14px;color:#79c0ff;font-family:monospace\">{{ bubVolt.toFixed(3) }} V</b>\n              <span style=\"font-size:10px;color:#8b949e;font-family:monospace\">raw: {{ bubRaw }}</span>\n            </div>\n          </div>\n          <div style=\"width:100%;height:6px;background:#21262d;border-radius:3px;overflow:hidden;margin-bottom:4px\">\n            <div :style=\"{width: (bubV/3.3*100)+'%', height:'100%', background: bubColor, transition:'width 0.3s'}\"></div>\n          </div>\n          <div style=\"display:flex;justify-content:space-between;font-size:9px;color:#8b949e\">\n            <span>Sensor Óptico de Burbuja</span>\n            <span :style=\"{color: bubColor, fontWeight:'bold'}\">{{ bubState }}</span>\n          </div>\n        </div>\n\n        <!-- VIN_SENS (GP28 / ADC2) - DIVISOR 11:1, RANGO 10V-26V -->\n        <div style=\"background:#0d1117;border:1px solid #30363d;border-radius:6px;padding:10px\">\n          <div style=\"display:flex;justify-content:space-between;align-items:center;margin-bottom:4px\">\n            <div>\n              <span style=\"font-size:11px;font-weight:600;color:#e6edf3\">VIN_SENS (GP28 / ADC2)</span>\n              <span style=\"font-size:9px;color:#8b949e;margin-left:6px\">Divisor 11:1 (100k/10k)</span>\n            </div>\n            <div style=\"display:flex;gap:8px;align-items:baseline\">\n              <b :style=\"{fontSize:'15px',color:vinColor,fontFamily:'monospace'}\">{{ vinVolt.toFixed(2) }} V</b>\n              <span style=\"font-size:10px;color:#8b949e;font-family:monospace\">ADC: {{ vinAdcPin.toFixed(3) }}V</span>\n            </div>\n          </div>\n\n          <!-- BARRA DE NIVEL 10V A 26V -->\n          <div style=\"width:100%;height:8px;background:#21262d;border-radius:4px;overflow:hidden;margin-bottom:6px\">\n            <div :style=\"{width: vinPct+'%', height:'100%', background: vinColor, transition:'width 0.3s, background 0.3s'}\"></div>\n          </div>\n\n          <div style=\"display:flex;justify-content:space-between;font-size:9px;color:#8b949e;margin-bottom:4px\">\n            <span>10V</span>\n            <span style=\"color:#f85149\">12V (Descargada)</span>\n            <span style=\"color:#3fb950\">16.8V (Full 4S)</span>\n            <span>26V (Cargador máx)</span>\n          </div>\n\n          <div style=\"display:flex;justify-content:space-between;align-items:center;padding-top:4px;border-top:1px solid #21262d\">\n            <span style=\"font-size:9px;color:#8b949e\">Estado Batería Li-Ion 4S</span>\n            <span :style=\"{fontSize:'10px',fontWeight:'700',color:vinColor}\">{{ vinState }}</span>\n          </div>\n        </div>\n      </div>\n\n      <!-- TARJETA 3: FINALES DE CARRERA -->\n      <div style=\"background:#161b22;border:1px solid #30363d;border-radius:8px;padding:14px\">\n        <div style=\"display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;border-bottom:1px solid #21262d;padding-bottom:8px\">\n          <div style=\"font-size:12px;font-weight:700;color:#d2a8ff;letter-spacing:.06em\">🛑 FINALES DE CARRERA (LIMIT SWITCHES)</div>\n          <span style=\"font-size:10px;color:#8b949e\">GP10, GP11 (Pull-up)</span>\n        </div>\n\n        <div style=\"display:flex;flex-direction:column;gap:10px\">\n          <!-- LSW START -->\n          <div style=\"background:#0d1117;border:1px solid #30363d;border-radius:6px;padding:12px;display:flex;justify-content:space-between;align-items:center\">\n            <div>\n              <div style=\"font-size:12px;font-weight:700;color:#e6edf3\">LSW_START (GP10)</div>\n              <div style=\"font-size:10px;color:#8b949e;margin-top:2px\">Extremo de Inicio / Retracción / Home</div>\n            </div>\n            <div :style=\"{display:'flex',alignItems:'center',gap:'8px',padding:'6px 14px',borderRadius:'6px',fontWeight:'700',fontSize:'12px',background:lswStart?'rgba(210,153,34,0.2)':'rgba(110,118,129,0.15)',color:lswStart?'#e3b341':'#8b949e',border:lswStart?'1px solid #d29922':'1px solid #30363d'}\">\n              <span :style=\"{width:'10px',height:'10px',borderRadius:'50%',background:lswStart?'#e3b341':'#8b949e',boxShadow:lswStart?'0 0 8px #e3b341':'none'}\"></span>\n              {{ lswStart ? 'ACTIVADO (HOME)' : 'REPOSO / LIBRE' }}\n            </div>\n          </div>\n\n          <!-- LSW END -->\n          <div style=\"background:#0d1117;border:1px solid #30363d;border-radius:6px;padding:12px;display:flex;justify-content:space-between;align-items:center\">\n            <div>\n              <div style=\"font-size:12px;font-weight:700;color:#e6edf3\">LSW_END (GP11)</div>\n              <div style=\"font-size:10px;color:#8b949e;margin-top:2px\">Extremo de Final / Avance Máximo (EOT)</div>\n            </div>\n            <div :style=\"{display:'flex',alignItems:'center',gap:'8px',padding:'6px 14px',borderRadius:'6px',fontWeight:'700',fontSize:'12px',background:lswEnd?'rgba(248,81,73,0.2)':'rgba(110,118,129,0.15)',color:lswEnd?'#f85149':'#8b949e',border:lswEnd?'1px solid #f85149':'1px solid #30363d'}\">\n              <span :style=\"{width:'10px',height:'10px',borderRadius:'50%',background:lswEnd?'#f85149':'#8b949e',boxShadow:lswEnd?'0 0 8px #f85149':'none'}\"></span>\n              {{ lswEnd ? 'ACTIVADO (FIN CARRERA)' : 'REPOSO / LIBRE' }}\n            </div>\n          </div>\n        </div>\n      </div>\n\n      <!-- TARJETA 4: EXPANSOR I2C PCAL9555 -->\n      <div style=\"background:#161b22;border:1px solid #30363d;border-radius:8px;padding:14px\">\n        <div style=\"display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;border-bottom:1px solid #21262d;padding-bottom:8px\">\n          <div style=\"font-size:12px;font-weight:700;color:#f0883e;letter-spacing:.06em\">🎛 EXPANSOR I2C PCAL9555 (INPUTS)</div>\n          <span style=\"font-size:10px;color:#8b949e\">I2C0: 0x20 (GP12/13)</span>\n        </div>\n\n        <div style=\"display:flex;flex-direction:column;gap:8px\">\n          <!-- P0_0: SW_PLAY_STOP -->\n          <div style=\"background:#0d1117;border:1px solid #30363d;border-radius:6px;padding:8px 12px;display:flex;justify-content:space-between;align-items:center\">\n            <div>\n              <div style=\"font-size:11px;font-weight:700;color:#e6edf3\">P0_0: SW_PLAY_STOP</div>\n              <div style=\"font-size:9px;color:#8b949e\">Pulsador Arranque / Pausa</div>\n            </div>\n            <span :style=\"{padding:'2px 8px',borderRadius:'4px',fontSize:'11px',fontWeight:'700',background:pcal.sw_play_stop===0?'#238636':'#21262d',color:pcal.sw_play_stop===0?'#fff':'#8b949e'}\">\n              {{ pcal.sw_play_stop === 0 ? 'PULSADO (0)' : 'REPOSO (1)' }}\n            </span>\n          </div>\n\n          <!-- P0_1: SW_BOLUS -->\n          <div style=\"background:#0d1117;border:1px solid #30363d;border-radius:6px;padding:8px 12px;display:flex;justify-content:space-between;align-items:center\">\n            <div>\n              <div style=\"font-size:11px;font-weight:700;color:#e6edf3\">P0_1: SW_BOLUS</div>\n              <div style=\"font-size:9px;color:#8b949e\">Pulsador Bolo / Purga Manual</div>\n            </div>\n            <span :style=\"{padding:'2px 8px',borderRadius:'4px',fontSize:'11px',fontWeight:'700',background:pcal.sw_bolus===0?'#238636':'#21262d',color:pcal.sw_bolus===0?'#fff':'#8b949e'}\">\n              {{ pcal.sw_bolus === 0 ? 'PULSADO (0)' : 'REPOSO (1)' }}\n            </span>\n          </div>\n\n          <!-- P0_2: SW_DETECT_H (SWITCH ON/OFF) -->\n          <div style=\"background:#0d1117;border:1px solid #30363d;border-radius:6px;padding:8px 12px;display:flex;justify-content:space-between;align-items:center\">\n            <div>\n              <div style=\"font-size:11px;font-weight:700;color:#e6edf3\">P0_2: SW_DETECT_H</div>\n              <div style=\"font-size:9px;color:#8b949e\">Switch Principal ON / OFF del Equipo</div>\n            </div>\n            <span :style=\"{padding:'4px 10px',borderRadius:'4px',fontSize:'11px',fontWeight:'700',background:pcal.sw_detect_h===0?'#238636':'#b71c1c',color:'#fff'}\">\n              {{ pcal.sw_detect_h === 0 ? '● ENCENDIDO (ON)' : '○ APAGADO (OFF)' }}\n            </span>\n          </div>\n\n          <!-- P1_1: CHRG_STATUS -->\n          <div style=\"background:#0d1117;border:1px solid #30363d;border-radius:6px;padding:8px 12px;display:flex;justify-content:space-between;align-items:center\">\n            <div>\n              <div style=\"font-size:11px;font-weight:700;color:#e6edf3\">P1_1: CHRG_STATUS</div>\n              <div style=\"font-size:9px;color:#8b949e\">Estado Cargador Batería (LOW = cargando)</div>\n            </div>\n            <span :style=\"{padding:'2px 8px',borderRadius:'4px',fontSize:'11px',fontWeight:'700',background:pcal.chrg_status===0?'#1f6feb':'#21262d',color:pcal.chrg_status===0?'#fff':'#8b949e'}\">\n              {{ pcal.chrg_status === 0 ? 'CARGANDO (0)' : 'STANDBY (1)' }}\n            </span>\n          </div>\n\n          <!-- P1_2: BATT_INSTALL -->\n          <div style=\"background:#0d1117;border:1px solid #30363d;border-radius:6px;padding:8px 12px;display:flex;justify-content:space-between;align-items:center\">\n            <div>\n              <div style=\"font-size:11px;font-weight:700;color:#e6edf3\">P1_2: BATT_INSTALL</div>\n              <div style=\"font-size:9px;color:#8b949e\">Detección Presencia de Batería</div>\n            </div>\n            <span :style=\"{padding:'2px 8px',borderRadius:'4px',fontSize:'11px',fontWeight:'700',background:pcal.batt_install===0?'#238636':'#d29922',color:'#fff'}\">\n              {{ pcal.batt_install === 0 ? 'BATERÍA OK (0)' : 'DESCONECTADA (1)' }}\n            </span>\n          </div>\n        </div>\n      </div>\n\n    </div>\n\n  </div>\n</template>\n<script>\nexport default {\n  computed: {\n    rt() {\n      return (this.msg && this.msg.payload) || {};\n    },\n    devId() {\n      return this.rt._devId || 'bj-deadbeef';\n    },\n    lastTs() {\n      return this.rt._ts || '—';\n    },\n    // MOTOR\n    motor() {\n      return this.rt.motor || {};\n    },\n    motorEna() {\n      return Boolean(this.motor.ena);\n    },\n    dirStr() {\n      return this.motor.dir_str || 'IDLE';\n    },\n    dirLabel() {\n      if (this.dirStr === 'FORWARD') return '➔ AVANCE (INFUSIÓN)';\n      if (this.dirStr === 'REVERSE') return '⬅ RETROCESO (REV)';\n      return '▪ DETENIDO';\n    },\n    dirColor() {\n      if (this.dirStr === 'FORWARD') return '#3fb950';\n      if (this.dirStr === 'REVERSE') return '#bc8cff';\n      return '#8b949e';\n    },\n    dirBg() {\n      if (this.dirStr === 'FORWARD') return 'rgba(46,160,67,0.2)';\n      if (this.dirStr === 'REVERSE') return 'rgba(188,140,255,0.2)';\n      return 'rgba(110,118,129,0.2)';\n    },\n    sgVal() {\n      return Number(this.motor.stallguard || 0);\n    },\n    sgPct() {\n      return Math.min(100, Math.max(0, (this.sgVal / 1023) * 100));\n    },\n    sgColor() {\n      if (this.sgVal > 180) return '#3fb950';\n      if (this.sgVal >= 60) return '#e3b341';\n      return '#f85149';\n    },\n    sgStatus() {\n      if (this.sgVal === 0 && !this.motorEna) return 'Motor apagado';\n      if (this.sgVal > 180) return 'Carga suave / OK';\n      if (this.sgVal >= 60) return 'Alta resistencia';\n      return 'STALL (Bloqueo)';\n    },\n    // ENCODER\n    encoder() {\n      return this.rt.encoder || {};\n    },\n    encCount() {\n      return Number(this.encoder.count || 0);\n    },\n    encPos() {\n      return Number(this.encoder.position_mm || 0);\n    },\n    // ADC\n    adc() {\n      return this.rt.adc || {};\n    },\n    frcV() {\n      return Number(this.adc.frc_sens_v || 0.72);\n    },\n    frcVolt() {\n      return this.frcV;\n    },\n    frcRaw() {\n      return Number(this.adc.frc_sens_raw || 0);\n    },\n    frcColor() {\n      if (this.frcV > 2.2) return '#f85149';\n      if (this.frcV > 1.4) return '#e3b341';\n      return '#58a6ff';\n    },\n    frcState() {\n      if (this.frcV > 2.2) return 'Sobrepresión / Oclusión';\n      if (this.frcV > 1.4) return 'Infusión en curso';\n      return 'Presión basal normal';\n    },\n    bubV() {\n      return Number(this.adc.bub_sens_v || 3.1);\n    },\n    bubVolt() {\n      return this.bubV;\n    },\n    bubRaw() {\n      return Number(this.adc.bub_sens_raw || 0);\n    },\n    bubColor() {\n      return this.bubV < 1.5 ? '#f85149' : '#3fb950';\n    },\n    bubState() {\n      return this.bubV < 1.5 ? '⚠ BURBUJA DE AIRE DETECTADA' : 'Líquido continuo OK';\n    },\n    // VIN_SENS (Rango 10V - 26V, Divisor 11:1)\n    vinVolt() {\n      return Number(this.adc.vin_sens_v || 15.6);\n    },\n    vinAdcPin() {\n      return this.vinVolt / 11.0;\n    },\n    vinRaw() {\n      return Number(this.adc.vin_sens_raw || Math.round((this.vinAdcPin / 3.3) * 4095));\n    },\n    vinPct() {\n      // Mapeo en la escala 10V a 26V (delta 16V)\n      return Math.min(100, Math.max(0, ((this.vinVolt - 10.0) / (26.0 - 10.0)) * 100));\n    },\n    battPct() {\n      if (this.vinVolt >= 16.8) return 100;\n      if (this.vinVolt <= 12.0) return 0;\n      return Math.round(((this.vinVolt - 12.0) / (16.8 - 12.0)) * 100);\n    },\n    vinColor() {\n      if (this.vinVolt < 12.0) return '#f85149';\n      if (this.vinVolt <= 16.8) return '#3fb950';\n      return '#58a6ff';\n    },\n    vinState() {\n      if (this.vinVolt < 12.0) return '⚠ CRÍTICO (<12V) — INICIANDO APAGADO';\n      if (this.vinVolt >= 16.8) return 'CARGADOR / FULL (≥16.8V, 100%)';\n      return `ÓPTIMO (4S: ${this.battPct}% bat, ${this.vinVolt.toFixed(1)}V)`;\n    },\n    // LIMIT SWITCHES\n    lsw() {\n      return this.rt.lsw || {};\n    },\n    lswStart() {\n      return Boolean(this.lsw.start);\n    },\n    lswEnd() {\n      return Boolean(this.lsw.end);\n    },\n    // PCAL9555\n    pcal() {\n      return this.rt.pcal9555 || {\n        sw_play_stop: 1,\n        sw_bolus: 1,\n        sw_detect_h: 0,\n        chrg_status: 0,\n        batt_install: 0\n      };\n    }\n  }\n}\n</script>"
+    },
+    {
+        "id": "pg_trends",
+        "type": "ui-page",
+        "name": "Gráficos",
+        "ui": "cf_base",
+        "path": "/trends",
+        "icon": "mdi-chart-line",
+        "layout": "notebook",
+        "theme": "cf_theme",
+        "order": 5,
+        "className": "",
+        "visible": true
+    },
+    {
+        "id": "grp_trends_header",
+        "type": "ui-group",
+        "name": "Navegación y Control",
+        "page": "pg_trends",
+        "width": 12,
+        "height": "1",
+        "order": 1,
+        "disp": false,
+        "className": "",
+        "visible": true
+    },
+    {
+        "id": "grp_trends_frc",
+        "type": "ui-group",
+        "name": "FRC_SENS (GP26 / ADC0) — Fuerza de Émbolo / Presión de Línea (0 - 3.3V)",
+        "page": "pg_trends",
+        "width": 12,
+        "height": "6",
+        "order": 2,
+        "disp": true,
+        "className": "",
+        "visible": true
+    },
+    {
+        "id": "grp_trends_bub",
+        "type": "ui-group",
+        "name": "BUB_SENS (GP27 / ADC1) — Sensor Óptico de Burbuja (Normal >1.5V, Alarma <1.5V)",
+        "page": "pg_trends",
+        "width": 12,
+        "height": "6",
+        "order": 3,
+        "disp": true,
+        "className": "",
+        "visible": true
+    },
+    {
+        "id": "grp_trends_vin",
+        "type": "ui-group",
+        "name": "VIN_SENS (GP28 / ADC2) — Batería Li-Ion 4S y Cargador (10V - 26V, Divisor 11:1)",
+        "page": "pg_trends",
+        "width": 12,
+        "height": "6",
+        "order": 4,
+        "disp": true,
+        "className": "",
+        "visible": true
+    },
+    {
+        "id": "w_trends_nav",
+        "type": "ui-template",
+        "z": "7bd231074a839f63",
+        "group": "grp_trends_header",
+        "name": "Trends Navigation Bar",
+        "order": 1,
+        "width": 12,
+        "height": 6,
+        "storeState": true,
+        "passthru": false,
+        "resendOnReconnect": false,
+        "templateScope": "local",
+        "className": "",
+        "x": 620,
+        "y": 1180,
+        "wires": [
+            [
+                "fn_trends_scale_ctrl"
+            ]
+        ],
+        "format": "<template>\n  <div style=\"background:#161b22;border:1px solid #30363d;border-radius:8px;padding:12px 16px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;color:#e6edf3\">\n    <!-- FILA 1: ENCABEZADO Y PRESETS GLOBALES -->\n    <div style=\"display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:12px;padding-bottom:10px;border-bottom:1px solid #21262d\">\n      <div style=\"display:flex;align-items:center;gap:12px;flex-wrap:wrap\">\n        <a href=\"/dashboard/realtime\" \n          style=\"display:inline-flex;align-items:center;gap:6px;background:#21262d;border:1px solid #30363d;color:#e6edf3;padding:6px 12px;border-radius:6px;font-size:12px;font-weight:700;text-decoration:none;cursor:pointer;transition:all 0.2s\">\n          ⬅ Volver a Real-time\n        </a>\n        <div>\n          <div style=\"font-weight:800;font-size:14px;color:#e6edf3;display:flex;align-items:center;gap:8px\">\n            <span>📈 TENDENCIAS HISTÓRICAS ADC (ÚLTIMA HORA)</span>\n            <span style=\"font-size:10px;background:#238636;color:#fff;padding:1px 6px;border-radius:10px;font-weight:700\">60 min</span>\n          </div>\n          <div style=\"font-size:11px;color:#8b949e;margin-top:2px\">\n            Control individual de escalas Y: Dinámica (Auto), Fijada nominal o Personalizada manual\n          </div>\n        </div>\n      </div>\n\n      <!-- BOTONES RÁPIDOS GLOBALES -->\n      <div style=\"display:flex;align-items:center;gap:8px;background:#0d1117;border:1px solid #30363d;padding:4px 8px;border-radius:6px\">\n        <span style=\"font-size:11px;font-weight:700;color:#8b949e\">GLOBAL:</span>\n        <button @click=\"setAllMode('dynamic')\"\n          style=\"background:#21262d;color:#58a6ff;border:1px solid #388bfd;padding:4px 10px;border-radius:4px;font-size:11px;font-weight:700;cursor:pointer\">\n          ⚡ Todo Auto\n        </button>\n        <button @click=\"setAllMode('fixed')\"\n          style=\"background:#21262d;color:#3fb950;border:1px solid #2ea043;padding:4px 10px;border-radius:4px;font-size:11px;font-weight:700;cursor:pointer\">\n          📏 Todo Fijado\n        </button>\n      </div>\n    </div>\n\n    <!-- FILA 2: TARJETAS DE CANAL (3 COLUMNAS) -->\n    <div style=\"display:grid;grid-template-columns:repeat(auto-fit, minmax(280px, 1fr));gap:12px;margin-bottom:12px\">\n\n      <!-- CANAL 1: FRC_SENS -->\n      <div style=\"background:#0d1117;border:1px solid #30363d;border-radius:6px;padding:10px\">\n        <div style=\"display:flex;justify-content:space-between;align-items:center;margin-bottom:8px\">\n          <span style=\"font-size:12px;font-weight:700;color:#58a6ff\">FRC_SENS (GP26 / ADC0)</span>\n          <span style=\"font-size:10px;color:#8b949e\">Émbolo / Presión</span>\n        </div>\n        <!-- Selector 3 modos -->\n        <div style=\"display:flex;gap:4px;margin-bottom:8px\">\n          <button @click=\"setChannelMode('frc', 'dynamic')\"\n            :style=\"getBtnStyle(scales.frc.mode === 'dynamic', '#1f6feb')\">\n            ⚡ Auto\n          </button>\n          <button @click=\"setChannelMode('frc', 'fixed')\"\n            :style=\"getBtnStyle(scales.frc.mode === 'fixed', '#238636')\">\n            📏 0–3.3V\n          </button>\n          <button @click=\"setChannelMode('frc', 'custom')\"\n            :style=\"getBtnStyle(scales.frc.mode === 'custom', '#8957e5')\">\n            ✏️ Manual\n          </button>\n        </div>\n        <!-- Inputs manuales -->\n        <div style=\"display:flex;align-items:center;gap:6px;font-size:11px;color:#8b949e\">\n          <span>Mín:</span>\n          <input type=\"text\" v-model=\"scales.frc.min\" @keyup.enter=\"applyScales\" :disabled=\"scales.frc.mode !== 'custom'\"\n            style=\"width:58px;box-sizing:border-box;background:#161b22;color:#fff;border:1px solid #30363d;border-radius:4px;padding:3px 6px;font-family:monospace;font-size:12px;text-align:center\" />\n          <span>Máx:</span>\n          <input type=\"text\" v-model=\"scales.frc.max\" @keyup.enter=\"applyScales\" :disabled=\"scales.frc.mode !== 'custom'\"\n            style=\"width:58px;box-sizing:border-box;background:#161b22;color:#fff;border:1px solid #30363d;border-radius:4px;padding:3px 6px;font-family:monospace;font-size:12px;text-align:center\" />\n          <span>V</span>\n          <button v-if=\"scales.frc.mode === 'custom'\" @click=\"applyScales\"\n            style=\"margin-left:auto;background:#238636;color:#fff;border:none;border-radius:4px;padding:3px 8px;font-size:10px;font-weight:700;cursor:pointer\">\n            OK\n          </button>\n        </div>\n      </div>\n\n      <!-- CANAL 2: BUB_SENS -->\n      <div style=\"background:#0d1117;border:1px solid #30363d;border-radius:6px;padding:10px\">\n        <div style=\"display:flex;justify-content:space-between;align-items:center;margin-bottom:8px\">\n          <span style=\"font-size:12px;font-weight:700;color:#3fb950\">BUB_SENS (GP27 / ADC1)</span>\n          <span style=\"font-size:10px;color:#8b949e\">Sensor Óptico</span>\n        </div>\n        <!-- Selector 3 modos -->\n        <div style=\"display:flex;gap:4px;margin-bottom:8px\">\n          <button @click=\"setChannelMode('bub', 'dynamic')\"\n            :style=\"getBtnStyle(scales.bub.mode === 'dynamic', '#1f6feb')\">\n            ⚡ Auto\n          </button>\n          <button @click=\"setChannelMode('bub', 'fixed')\"\n            :style=\"getBtnStyle(scales.bub.mode === 'fixed', '#238636')\">\n            📏 0–3.3V\n          </button>\n          <button @click=\"setChannelMode('bub', 'custom')\"\n            :style=\"getBtnStyle(scales.bub.mode === 'custom', '#8957e5')\">\n            ✏️ Manual\n          </button>\n        </div>\n        <!-- Inputs manuales -->\n        <div style=\"display:flex;align-items:center;gap:6px;font-size:11px;color:#8b949e\">\n          <span>Mín:</span>\n          <input type=\"text\" v-model=\"scales.bub.min\" @keyup.enter=\"applyScales\" :disabled=\"scales.bub.mode !== 'custom'\"\n            style=\"width:58px;box-sizing:border-box;background:#161b22;color:#fff;border:1px solid #30363d;border-radius:4px;padding:3px 6px;font-family:monospace;font-size:12px;text-align:center\" />\n          <span>Máx:</span>\n          <input type=\"text\" v-model=\"scales.bub.max\" @keyup.enter=\"applyScales\" :disabled=\"scales.bub.mode !== 'custom'\"\n            style=\"width:58px;box-sizing:border-box;background:#161b22;color:#fff;border:1px solid #30363d;border-radius:4px;padding:3px 6px;font-family:monospace;font-size:12px;text-align:center\" />\n          <span>V</span>\n          <button v-if=\"scales.bub.mode === 'custom'\" @click=\"applyScales\"\n            style=\"margin-left:auto;background:#238636;color:#fff;border:none;border-radius:4px;padding:3px 8px;font-size:10px;font-weight:700;cursor:pointer\">\n            OK\n          </button>\n        </div>\n      </div>\n\n      <!-- CANAL 3: VIN_SENS -->\n      <div style=\"background:#0d1117;border:1px solid #30363d;border-radius:6px;padding:10px\">\n        <div style=\"display:flex;justify-content:space-between;align-items:center;margin-bottom:8px\">\n          <span style=\"font-size:12px;font-weight:700;color:#e3b341\">VIN_SENS (GP28 / ADC2)</span>\n          <span style=\"font-size:10px;color:#8b949e\">Batería 4S / Cargador</span>\n        </div>\n        <!-- Selector 3 modos -->\n        <div style=\"display:flex;gap:4px;margin-bottom:8px\">\n          <button @click=\"setChannelMode('vin', 'dynamic')\"\n            :style=\"getBtnStyle(scales.vin.mode === 'dynamic', '#1f6feb')\">\n            ⚡ Auto\n          </button>\n          <button @click=\"setChannelMode('vin', 'fixed')\"\n            :style=\"getBtnStyle(scales.vin.mode === 'fixed', '#238636')\">\n            📏 10–26V\n          </button>\n          <button @click=\"setChannelMode('vin', 'custom')\"\n            :style=\"getBtnStyle(scales.vin.mode === 'custom', '#8957e5')\">\n            ✏️ Manual\n          </button>\n        </div>\n        <!-- Inputs manuales -->\n        <div style=\"display:flex;align-items:center;gap:6px;font-size:11px;color:#8b949e\">\n          <span>Mín:</span>\n          <input type=\"text\" v-model=\"scales.vin.min\" @keyup.enter=\"applyScales\" :disabled=\"scales.vin.mode !== 'custom'\"\n            style=\"width:58px;box-sizing:border-box;background:#161b22;color:#fff;border:1px solid #30363d;border-radius:4px;padding:3px 6px;font-family:monospace;font-size:12px;text-align:center\" />\n          <span>Máx:</span>\n          <input type=\"text\" v-model=\"scales.vin.max\" @keyup.enter=\"applyScales\" :disabled=\"scales.vin.mode !== 'custom'\"\n            style=\"width:58px;box-sizing:border-box;background:#161b22;color:#fff;border:1px solid #30363d;border-radius:4px;padding:3px 6px;font-family:monospace;font-size:12px;text-align:center\" />\n          <span>V</span>\n          <button v-if=\"scales.vin.mode === 'custom'\" @click=\"applyScales\"\n            style=\"margin-left:auto;background:#238636;color:#fff;border:none;border-radius:4px;padding:3px 8px;font-size:10px;font-weight:700;cursor:pointer\">\n            OK\n          </button>\n        </div>\n      </div>\n\n    </div>\n\n    <!-- FILA 3: BARRA DE ACCIÓN Y ESTADO -->\n    <div style=\"display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;padding-top:2px\">\n      <div style=\"display:flex;align-items:center;gap:10px\">\n        <button @click=\"applyScales\"\n          style=\"background:#238636;color:#fff;border:1px solid #2ea043;padding:6px 16px;border-radius:4px;font-size:11px;font-weight:700;cursor:pointer\">\n          ✓ Aplicar Todos los Cambios\n        </button>\n        <span v-if=\"statusMsg\" style=\"font-size:11px;color:#3fb950;font-weight:600\">{{ statusMsg }}</span>\n      </div>\n      <div style=\"font-size:11px;color:#8b949e\">\n        Muestreo: <code style=\"color:#7ee787\">bj/+/telemetry/realtime</code> (2 Hz / 2s buffer)\n      </div>\n    </div>\n  </div>\n</template>\n<script>\nexport default {\n  data() {\n    return {\n      scales: {\n        frc: { mode: 'dynamic', min: 0.0, max: 3.3 },\n        bub: { mode: 'dynamic', min: 0.0, max: 3.3 },\n        vin: { mode: 'dynamic', min: 10.0, max: 26.0 }\n      },\n      statusMsg: ''\n    };\n  },\n  beforeCreate() {\n    window.Cypress = true;\n  },\n  created() {\n    window.Cypress = true;\n  },\n  watch: {\n    msg: {\n      deep: true,\n      handler(val) {\n        if (val && val.payload && typeof val.payload === 'object') {\n          ['frc', 'bub', 'vin'].forEach(k => {\n            if (val.payload[k]) {\n              this.scales[k] = Object.assign({}, this.scales[k], val.payload[k]);\n            }\n          });\n          this.attachChartInterceptors();\n          this.applyScalesLocally();\n        }\n      }\n    }\n  },\n  mounted() {\n    window.Cypress = true;\n    if (this.msg && this.msg.payload && typeof this.msg.payload === 'object') {\n      ['frc', 'bub', 'vin'].forEach(k => {\n        if (this.msg.payload[k]) {\n          this.scales[k] = Object.assign({}, this.scales[k], this.msg.payload[k]);\n        }\n      });\n    }\n    this.attachChartInterceptors();\n    this.applyScalesLocally();\n    [100, 250, 500, 1000, 2000].forEach(delay => {\n      setTimeout(() => {\n        this.attachChartInterceptors();\n        this.applyScalesLocally();\n      }, delay);\n    });\n  },\n  methods: {\n    getBtnStyle(isActive, activeColor) {\n      return {\n        flex: 1,\n        padding: '5px 4px',\n        background: isActive ? activeColor : '#21262d',\n        color: isActive ? '#ffffff' : '#8b949e',\n        border: isActive ? ('1px solid ' + activeColor) : '1px solid #30363d',\n        borderRadius: '4px',\n        fontSize: '11px',\n        fontWeight: '700',\n        cursor: 'pointer',\n        transition: 'all 0.15s',\n        textAlign: 'center'\n      };\n    },\n    setChannelMode(ch, mode) {\n      this.scales[ch].mode = mode;\n      if (mode === 'fixed') {\n        if (ch === 'vin') {\n          this.scales[ch].min = 10.0;\n          this.scales[ch].max = 26.0;\n        } else {\n          this.scales[ch].min = 0.0;\n          this.scales[ch].max = 3.3;\n        }\n      }\n      this.applyScales();\n    },\n    setAllMode(mode) {\n      ['frc', 'bub', 'vin'].forEach(ch => {\n        this.scales[ch].mode = mode;\n        if (mode === 'fixed') {\n          if (ch === 'vin') {\n            this.scales[ch].min = 10.0;\n            this.scales[ch].max = 26.0;\n          } else {\n            this.scales[ch].min = 0.0;\n            this.scales[ch].max = 3.3;\n          }\n        }\n      });\n      this.applyScales();\n    },\n    attachChartInterceptors() {\n      const chartIds = {\n        frc: 'ch_trends_frc',\n        bub: 'ch_trends_bub',\n        vin: 'ch_trends_vin'\n      };\n\n      Object.entries(chartIds).forEach(([ch, widgetId]) => {\n        const chartComp = (window.uiCharts && window.uiCharts[widgetId]) ? window.uiCharts[widgetId] : null;\n        if (!chartComp) return;\n\n        if (!chartComp._scaleInterceptorInstalled) {\n          chartComp._scaleInterceptorInstalled = true;\n          const origUpdateYAxis = chartComp.updateYAxisLimits;\n\n          chartComp.updateYAxisLimits = (e) => {\n            const cfg = this.scales[ch];\n            if (!cfg || cfg.mode === 'dynamic') {\n              if (origUpdateYAxis) {\n                origUpdateYAxis.call(chartComp, e);\n              }\n            } else {\n              let minVal = 0.0;\n              let maxVal = 3.3;\n              if (cfg.mode === 'fixed') {\n                minVal = (ch === 'vin') ? 10.0 : 0.0;\n                maxVal = (ch === 'vin') ? 26.0 : 3.3;\n              } else if (cfg.mode === 'custom') {\n                const parsedMin = parseFloat(String(cfg.min).replace(',', '.'));\n                const parsedMax = parseFloat(String(cfg.max).replace(',', '.'));\n                minVal = isNaN(parsedMin) ? 0.0 : parsedMin;\n                maxVal = isNaN(parsedMax) ? (minVal + 1.0) : parsedMax;\n                if (minVal >= maxVal) maxVal = minVal + 1.0;\n              }\n\n              if (e && e.yAxis) {\n                const yAxisArr = Array.isArray(e.yAxis) ? e.yAxis : [e.yAxis];\n                yAxisArr.forEach(yA => {\n                  if (yA) {\n                    yA.min = minVal;\n                    yA.max = maxVal;\n                  }\n                });\n              }\n            }\n          };\n        }\n      });\n    },\n    applyScalesLocally() {\n      const chartIds = {\n        frc: 'ch_trends_frc',\n        bub: 'ch_trends_bub',\n        vin: 'ch_trends_vin'\n      };\n\n      Object.entries(chartIds).forEach(([ch, widgetId]) => {\n        const cfg = this.scales[ch];\n        if (!cfg) return;\n\n        let minVal = null;\n        let maxVal = null;\n\n        if (cfg.mode === 'fixed') {\n          minVal = (ch === 'vin') ? 10.0 : 0.0;\n          maxVal = (ch === 'vin') ? 26.0 : 3.3;\n        } else if (cfg.mode === 'custom') {\n          const parsedMin = parseFloat(String(cfg.min).replace(',', '.'));\n          const parsedMax = parseFloat(String(cfg.max).replace(',', '.'));\n          minVal = isNaN(parsedMin) ? 0.0 : parsedMin;\n          maxVal = isNaN(parsedMax) ? (minVal + 1.0) : parsedMax;\n          if (minVal >= maxVal) maxVal = minVal + 1.0;\n        }\n\n        // 1. Actualizar props del widget en el store de Vuex\n        if (this.$store && this.$store.state && this.$store.state.ui && this.$store.state.ui.widgets) {\n          const w = this.$store.state.ui.widgets[widgetId];\n          if (w && w.props) {\n            w.props.ymin = (minVal !== null) ? minVal : '';\n            w.props.ymax = (maxVal !== null) ? maxVal : '';\n          }\n        }\n\n        // 2. Aplicar inmediatamente al objeto ECharts activo\n        const chartComp = (window.uiCharts && window.uiCharts[widgetId]) ? window.uiCharts[widgetId] : null;\n        if (chartComp) {\n          if (chartComp.props) {\n            chartComp.props.ymin = (minVal !== null) ? minVal : '';\n            chartComp.props.ymax = (maxVal !== null) ? maxVal : '';\n          }\n\n          if (chartComp.chart && typeof chartComp.chart.setOption === 'function') {\n            if (minVal !== null && maxVal !== null) {\n              chartComp.chart.setOption({\n                yAxis: [{\n                  min: minVal,\n                  max: maxVal\n                }]\n              });\n            } else {\n              chartComp.chart.setOption({\n                yAxis: [{\n                  min: 'dataMin',\n                  max: 'dataMax'\n                }]\n              });\n            }\n          }\n        }\n      });\n    },\n    applyScales() {\n      ['frc', 'bub', 'vin'].forEach(ch => {\n        const item = this.scales[ch];\n        const minVal = parseFloat(String(item.min).replace(',', '.'));\n        const maxVal = parseFloat(String(item.max).replace(',', '.'));\n        item.min = isNaN(minVal) ? 0 : minVal;\n        item.max = isNaN(maxVal) ? (item.min + 1) : maxVal;\n        if (item.min >= item.max) {\n          item.max = item.min + 1;\n        }\n      });\n\n      this.attachChartInterceptors();\n      this.applyScalesLocally();\n\n      this.send({ payload: JSON.parse(JSON.stringify(this.scales)) });\n      this.statusMsg = '✓ Escalas aplicadas (' + new Date().toLocaleTimeString() + ')';\n      setTimeout(() => { this.statusMsg = ''; }, 3000);\n    }\n  }\n}\n</script>"
+    },
+    {
+        "id": "fn_trends_split",
+        "type": "function",
+        "z": "7bd231074a839f63",
+        "name": "Split ADC Channels (2s)",
+        "func": "try {\n  const d = (typeof msg.payload === 'object') ? msg.payload : JSON.parse(msg.payload);\n  const adc = d.adc || {};\n  const now = Date.now();\n  const last = context.get('last_sample') || 0;\n  if (now - last < 2000) {\n    return null;\n  }\n  context.set('last_sample', now);\n  const frcV = (typeof adc.frc_sens_v === 'number') ? adc.frc_sens_v : 0;\n  const bubV = (typeof adc.bub_sens_v === 'number') ? adc.bub_sens_v : 0;\n  const vinV = (typeof adc.vin_sens_v === 'number') ? adc.vin_sens_v : 0;\n  return [\n    { topic: 'FRC_SENS (V)', payload: frcV },\n    { topic: 'BUB_SENS (V)', payload: bubV },\n    { topic: 'VIN_SENS (V)', payload: vinV }\n  ];\n} catch(e) {\n  return null;\n}",
+        "outputs": 3,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 380,
+        "y": 1240,
+        "wires": [
+            [
+                "ch_trends_frc"
+            ],
+            [
+                "ch_trends_bub"
+            ],
+            [
+                "ch_trends_vin"
+            ]
+        ]
+    },
+    {
+        "id": "ch_trends_frc",
+        "type": "ui-chart",
+        "z": "7bd231074a839f63",
+        "group": "grp_trends_frc",
+        "name": "Gráfico FRC_SENS",
+        "label": "Tensión Celda de Carga / Émbolo (V)",
+        "order": 1,
+        "chartType": "line",
+        "category": "topic",
+        "categoryType": "msg",
+        "xAxisType": "time",
+        "xAxisFormat": "HH:mm:ss",
+        "removeOlder": 60,
+        "removeOlderUnit": "60",
+        "removeOlderPoints": "",
+        "colors": [
+            "#58a6ff",
+            "#f85149"
+        ],
+        "width": 12,
+        "height": 5,
+        "className": "",
+        "x": 620,
+        "y": 1240,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "ch_trends_bub",
+        "type": "ui-chart",
+        "z": "7bd231074a839f63",
+        "group": "grp_trends_bub",
+        "name": "Gráfico BUB_SENS",
+        "label": "Tensión Sensor Óptico de Burbuja (V)",
+        "order": 1,
+        "chartType": "line",
+        "category": "topic",
+        "categoryType": "msg",
+        "xAxisType": "time",
+        "xAxisFormat": "HH:mm:ss",
+        "removeOlder": 60,
+        "removeOlderUnit": "60",
+        "removeOlderPoints": "",
+        "colors": [
+            "#3fb950",
+            "#e3b341"
+        ],
+        "width": 12,
+        "height": 5,
+        "className": "",
+        "x": 620,
+        "y": 1300,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "ch_trends_vin",
+        "type": "ui-chart",
+        "z": "7bd231074a839f63",
+        "group": "grp_trends_vin",
+        "name": "Gráfico VIN_SENS",
+        "label": "Tensión de Alimentación Li-Ion 4S / Cargador (V)",
+        "order": 1,
+        "chartType": "line",
+        "category": "topic",
+        "categoryType": "msg",
+        "xAxisType": "time",
+        "xAxisFormat": "HH:mm:ss",
+        "removeOlder": 60,
+        "removeOlderUnit": "60",
+        "removeOlderPoints": "",
+        "colors": [
+            "#e3b341",
+            "#f85149"
+        ],
+        "width": 12,
+        "height": 5,
+        "className": "",
+        "x": 620,
+        "y": 1360,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "fn_trends_scale_ctrl",
+        "type": "function",
+        "z": "7bd231074a839f63",
+        "name": "Config Escala Y Trends",
+        "func": "const defaultCfg = {\n  frc: { mode: 'dynamic', min: 0.0, max: 3.3 },\n  bub: { mode: 'dynamic', min: 0.0, max: 3.3 },\n  vin: { mode: 'dynamic', min: 10.0, max: 26.0 }\n};\n\nlet current = context.global.get('trends_scale_config') || defaultCfg;\n\nfunction cleanNum(val, defVal) {\n  if (val === undefined || val === null || val === '') return defVal;\n  const n = parseFloat(String(val).replace(',', '.'));\n  return isNaN(n) ? defVal : n;\n}\n\nconst input = msg.payload;\n\nif (typeof input === 'string') {\n  if (input === 'dynamic') {\n    current.frc.mode = 'dynamic';\n    current.bub.mode = 'dynamic';\n    current.vin.mode = 'dynamic';\n  } else if (input === 'fixed') {\n    current.frc.mode = 'fixed';\n    current.frc.min = 0.0;\n    current.frc.max = 3.3;\n    current.bub.mode = 'fixed';\n    current.bub.min = 0.0;\n    current.bub.max = 3.3;\n    current.vin.mode = 'fixed';\n    current.vin.min = 10.0;\n    current.vin.max = 26.0;\n  }\n} else if (typeof input === 'object' && input !== null) {\n  ['frc', 'bub', 'vin'].forEach(ch => {\n    if (input[ch]) {\n      if (input[ch].mode) current[ch].mode = input[ch].mode;\n      if (input[ch].min !== undefined) current[ch].min = cleanNum(input[ch].min, current[ch].min);\n      if (input[ch].max !== undefined) current[ch].max = cleanNum(input[ch].max, current[ch].max);\n      if (current[ch].min >= current[ch].max) {\n        current[ch].max = current[ch].min + 1.0;\n      }\n    }\n  });\n}\n\ncontext.global.set('trends_scale_config', current);\n\nfunction getChartOptions(ch, defMin, defMax) {\n  const conf = current[ch];\n  if (conf.mode === 'fixed') {\n    return {\n      ui_update: {\n        chartOptions: {\n          yAxis: {\n            min: defMin,\n            max: defMax\n          }\n        }\n      }\n    };\n  } else if (conf.mode === 'custom') {\n    return {\n      ui_update: {\n        chartOptions: {\n          yAxis: {\n            min: conf.min,\n            max: conf.max\n          }\n        }\n      }\n    };\n  } else {\n    return {\n      ui_update: {\n        chartOptions: {\n          yAxis: {\n            min: null,\n            max: null\n          }\n        }\n      }\n    };\n  }\n}\n\nconst frcMsg = getChartOptions('frc', 0.0, 3.3);\nconst bubMsg = getChartOptions('bub', 0.0, 3.3);\nconst vinMsg = getChartOptions('vin', 10.0, 26.0);\n\nconst navMsg = {\n  payload: JSON.parse(JSON.stringify(current))\n};\n\nreturn [frcMsg, bubMsg, vinMsg, navMsg];",
+        "outputs": 4,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 420,
+        "y": 1140,
+        "wires": [
+            [
+                "ch_trends_frc"
+            ],
+            [
+                "ch_trends_bub"
+            ],
+            [
+                "ch_trends_vin"
+            ],
+            [
+                "w_trends_nav"
+            ]
+        ]
+    },
+    {
+        "id": "inject_trends_init",
+        "type": "inject",
+        "z": "7bd231074a839f63",
+        "name": "Init Escala Trends",
+        "props": [
+            {
+                "p": "payload"
+            }
+        ],
+        "repeat": "",
+        "crontab": "",
+        "once": true,
+        "onceDelay": 0.5,
+        "topic": "",
+        "payload": "init",
+        "payloadType": "str",
+        "x": 190,
+        "y": 1140,
+        "wires": [
+            [
+                "fn_trends_scale_ctrl"
+            ]
+        ]
+    },
+    {
+        "id": "grp_syringe",
+        "type": "ui-group",
+        "z": "7bd231074a839f63",
+        "name": "Cinemática y Estado Mecánico del Émbolo",
+        "page": "pg_mon",
+        "width": 12,
+        "height": 11,
+        "order": 3,
+        "showTitle": true,
+        "className": "",
+        "visible": true
+    },
+    {
+        "id": "w_syringe",
+        "type": "ui-template",
+        "z": "7bd231074a839f63",
+        "group": "grp_syringe",
+        "name": "Visualizador Cinemático Jeringa",
+        "order": 1,
+        "width": 12,
+        "height": 0,
+        "format": "<template>\n  <div class=\"syr-wrapper\">\n    \n    <!-- HEADER BAR: ESTADO Y TELEMETRÍA CINEMÁTICA -->\n    <div class=\"syr-header\">\n      <div class=\"syr-header-left\">\n        <span class=\"syr-status-dot\" :style=\"{ background: statusColor, boxShadow: isMoving ? '0 0 8px ' + statusColor : 'none' }\"></span>\n        <span class=\"syr-status-badge\" :style=\"{ color: statusColor, background: statusBg, borderColor: statusColor + '40' }\">\n          {{ statusLabel }}\n        </span>\n        <span v-if=\"lastData.target_ml > 0\" class=\"syr-vol-badge\">\n          Vol: <strong>{{ infusedMl }}</strong> / {{ targetMl }} mL\n        </span>\n      </div>\n\n      <div class=\"syr-header-right\">\n        <div class=\"syr-stat-pill\">\n          <span class=\"syr-stat-lbl\">POS:</span>\n          <span class=\"syr-stat-val\">{{ positionMm }}</span>\n          <span class=\"syr-stat-unit\">mm</span>\n        </div>\n        <div class=\"syr-stat-pill\">\n          <span class=\"syr-stat-lbl\">VEL:</span>\n          <span class=\"syr-stat-val\">{{ speedUms }}</span>\n          <span class=\"syr-stat-unit\">µm/s</span>\n        </div>\n        <div class=\"syr-stat-pill syr-stat-pct\">\n          <span class=\"syr-stat-lbl\">AVANCE:</span>\n          <span class=\"syr-stat-val\" style=\"color:#58a6ff\">{{ pctFormatted }}%</span>\n        </div>\n      </div>\n    </div>\n\n    <!-- GRAPHIC CARD: JERINGA HORIZONTAL SVG CON AVANCE CINEMÁTICO DINÁMICO -->\n    <div class=\"syr-card\">\n      <svg viewBox=\"0 0 1440 220\" width=\"100%\" height=\"auto\" class=\"syr-svg\">\n        <defs>\n          <linearGradient id=\"syr_grad_shade\">\n            <stop offset=\"0\" stop-color=\"#000\"/>\n            <stop offset=\"0.5\" stop-color=\"#000\" stop-opacity=\"0\"/>\n            <stop offset=\"1\" stop-color=\"#000\"/>\n          </linearGradient>\n          <linearGradient id=\"syr_grad_barrel\" x1=\"158.63\" xlink:href=\"#syr_grad_shade\" gradientUnits=\"userSpaceOnUse\" x2=\"257.19\" y1=\"360.22\" y2=\"359.5\"/>\n          <linearGradient id=\"syr_grad_needle\" x1=\"-540.61\" xlink:href=\"#syr_grad_shade\" gradientUnits=\"userSpaceOnUse\" x2=\"-525.28\" y1=\"659.42\" y2=\"659.55\"/>\n          \n          <!-- Gradiente de fluido médico (Azul cian transparente brillante) -->\n          <linearGradient id=\"syr_fluid_grad\" x1=\"158\" y1=\"560\" x2=\"260\" y2=\"560\" gradientUnits=\"userSpaceOnUse\">\n            <stop offset=\"0%\" stop-color=\"#0077b6\" stop-opacity=\"0.85\"/>\n            <stop offset=\"35%\" stop-color=\"#00b4d8\" stop-opacity=\"0.75\"/>\n            <stop offset=\"70%\" stop-color=\"#90e0ef\" stop-opacity=\"0.85\"/>\n            <stop offset=\"100%\" stop-color=\"#0077b6\" stop-opacity=\"0.9\"/>\n          </linearGradient>\n\n          <!-- Máscara de recorte dinámica para el fluido: se acorta conforme avanza el émbolo -->\n          <clipPath id=\"syr_fluid_clip\">\n            <rect x=\"140\" :y=\"clipY\" width=\"140\" :height=\"clipHeight\" />\n          </clipPath>\n        </defs>\n\n        <!-- CONTENEDOR DE ROTACIÓN A EJE HORIZONTAL (Embolo a la izquierda, Aguja a la derecha) -->\n        <g transform=\"matrix(0 -1 1 0 20 320)\">\n          \n          <!-- 1. Fondo del Cilindro / Sombreado -->\n          <path id=\"path2232\" opacity=\".25\" d=\"m157.14 292.36h102.86v491.43c-0.4 15.1-25.87 29.63-51.72 30.04-25.18 0.4-50.75-12.9-51.14-30.04v-491.43z\" stroke=\"#000\" stroke-width=\"2\" fill=\"url(#syr_grad_barrel)\"/>\n          \n          <!-- 2. Aguja Hipodérmica Fija en Boquilla Derecha -->\n          <g id=\"g2178\" transform=\"translate(742.1 441.38)\" fill=\"#b3b3b3\">\n            <path id=\"path2174\" d=\"m-533.14 940.93l-4.66-68.67-4.63-512.93c6.4 3.96 11.87 2.32 17.15-0.44l-2.31 513.29-5.55 68.75z\"/>\n            <path id=\"path2176\" transform=\"matrix(.24 0 0 1 -411.09 2.8571)\" d=\"m-491.43 808.08a15.714 17.685 0 1 1 -31.43 0 15.714 17.685 0 1 1 31.43 0z\"/>\n          </g>\n          <g id=\"g2262\" opacity=\".35\" fill=\"url(#syr_grad_needle)\" transform=\"translate(742.1 441.38)\">\n            <path id=\"path2264\" fill=\"url(#syr_grad_needle)\" d=\"m-533.14 940.93l-4.66-68.67-4.63-512.93c6.4 3.96 11.87 2.32 17.15-0.44l-2.31 513.29-5.55 68.75z\"/>\n          </g>\n          \n          <!-- Hombro inferior del cuerpo / Luer-Lock -->\n          <path id=\"path2164\" d=\"m260 283.79a51.429 34.286 0 1 1 -102.86 0 51.429 34.286 0 1 1 102.86 0z\" transform=\"matrix(1 0 0 .91667 0 521.65)\" stroke=\"#333\" stroke-width=\"2\" fill=\"#b3b3b3\"/>\n          <path id=\"path2330\" d=\"m260 283.79a51.429 34.286 0 1 1 -102.86 0 51.429 34.286 0 1 1 102.86 0z\" transform=\"matrix(1 0 0 .91667 0 521.65)\" stroke=\"#333\" stroke-width=\"2\" fill=\"#b3b3b3\"/>\n          <path id=\"path2562\" d=\"m214.98 933.49a6.9553 3.7938 0 1 1 -13.91 0 6.9553 3.7938 0 1 1 13.91 0z\" transform=\"translate(-.0000065250 -149.22)\" stroke=\"#333\" stroke-width=\"2\" fill=\"#4d4d4d\"/>\n          \n          <!-- 3. Fluido Dinámico (Se reduce en tiempo real con clip-path) -->\n          <g clip-path=\"url(#syr_fluid_clip)\">\n            <path id=\"rect2224\" fill=\"url(#syr_fluid_grad)\" d=\"m158.55 561.53v222.81h0.09c1.64 16.39 23.37 29.39 49.91 29.39 26.55 0 48.31-13 49.95-29.39h0.09v-222.81h-100.04z\"/>\n          </g>\n\n          <!-- 4. CONJUNTO MÓVIL DEL ÉMBOLO (Avanza horizontalmente hacia la derecha) -->\n          <g id=\"plunger-assembly\" :transform=\"plungerTransform\" style=\"transition: transform 0.35s ease-out\">\n            <!-- Pistón de goma / Cabezal de empuje -->\n            <g id=\"g2206\" transform=\"translate(1 335.43)\">\n              <path id=\"path2192\" transform=\"matrix(1 0 0 .75 0 8.3763)\" d=\"m260 283.79c0 18.93-23.04 34.29-51.43 34.29s-51.43-15.36-51.43-34.29c0-18.92 23.04-34.28 51.43-34.28s51.43 15.36 51.43 34.28z\" fill=\"#2d3748\"/>\n              <rect id=\"rect2196\" y=\"211.1\" width=\"102.82\" x=\"157.24\" height=\"12.221\" fill=\"#1a202c\"/>\n              <path id=\"path2190\" d=\"m260 211.22c0 14.19-23.04 25.71-51.43 25.71s-51.43-11.52-51.43-25.71 23.04-25.71 51.43-25.71 51.43 11.52 51.43 25.71z\" fill=\"#4a5568\"/>\n            </g>\n            <!-- Vástago inferior -->\n            <path id=\"rect2166\" d=\"m217.14 261.64v277.94c0 5.5-3.82 9.93-8.57 9.93s-8.57-4.43-8.57-9.93v-277.94\" fill=\"#a0aec0\" stroke=\"#718096\" stroke-width=\"1\"/>\n            <path id=\"path2188\" d=\"m222.05 293.45a13.586 5.3071 0 1 1 -27.18 0 13.586 5.3071 0 1 1 27.18 0z\" fill=\"#718096\"/>\n            <!-- Vástago superior -->\n            <path id=\"path2222\" fill=\"#cbd5e0\" stroke=\"#718096\" stroke-width=\"1\" d=\"m217.14 288.47c-5.58 9.63-11.14 10.14-17.14 0.33v-251.49c0.88-8.806 16.91-6.545 17.14 1.052v250.11z\"/>\n            <!-- Brida del émbolo (Thumb rest) -->\n            <g id=\"g2211\" transform=\"translate(1 -169.69)\">\n              <path id=\"path2213\" transform=\"matrix(1 0 0 .75 0 8.3763)\" d=\"m260 283.79c0 18.93-23.04 34.29-51.43 34.29s-51.43-15.36-51.43-34.29c0-18.92 23.04-34.28 51.43-34.28s51.43 15.36 51.43 34.28z\" fill=\"#4a5568\"/>\n              <rect id=\"rect2215\" y=\"211.1\" width=\"102.82\" x=\"157.24\" height=\"12.221\" fill=\"#718096\"/>\n              <path id=\"path2217\" d=\"m260 211.22c0 14.19-23.04 25.71-51.43 25.71s-51.43-11.52-51.43-25.71 23.04-25.71 51.43-25.71 51.43 11.52 51.43 25.71z\" fill=\"#e2e8f0\"/>\n            </g>\n          </g>\n\n          <!-- 5. Cilindro Transparente, Bridas fijas y Graduaciones -->\n          <path id=\"rect2160\" opacity=\".28\" d=\"m157.14 292.36h102.86v491.43c-0.4 15.1-25.87 29.63-51.72 30.04-25.18 0.4-50.75-12.9-51.14-30.04v-491.43z\" stroke=\"#48bb78\" stroke-width=\"2\" fill=\"#e6fffa\"/>\n          <path id=\"path2162\" d=\"m260 283.79a51.429 34.286 0 1 1 -102.86 0 51.429 34.286 0 1 1 102.86 0z\" transform=\"matrix(1 0 0 .75 0 82.376)\" stroke=\"#4a5568\" stroke-width=\"2\" fill=\"#cbd5e0\"/>\n          \n          <path id=\"path2182\" fill=\"#b3b3b3\" d=\"m157.51 780.56l42.57 20.61\"/>\n          <path id=\"path2184\" fill=\"#b3b3b3\" d=\"m218.26 800.15l41.41-18.8\"/>\n          <path id=\"path2332\" fill=\"#b3b3b3\" d=\"m157.51 780.56l42.57 20.61\"/>\n          <path id=\"path2334\" fill=\"#b3b3b3\" d=\"m218.26 800.15l41.41-18.8\"/>\n          <path id=\"path2229\" transform=\"matrix(.38889 0 0 .51220 254.33 691.21)\" d=\"m-106.35 1216.4a9.0297 20.568 0 1 1 -18.06 0 9.0297 20.568 0 1 1 18.06 0z\"/>\n\n          <!-- Marcas de Graduación -->\n          <g id=\"g2468\" stroke=\"#1a202c\" stroke-width=\"7\" transform=\"matrix(0 .10161 .14148 -.060149 122.32 467.48)\">\n            <g id=\"g2296\"><path d=\"m-450.49 815.06v64.14\"/><path d=\"m-510.89 815.06v64.14\"/><path d=\"m-571.29 815.06v64.14\"/><path d=\"m-631.69 815.06v64.14\"/><path d=\"m-692.09 774.31v103.96\"/><path d=\"m-752.49 815.06v64.14\"/><path d=\"m-812.89 815.06v64.14\"/><path d=\"m-873.29 815.06v64.14\"/><path d=\"m-933.69 815.06v64.14\"/><path d=\"m-994.09 747.72v131.48\"/></g>\n            <g id=\"g2308\" transform=\"translate(606.07)\"><path d=\"m-450.49 815.06v64.14\"/><path d=\"m-510.89 815.06v64.14\"/><path d=\"m-571.29 815.06v64.14\"/><path d=\"m-631.69 815.06v64.14\"/><path d=\"m-692.09 774.31v103.96\"/><path d=\"m-752.49 815.06v64.14\"/><path d=\"m-812.89 815.06v64.14\"/><path d=\"m-873.29 815.06v64.14\"/><path d=\"m-933.69 815.06v64.14\"/><path d=\"m-994.09 747.72v131.48\"/></g>\n            <g id=\"g2336\" transform=\"translate(1221.8)\"><path d=\"m-450.49 815.06v64.14\"/><path d=\"m-510.89 815.06v64.14\"/><path d=\"m-571.29 815.06v64.14\"/><path d=\"m-631.69 815.06v64.14\"/><path d=\"m-692.09 774.31v103.96\"/><path d=\"m-752.49 815.06v64.14\"/><path d=\"m-812.89 815.06v64.14\"/><path d=\"m-873.29 815.06v64.14\"/><path d=\"m-933.69 815.06v64.14\"/><path d=\"m-994.09 747.72v131.48\"/></g>\n            <g id=\"g2358\" transform=\"translate(1827.8)\"><path d=\"m-450.49 815.06v64.14\"/><path d=\"m-510.89 815.06v64.14\"/><path d=\"m-571.29 815.06v64.14\"/><path d=\"m-631.69 815.06v64.14\"/><path d=\"m-692.09 774.31v103.96\"/><path d=\"m-752.49 815.06v64.14\"/><path d=\"m-812.89 815.06v64.14\"/><path d=\"m-873.29 815.06v64.14\"/><path d=\"m-933.69 815.06v64.14\"/><path d=\"m-994.09 747.72v131.48\"/></g>\n            <g id=\"g2380\" transform=\"translate(2430.7)\"><path d=\"m-450.49 815.06v64.14\"/><path d=\"m-510.89 815.06v64.14\"/><path d=\"m-571.29 815.06v64.14\"/><path d=\"m-631.69 815.06v64.14\"/><path d=\"m-692.09 774.31v103.96\"/><path d=\"m-752.49 815.06v64.14\"/><path d=\"m-812.89 815.06v64.14\"/><path d=\"m-873.29 815.06v64.14\"/><path d=\"m-933.69 815.06v64.14\"/><path d=\"m-994.09 747.72v131.48\"/></g>\n            <g id=\"g2402\" transform=\"translate(3036.8)\"><path d=\"m-450.49 815.06v64.14\"/><path d=\"m-510.89 815.06v64.14\"/><path d=\"m-571.29 815.06v64.14\"/><path d=\"m-631.69 815.06v64.14\"/><path d=\"m-692.09 774.31v103.96\"/><path d=\"m-752.49 815.06v64.14\"/><path d=\"m-812.89 815.06v64.14\"/><path d=\"m-873.29 815.06v64.14\"/><path d=\"m-933.69 815.06v64.14\"/><path d=\"m-994.09 747.72v131.48\"/></g>\n            <g id=\"g2424\" transform=\"translate(3652.5)\"><path d=\"m-450.49 815.06v64.14\"/><path d=\"m-510.89 815.06v64.14\"/><path d=\"m-571.29 815.06v64.14\"/><path d=\"m-631.69 815.06v64.14\"/><path d=\"m-692.09 774.31v103.96\"/><path d=\"m-752.49 815.06v64.14\"/><path d=\"m-812.89 815.06v64.14\"/><path d=\"m-873.29 815.06v64.14\"/><path d=\"m-933.69 815.06v64.14\"/><path d=\"m-994.09 747.72v131.48\"/></g>\n            <g id=\"g2446\" transform=\"translate(4258.6)\"><path d=\"m-450.49 815.06v64.14\"/><path d=\"m-510.89 815.06v64.14\"/><path d=\"m-571.29 815.06v64.14\"/><path d=\"m-631.69 815.06v64.14\"/><path d=\"m-692.09 774.31v103.96\"/><path d=\"m-752.49 815.06v64.14\"/><path d=\"m-812.89 815.06v64.14\"/><path d=\"m-873.29 815.06v64.14\"/><path d=\"m-933.69 815.06v64.14\"/><path d=\"m-994.09 747.72v131.48\"/></g>\n          </g>\n        </g>\n      </svg>\n    </div>\n\n    <!-- BARRA INFERIOR DE RECORRIDO MECÁNICO -->\n    <div class=\"syr-footer\">\n      <div class=\"syr-track\">\n        <div class=\"syr-fill\" :style=\"{ width: pct + '%', background: progressGradient }\"></div>\n      </div>\n      <div class=\"syr-track-labels\">\n        <span>0 mm (0%)</span>\n        <span>Posición: {{ positionMm }} mm</span>\n        <span>60 mm (100%)</span>\n      </div>\n    </div>\n\n  </div>\n</template>\n\n<style scoped>\n.syr-wrapper {\n  background: #161b22;\n  border: 1px solid #30363d;\n  border-radius: 8px;\n  padding: 12px 14px;\n  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;\n  color: #e6edf3;\n  box-sizing: border-box;\n}\n\n.syr-header {\n  display: flex;\n  justify-content: space-between;\n  align-items: center;\n  flex-wrap: wrap;\n  gap: 10px;\n  margin-bottom: 10px;\n  padding-bottom: 8px;\n  border-bottom: 1px solid #21262d;\n}\n\n.syr-header-left {\n  display: flex;\n  align-items: center;\n  gap: 8px;\n}\n\n.syr-status-dot {\n  width: 9px;\n  height: 9px;\n  border-radius: 50%;\n  display: inline-block;\n  transition: all 0.3s ease;\n}\n\n.syr-status-badge {\n  font-size: 11px;\n  font-weight: 700;\n  text-transform: uppercase;\n  padding: 2px 8px;\n  border-radius: 12px;\n  border: 1px solid;\n  letter-spacing: 0.5px;\n}\n\n.syr-vol-badge {\n  font-size: 11px;\n  color: #8b949e;\n  background: #0d1117;\n  padding: 2px 7px;\n  border-radius: 6px;\n  border: 1px solid #21262d;\n}\n\n.syr-vol-badge strong {\n  color: #e6edf3;\n}\n\n.syr-header-right {\n  display: flex;\n  align-items: center;\n  gap: 6px;\n}\n\n.syr-stat-pill {\n  display: flex;\n  align-items: baseline;\n  gap: 4px;\n  background: #0d1117;\n  border: 1px solid #21262d;\n  border-radius: 6px;\n  padding: 3px 8px;\n  font-size: 11px;\n}\n\n.syr-stat-lbl {\n  color: #8b949e;\n  font-size: 10px;\n  font-weight: 600;\n}\n\n.syr-stat-val {\n  font-family: monospace;\n  font-weight: 700;\n  color: #e6edf3;\n}\n\n.syr-stat-unit {\n  color: #8b949e;\n  font-size: 10px;\n}\n\n.syr-stat-pct {\n  border-color: #1f6feb;\n  background: rgba(31, 111, 235, 0.1);\n}\n\n.syr-card {\n  background: #0d1117;\n  border: 1px solid #21262d;\n  border-radius: 6px;\n  padding: 16px 20px;\n  display: flex;\n  align-items: center;\n  justify-content: center;\n  overflow: hidden;\n}\n\n.syr-svg {\n  display: block;\n  max-height: 270px;\n  overflow: visible;\n}\n\n.syr-footer {\n  margin-top: 10px;\n}\n\n.syr-track {\n  width: 100%;\n  height: 6px;\n  background: #21262d;\n  border-radius: 3px;\n  overflow: hidden;\n}\n\n.syr-fill {\n  height: 100%;\n  border-radius: 3px;\n  transition: width 0.35s ease-out;\n  box-shadow: 0 0 6px rgba(88, 166, 255, 0.4);\n}\n\n.syr-track-labels {\n  display: flex;\n  justify-content: space-between;\n  font-size: 10px;\n  color: #8b949e;\n  margin-top: 4px;\n  font-family: monospace;\n}\n</style>\n\n<script>\nexport default {\n  name: 'SyringeKinematicsWidget',\n  data() {\n    return {\n      lastData: {\n        progress_pct: 0.0,\n        position_mm: 0.0,\n        speed_ums: 0.0,\n        infused_ml: 0.0,\n        target_ml: 0.0,\n        rate_ml_h: 0.0,\n        fsm_state: 3\n      }\n    };\n  },\n  watch: {\n    msg: {\n      immediate: true,\n      handler(val) {\n        if (!val || typeof val.payload === 'undefined') return;\n        const d = (typeof val.payload === 'object') ? val.payload : null;\n        if (d) {\n          if (typeof d.progress_pct === 'number') this.lastData.progress_pct = d.progress_pct;\n          if (typeof d.position_mm === 'number') this.lastData.position_mm = d.position_mm;\n          if (typeof d.speed_ums === 'number') this.lastData.speed_ums = d.speed_ums;\n          if (typeof d.infused_ml === 'number') this.lastData.infused_ml = d.infused_ml;\n          if (typeof d.target_ml === 'number') this.lastData.target_ml = d.target_ml;\n          if (typeof d.rate_ml_h === 'number') this.lastData.rate_ml_h = d.rate_ml_h;\n          if (typeof d.fsm_state === 'number') this.lastData.fsm_state = d.fsm_state;\n        } else {\n          const num = parseFloat(val.payload);\n          if (!isNaN(num)) this.lastData.progress_pct = num;\n        }\n      }\n    }\n  },\n  computed: {\n    pct() {\n      let p = Number(this.lastData.progress_pct);\n      if (isNaN(p) || p === 0) {\n        if (this.lastData.target_ml > 0 && typeof this.lastData.infused_ml === 'number') {\n          p = (this.lastData.infused_ml / this.lastData.target_ml) * 100;\n        }\n      }\n      return Math.max(0, Math.min(100, p || 0));\n    },\n    pctFormatted() {\n      return this.pct.toFixed(1);\n    },\n    strokePx() {\n      return (this.pct / 100.0) * 238.0;\n    },\n    plungerTransform() {\n      return 'translate(0, ' + this.strokePx.toFixed(2) + ')';\n    },\n    clipHeight() {\n      return Math.max(0, 252.2 - this.strokePx).toFixed(2);\n    },\n    clipY() {\n      return (561.53 + this.strokePx).toFixed(2);\n    },\n    positionMm() {\n      if (typeof this.lastData.position_mm === 'number' && this.lastData.position_mm > 0) {\n        return this.lastData.position_mm.toFixed(2);\n      }\n      return ((this.pct / 100.0) * 60.0).toFixed(2);\n    },\n    speedUms() {\n      if (typeof this.lastData.speed_ums === 'number') {\n        return this.lastData.speed_ums.toFixed(0);\n      }\n      return '0';\n    },\n    infusedMl() {\n      if (typeof this.lastData.infused_ml === 'number') {\n        return this.lastData.infused_ml.toFixed(2);\n      }\n      return '0.00';\n    },\n    targetMl() {\n      if (typeof this.lastData.target_ml === 'number') {\n        return this.lastData.target_ml.toFixed(2);\n      }\n      return '0.00';\n    },\n    isMoving() {\n      return parseFloat(this.speedUms) > 0 || this.lastData.fsm_state === 6;\n    },\n    statusLabel() {\n      const s = this.lastData.fsm_state;\n      if (s >= 13 && s <= 15) return 'OCLUSIÓN';\n      if (s === 6) return 'INFUNDIENDO';\n      if (s === 1) return 'HOMING';\n      if (s === 4) return 'BUSCANDO JERINGA';\n      if (s === 7) return 'COMPLETADA';\n      if (this.isMoving) return 'EN MOVIMIENTO';\n      if (this.pct >= 100) return 'DISPENSADO 100%';\n      if (s === 3) return 'STANDBY';\n      return 'STANDBY';\n    },\n    statusColor() {\n      const s = this.lastData.fsm_state;\n      if (s >= 13 && s <= 15) return '#f85149';\n      if (s === 6 || this.isMoving) return '#3fb950';\n      if (this.pct >= 100 || s === 7) return '#58a6ff';\n      return '#8b949e';\n    },\n    statusBg() {\n      const s = this.lastData.fsm_state;\n      if (s >= 13 && s <= 15) return 'rgba(248,81,73,0.18)';\n      if (s === 6 || this.isMoving) return 'rgba(63,185,80,0.18)';\n      if (this.pct >= 100 || s === 7) return 'rgba(88,166,255,0.18)';\n      return '#21262d';\n    },\n    progressGradient() {\n      if (this.pct >= 100) return 'linear-gradient(90deg, #238636, #3fb950)';\n      return 'linear-gradient(90deg, #1f6feb, #58a6ff)';\n    }\n  }\n}\n</script>",
+        "storeState": true,
+        "passthru": false,
+        "resendOnReconnect": true,
+        "templateScope": "local",
+        "className": "",
+        "x": 640,
+        "y": 620,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "fn_syringe_data",
+        "type": "function",
+        "z": "7bd231074a839f63",
+        "name": "Parse Syringe Data",
+        "func": "try {\n  const d = (typeof msg.payload === 'object') ? msg.payload : JSON.parse(msg.payload);\n  const topicParts = (msg.topic || '').split('/');\n  const devId = topicParts[1] || 'default';\n  \n  // Guardar estado individual por dispositivo\n  const allStates = context.global.get('syringe_states') || {};\n  const state = allStates[devId] || {\n    devId: devId,\n    progress_pct: 0.0,\n    position_mm: 0.0,\n    speed_ums: 0.0,\n    infused_ml: 0.0,\n    target_ml: 0.0,\n    rate_ml_h: 0.0,\n    fsm_state: 3,\n    lastUpdate: 0\n  };\n\n  if (d.progress_pct !== undefined) state.progress_pct = Number(d.progress_pct);\n  if (d.position_mm !== undefined) state.position_mm = Number(d.position_mm);\n  if (d.speed_ums !== undefined) state.speed_ums = Number(d.speed_ums);\n  if (d.infused_ml !== undefined) state.infused_ml = Number(d.infused_ml);\n  if (d.target_ml !== undefined) {\n    state.target_ml = Number(d.target_ml);\n    if (state.target_ml > 0 && d.progress_pct === undefined) {\n      state.progress_pct = Math.min(100, (state.infused_ml / state.target_ml) * 100);\n    }\n  }\n  if (d.rate_ml_h !== undefined) state.rate_ml_h = Number(d.rate_ml_h);\n  if (d.fsm_state !== undefined) state.fsm_state = Number(d.fsm_state);\n  state.lastUpdate = Date.now();\n\n  allStates[devId] = state;\n  context.global.set('syringe_states', allStates);\n\n  // Si este dispositivo está en 0% idle, pero otro dispositivo está infundiendo activamente, no sobrescribir la UI\n  if (state.progress_pct === 0 && state.fsm_state !== 6) {\n    for (const [otherId, otherState] of Object.entries(allStates)) {\n      if (otherId !== devId && (otherState.fsm_state === 6 || otherState.progress_pct > 0) && (Date.now() - otherState.lastUpdate < 3000)) {\n        return [null, null, null];\n      }\n    }\n  }\n\n  context.global.set('syringe_state', state);\n\n  const msgSyringe = { payload: state };\n  const msgRate = (state.rate_ml_h !== undefined) ? { payload: state.rate_ml_h } : null;\n  const msgStats = {\n    payload: {\n      vol_inf: state.infused_ml,\n      vol_tgt: state.target_ml,\n      t_ela_s: state.elapsed_s || 0,\n      t_rem_h: (state.rate_ml_h > 0 && state.target_ml > state.infused_ml) \n        ? ((state.target_ml - state.infused_ml) / state.rate_ml_h) : 0\n    }\n  };\n\n  return [msgSyringe, msgRate, msgStats];\n} catch(e) {\n  return [null, null, null];\n}",
+        "outputs": 3,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 380,
+        "y": 620,
+        "wires": [
+            [
+                "w_syringe"
+            ],
+            [
+                "4234e88b4022e162"
+            ],
+            [
+                "79c950bbaaa9886f"
+            ]
+        ]
+    },
+    {
+        "id": "n_motion_in",
+        "type": "mqtt in",
+        "z": "7bd231074a839f63",
+        "name": "MQTT Motion Sub",
+        "topic": "bj/+/telemetry/motion",
+        "qos": "0",
+        "datatype": "auto-detect",
+        "broker": "cf_broker",
+        "nl": false,
+        "rap": true,
+        "rh": 0,
+        "inputs": 0,
+        "x": 140,
+        "y": 600,
+        "wires": [
+            [
+                "fn_syringe_data"
+            ]
+        ]
+    },
+    {
+        "id": "n_session_in",
+        "type": "mqtt in",
+        "z": "7bd231074a839f63",
+        "name": "MQTT Session Sub",
+        "topic": "bj/+/telemetry/session",
+        "qos": "0",
+        "datatype": "auto-detect",
+        "broker": "cf_broker",
+        "nl": false,
+        "rap": true,
+        "rh": 0,
+        "inputs": 0,
+        "x": 140,
+        "y": 640,
+        "wires": [
+            [
+                "fn_syringe_data"
+            ]
+        ]
+    },
+    {
+        "id": "w_utn_header",
+        "type": "ui-template",
+        "z": "7bd231074a839f63",
+        "name": "Header UTN Global",
+        "ui": "cf_base",
+        "order": 1,
+        "width": 0,
+        "height": 0,
+        "templateScope": "widget:ui",
+        "format": "<template>\n  <teleport to=\"#app-bar-title\" v-if=\"domReady\">\n    <div class=\"utn-header-wrap\">\n      <div class=\"utn-logo-box\">\n        <img :src=\"utnLogoB64\" alt=\"UTN Logo\" class=\"utn-logo-img\" />\n      </div>\n      <div class=\"utn-header-divider\"></div>\n      <div class=\"utn-title-group\">\n        <span class=\"utn-header-title\">Bomba de infusión a jeringa con control y monitoreo IOT</span>\n      </div>\n      <div class=\"utn-page-badge\" v-if=\"pageName\">\n        {{ pageName }}\n      </div>\n    </div>\n  </teleport>\n\n  <teleport to=\"#app-bar-actions\" v-if=\"domReady\">\n    <div class=\"utn-actions-wrap\">\n      <div class=\"utn-clock-pill\">\n        <span class=\"utn-clock-icon\">🕒</span>\n        <span>{{ currentTime }}</span>\n      </div>\n    </div>\n  </teleport>\n</template>\n\n<script>\nexport default {\n  data() {\n    return {\n      domReady: false,\n      currentTime: '--:--:--',\n      timer: null,\n      utnLogoB64: \"data:image/png;base64,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\"\n    };\n  },\n  computed: {\n    pageName() {\n      var pId = this.$route && this.$route.meta ? this.$route.meta.id : null;\n      var pages = this.$store && this.$store.state && this.$store.state.ui ? this.$store.state.ui.pages : null;\n      if (pages && pId && pages[pId]) {\n        return pages[pId].name;\n      }\n      return '';\n    }\n  },\n  methods: {\n    updateClock() {\n      var d = new Date();\n      var pad = function(n) { return (n < 10 ? '0' : '') + n; };\n      this.currentTime = pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds());\n    }\n  },\n  mounted() {\n    var self = this;\n    this.updateClock();\n    this.timer = setInterval(function() {\n      self.updateClock();\n    }, 1000);\n\n    var checkDom = function() {\n      if (typeof document !== 'undefined' && document.getElementById('app-bar-title')) {\n        self.domReady = true;\n      } else {\n        setTimeout(checkDom, 60);\n      }\n    };\n    checkDom();\n  },\n  beforeUnmount() {\n    if (this.timer) {\n      clearInterval(this.timer);\n    }\n  }\n}\n</script>\n\n<style>\n.v-toolbar-title {\n  flex: 1 1 auto !important;\n  max-width: 100% !important;\n  overflow: visible !important;\n}\n.v-toolbar-title__placeholder {\n  overflow: visible !important;\n  display: flex !important;\n  align-items: center !important;\n  width: 100% !important;\n}\n#app-bar-title {\n  display: flex;\n  align-items: center;\n  width: 100%;\n  min-height: 48px;\n}\n.utn-header-wrap {\n  display: flex;\n  align-items: center;\n  gap: 12px;\n  width: 100%;\n  user-select: none;\n}\n.utn-logo-box {\n  display: flex;\n  align-items: center;\n  justify-content: center;\n  background: #ffffff;\n  border-radius: 6px;\n  padding: 3px 8px;\n  box-shadow: 0 1px 4px rgba(0,0,0,0.35);\n  height: 38px;\n  flex-shrink: 0;\n}\n.utn-logo-img {\n  height: 32px;\n  width: auto;\n  object-fit: contain;\n  display: block;\n}\n.utn-header-divider {\n  width: 1px;\n  height: 26px;\n  background: rgba(255, 255, 255, 0.25);\n  flex-shrink: 0;\n}\n.utn-title-group {\n  display: flex;\n  align-items: center;\n  min-width: 0;\n}\n.utn-header-title {\n  font-size: 15px;\n  font-weight: 700;\n  letter-spacing: 0.3px;\n  color: #ffffff;\n  white-space: nowrap;\n  overflow: hidden;\n  text-overflow: ellipsis;\n  text-shadow: 0 1px 2px rgba(0,0,0,0.5);\n}\n.utn-page-badge {\n  background: rgba(88, 166, 255, 0.15);\n  color: #58a6ff;\n  border: 1px solid rgba(88, 166, 255, 0.35);\n  border-radius: 12px;\n  padding: 2px 10px;\n  font-size: 11px;\n  font-weight: 600;\n  text-transform: uppercase;\n  letter-spacing: 0.5px;\n  margin-left: 8px;\n  white-space: nowrap;\n  flex-shrink: 0;\n}\n.utn-actions-wrap {\n  display: flex;\n  align-items: center;\n  padding-right: 12px;\n}\n.utn-clock-pill {\n  display: flex;\n  align-items: center;\n  gap: 6px;\n  background: rgba(255, 255, 255, 0.05);\n  border: 1px solid rgba(255, 255, 255, 0.12);\n  border-radius: 6px;\n  padding: 4px 10px;\n  font-family: monospace;\n  font-size: 12px;\n  font-weight: 700;\n  color: #c9d1d9;\n}\n.utn-clock-icon {\n  font-size: 11px;\n}\n@media (max-width: 900px) {\n  .utn-header-title {\n    font-size: 13px;\n  }\n  .utn-logo-box {\n    height: 32px;\n    padding: 2px 6px;\n  }\n  .utn-logo-img {\n    height: 26px;\n  }\n  .utn-page-badge {\n    display: none;\n  }\n}\n@media (max-width: 600px) {\n  .utn-clock-pill {\n    display: none;\n  }\n}\n</style>",
+        "storeState": false,
+        "passthru": false,
+        "resendOnReconnect": false,
+        "className": "",
+        "x": 620,
+        "y": 40
     }
-  },
-  {
-    "id": "pg_mon",
-    "type": "ui-page",
-    "name": "Monitor",
-    "ui": "cf_base",
-    "path": "/monitor",
-    "icon": "home",
-    "layout": "notebook",
-    "theme": "cf_theme",
-    "order": 1,
-    "className": "",
-    "visible": true
-  },
-  {
-    "id": "pg_ctrl",
-    "type": "ui-page",
-    "name": "Control",
-    "ui": "cf_base",
-    "path": "/control",
-    "icon": "mdi-gamepad-variant",
-    "layout": "notebook",
-    "theme": "cf_theme",
-    "order": 2,
-    "className": "",
-    "visible": true
-  },
-  {
-    "id": "pg_sim",
-    "type": "ui-page",
-    "name": "Simulador",
-    "ui": "cf_base",
-    "path": "/simulador",
-    "icon": "mdi-flask-outline",
-    "layout": "notebook",
-    "theme": "cf_theme",
-    "order": 3,
-    "className": "",
-    "visible": true
-  },
-  {
-    "id": "grp_dev",
-    "type": "ui-group",
-    "name": "Dispositivo",
-    "page": "pg_mon",
-    "width": "6",
-    "height": "1",
-    "order": 1,
-    "disp": true,
-    "className": "",
-    "visible": true
-  },
-  {
-    "id": "grp_state",
-    "type": "ui-group",
-    "name": "Estado",
-    "page": "pg_mon",
-    "width": 6,
-    "height": "1",
-    "order": 2,
-    "disp": true,
-    "className": "",
-    "visible": true
-  },
-  {
-    "id": "grp_telem",
-    "type": "ui-group",
-    "name": "Infusión",
-    "page": "pg_mon",
-    "width": "6",
-    "height": "1",
-    "order": 3,
-    "disp": true,
-    "className": "",
-    "visible": true
-  },
-  {
-    "id": "grp_alm",
-    "type": "ui-group",
-    "name": "Alarmas",
-    "page": "pg_mon",
-    "width": "12",
-    "height": "1",
-    "order": 4,
-    "disp": true,
-    "className": "",
-    "visible": true
-  },
-  {
-    "id": "grp_rate",
-    "type": "ui-group",
-    "name": "Caudal",
-    "page": "pg_mon",
-    "width": "6",
-    "height": "1",
-    "order": 5,
-    "disp": true,
-    "className": "",
-    "visible": true
-  },
-  {
-    "id": "grp_chart",
-    "type": "ui-group",
-    "name": "Sensor Fuerza (mmHg)",
-    "page": "pg_mon",
-    "width": "12",
-    "height": "1",
-    "order": 6,
-    "disp": true,
-    "className": "",
-    "visible": true
-  },
-  {
-    "id": "grp_fsm_status",
-    "type": "ui-group",
-    "name": "Estado FSM Motor",
-    "page": "pg_ctrl",
-    "width": 12,
-    "height": "1",
-    "order": 1,
-    "disp": true,
-    "className": "",
-    "visible": true
-  },
-  {
-    "id": "grp_fsm_cmds",
-    "type": "ui-group",
-    "name": "Control FSM",
-    "page": "pg_ctrl",
-    "width": 12,
-    "height": "1",
-    "order": 2,
-    "disp": true,
-    "className": "",
-    "visible": true
-  },
-  {
-    "id": "grp_cmds",
-    "type": "ui-group",
-    "name": "Emergencia / Movimiento",
-    "page": "pg_ctrl",
-    "width": "6",
-    "height": "1",
-    "order": 3,
-    "disp": true,
-    "className": "",
-    "visible": true
-  },
-  {
-    "id": "grp_ack",
-    "type": "ui-group",
-    "name": "ACK / Eventos",
-    "page": "pg_ctrl",
-    "width": "12",
-    "height": "1",
-    "order": 4,
-    "disp": true,
-    "className": "",
-    "visible": true
-  },
-  {
-    "id": "grp_sim",
-    "type": "ui-group",
-    "name": "Simulador",
-    "page": "pg_sim",
-    "width": "6",
-    "height": "1",
-    "order": 1,
-    "disp": true,
-    "className": "",
-    "visible": true
-  },
-  {
-    "id": "n_telem_in",
-    "type": "mqtt in",
-    "z": "fl_main",
-    "name": "Telemetría",
-    "topic": "bj/+/telemetry",
-    "qos": "0",
-    "datatype": "utf8",
-    "broker": "cf_broker",
-    "nl": false,
-    "rap": true,
-    "rh": 0,
-    "inputs": 0,
-    "x": 120,
-    "y": 60,
-    "wires": [["fn_telem"]]
-  },
-  {
-    "id": "n_status_in",
-    "type": "mqtt in",
-    "z": "fl_main",
-    "name": "Status",
-    "topic": "bj/+/status",
-    "qos": "1",
-    "datatype": "utf8",
-    "broker": "cf_broker",
-    "inputs": 0,
-    "x": 120,
-    "y": 120,
-    "wires": [["fn_status"]]
-  },
-  {
-    "id": "n_event_in",
-    "type": "mqtt in",
-    "z": "fl_main",
-    "name": "Eventos",
-    "topic": "bj/+/event",
-    "qos": "1",
-    "datatype": "utf8",
-    "broker": "cf_broker",
-    "inputs": 0,
-    "x": 120,
-    "y": 180,
-    "wires": [["fn_event"]]
-  },
-  {
-    "id": "n_ack_in",
-    "type": "mqtt in",
-    "z": "fl_main",
-    "name": "ACK",
-    "topic": "bj/+/cmd/ack",
-    "qos": "1",
-    "datatype": "utf8",
-    "broker": "cf_broker",
-    "inputs": 0,
-    "x": 120,
-    "y": 240,
-    "wires": [["fn_ack"]]
-  },
-  {
-    "id": "n_cmd_out",
-    "type": "mqtt out",
-    "z": "fl_main",
-    "name": "CMD",
-    "topic": "",
-    "qos": "1",
-    "retain": "",
-    "broker": "cf_broker",
-    "x": 960,
-    "y": 500,
-    "wires": []
-  },
-  {
-    "id": "n_fault_out",
-    "type": "mqtt out",
-    "z": "fl_main",
-    "name": "Sim Fault",
-    "topic": "",
-    "qos": "0",
-    "retain": "",
-    "broker": "cf_broker",
-    "x": 960,
-    "y": 580,
-    "wires": []
-  },
-  {
-    "id": "fn_telem",
-    "type": "function",
-    "z": "fl_main",
-    "name": "Parse Telemetría",
-    "func": "try {\n  const d = JSON.parse(msg.payload);\n  const parts = msg.topic.split('/');\n  const id = parts[1] || context.global.get('online_device_id') || 'device';\n  return [\n    { payload: d.rate },\n    { payload: d, deviceId: id },\n    { payload: d.pres, topic: id + ' pres' }\n  ];\n} catch(e) { return [null,null,null]; }",
-    "outputs": 3,
-    "timeout": 0,
-    "noerr": 0,
-    "initialize": "",
-    "finalize": "",
-    "libs": [],
-    "x": 340,
-    "y": 60,
-    "wires": [
-      ["w_rate"],
-      ["w_telem", "w_alm", "w_state"],
-      ["w_chart"]
-    ]
-  },
-  {
-    "id": "fn_status",
-    "type": "function",
-    "z": "fl_main",
-    "name": "Parse Status",
-    "func": "try {\n  const d = JSON.parse(msg.payload);\n  if (d.id) context.global.set('online_device_id', d.id);\n  msg.payload = { state: d.state, id: d.id, fw: d.fw || 'sim', online: d.state === 'online' };\n  return msg;\n} catch(e) { return null; }",
-    "outputs": 1,
-    "timeout": 0,
-    "noerr": 0,
-    "initialize": "",
-    "finalize": "",
-    "libs": [],
-    "x": 340,
-    "y": 120,
-    "wires": [["w_device"]]
-  },
-  {
-    "id": "fn_event",
-    "type": "function",
-    "z": "fl_main",
-    "name": "Format Evento",
-    "func": "try {\n  const d = JSON.parse(msg.payload);\n  const t = new Date().toLocaleTimeString('es-MX');\n  const CORE1 = [\n    'ESPERANDO','HOMING','REL_LSW_INI','COLOQUE JERINGA',\n    'BUSCANDO JERINGA','JERINGA OK','DISPENSANDO','FIN DE DISPENSADO',\n    'NUEVO_DISP','BUSCANDO_EOT','FRENANDO_EOT','FIN DE RECORRIDO',\n    'FALLA','OCLUSIÓN','OCC_LIBERANDO','OCC_PAUSADO',\n    'MANUAL','INICIANDO CALIBRACIÓN','CALIBRANDO...','FREN_LSW_INI','FREN_LSW_FIN'\n  ];\n  let log = context.global.get('event_log') || [];\n  let detail, fsmMsg = null;\n  if (d.type === 'alarm') {\n    detail = 'ALARMA ' + (d.code||'').toUpperCase() + ' lvl ' + d.level;\n  } else if (d.type === 'state') {\n    const from = CORE1[d.from] !== undefined ? CORE1[d.from] : String(d.from);\n    const to   = CORE1[d.to]   !== undefined ? CORE1[d.to]   : String(d.to);\n    detail = from + ' → ' + to;\n    context.global.set('fsm_state', d.to);\n    fsmMsg = { payload: { fsm_from: d.from, fsm_to: d.to } };\n  } else {\n    detail = d.msg || JSON.stringify(d);\n  }\n  log.unshift({ time: t, tipo: d.type || 'info', detalle: detail });\n  if (log.length > 25) log = log.slice(0, 25);\n  context.global.set('event_log', log);\n  const notif = d.type === 'alarm'\n    ? { payload: '⚠ ALARMA: ' + (d.code||'').toUpperCase() + ' (nivel ' + d.level + ')', topic: 'error' }\n    : null;\n  return [{ payload: log }, notif, fsmMsg];\n} catch(e) {\n  node.error('fn_event: ' + e.message, msg);\n  return [null, null, null];\n}",
-    "outputs": 3,
-    "timeout": 0,
-    "noerr": 0,
-    "initialize": "",
-    "finalize": "",
-    "libs": [],
-    "x": 340,
-    "y": 180,
-    "wires": [
-      ["w_events"],
-      ["w_notif"],
-      ["w_state", "w_fsm_state_ctrl"]
-    ]
-  },
-  {
-    "id": "fn_ack",
-    "type": "function",
-    "z": "fl_main",
-    "name": "Format ACK",
-    "func": "try {\n  const d = JSON.parse(msg.payload);\n  msg.payload = '#' + d.cid + ': ' + d.result + (d.reason ? ' (' + d.reason + ')' : '');\n  return msg;\n} catch(e) { return null; }",
-    "outputs": 1,
-    "timeout": 0,
-    "noerr": 0,
-    "initialize": "",
-    "finalize": "",
-    "libs": [],
-    "x": 340,
-    "y": 240,
-    "wires": [["w_ack"]]
-  },
-  {
-    "id": "fn_mk_cmd",
-    "type": "function",
-    "z": "fl_main",
-    "name": "Make CMD",
-    "func": "const devId = context.global.get('online_device_id') || 'bj-deadbeef';\nlet cid = (context.global.get('cmd_cid') || 0) + 1;\ncontext.global.set('cmd_cid', cid);\nmsg.topic = 'bj/' + devId + '/cmd';\nmsg.payload = JSON.stringify({ cid: cid, cmd: String(msg.payload) });\nreturn msg;",
-    "outputs": 1,
-    "timeout": 0,
-    "noerr": 0,
-    "initialize": "",
-    "finalize": "",
-    "libs": [],
-    "x": 760,
-    "y": 500,
-    "wires": [["n_cmd_out"]]
-  },
-  {
-    "id": "fn_fault_topic",
-    "type": "function",
-    "z": "fl_main",
-    "name": "Fault Topic",
-    "func": "const devId = context.global.get('online_device_id') || 'bj-deadbeef';\nmsg.topic = 'bj/' + devId + '/sim_fault';\nreturn msg;",
-    "outputs": 1,
-    "timeout": 0,
-    "noerr": 0,
-    "initialize": "",
-    "finalize": "",
-    "libs": [],
-    "x": 760,
-    "y": 580,
-    "wires": [["n_fault_out"]]
-  },
-  {
-    "id": "w_device",
-    "type": "ui-template",
-    "z": "fl_main",
-    "group": "grp_dev",
-    "name": "Dispositivo",
-    "order": 1,
-    "width": 6,
-    "height": 2,
-    "storeState": true,
-    "passthru": false,
-    "resendOnReconnect": true,
-    "templateScope": "local",
-    "className": "",
-    "x": 560,
-    "y": 120,
-    "wires": [],
-    "format": "<template>\n  <div style=\"padding:8px\">\n    <div style=\"display:flex;align-items:center;gap:8px\">\n      <div :style=\"{width:'10px',height:'10px',borderRadius:'50%',background:msg.payload&&msg.payload.online?'#4caf50':'#f44336'}\"></div>\n      <b style=\"font-size:16px\">{{ msg.payload && msg.payload.id || '—' }}</b>\n    </div>\n    <div style=\"font-size:11px;opacity:0.6;margin-top:4px\">fw: {{ msg.payload && msg.payload.fw || '—' }}</div>\n  </div>\n</template>"
-  },
-  {
-    "id": "w_state",
-    "type": "ui-template",
-    "z": "fl_main",
-    "group": "grp_state",
-    "name": "Estado",
-    "order": 1,
-    "width": 6,
-    "height": 3,
-    "storeState": true,
-    "passthru": false,
-    "resendOnReconnect": true,
-    "templateScope": "local",
-    "className": "",
-    "x": 560,
-    "y": 60,
-    "wires": [],
-    "format": "<template>\n  <div style=\"padding:10px;text-align:center\">\n    <div style=\"font-size:9px;letter-spacing:.1em;opacity:0.5;margin-bottom:3px\">BOMBA (API)</div>\n    <div :style=\"{fontSize:'18px',fontWeight:'bold',color:pumpColor,transition:'color 0.3s'}\">{{ pumpLabel }}</div>\n    <div style=\"border-top:1px solid #333;margin:8px 0\"></div>\n    <div style=\"font-size:9px;letter-spacing:.1em;opacity:0.5;margin-bottom:3px\">MOTOR (FSM)</div>\n    <div :style=\"{fontSize:'14px',fontWeight:'bold',color:fsmColor,transition:'color 0.3s'}\">{{ fsmLabel }}</div>\n    <div v-if=\"fsmSt !== null\" style=\"font-size:10px;opacity:0.4;margin-top:2px\">#{{ fsmSt }}</div>\n  </div>\n</template>\n<script>\n  const PUMP_LABELS = ['DETENIDA','INFUSANDO','BOLUS','PURGA','KVO','PAUSADA','ALARMA'];\n  const PUMP_COLORS = ['#9e9e9e','#4caf50','#2196f3','#ff9800','#9c27b0','#ffb300','#f44336'];\n  const CORE1_LABELS = [\n    'ESPERANDO','HOMING','REL_LSW_INI','COLOQUE JERINGA',\n    'BUSCANDO JERINGA','JERINGA OK','DISPENSANDO','FIN DE DISPENSADO',\n    'NUEVO DISP','BUSCANDO EOT','FRENANDO EOT','FIN DE RECORRIDO',\n    'FALLA','OCLUSIÓN','OCC LIBERANDO','OCC PAUSADO',\n    'MANUAL','INICIANDO CALIBRACIÓN','CALIBRANDO...','FREN LSW INI','FREN LSW FIN'\n  ];\n  const CORE1_COLORS = [\n    '#9e9e9e','#ffb300','#ffb300','#4caf50',\n    '#2196f3','#2196f3','#4caf50','#9e9e9e',\n    '#9e9e9e','#2196f3','#ffb300','#9e9e9e',\n    '#f44336','#f44336','#ffb300','#ff9800',\n    '#9c27b0','#00bcd4','#00bcd4','#ffb300','#ffb300'\n  ];\n  export default {\n    data() { return { pumpSt: null, fsmSt: null } },\n    computed: {\n      pumpLabel() { return this.pumpSt != null ? (PUMP_LABELS[this.pumpSt] || '—') : '—' },\n      pumpColor() { return this.pumpSt != null ? (PUMP_COLORS[this.pumpSt] || '#9e9e9e') : '#9e9e9e' },\n      fsmLabel()  { return this.fsmSt  != null ? (CORE1_LABELS[this.fsmSt] || String(this.fsmSt)) : 'SIN DATOS' },\n      fsmColor()  { return this.fsmSt  != null ? (CORE1_COLORS[this.fsmSt] || '#9e9e9e') : '#555' }\n    },\n    watch: {\n      'msg.payload': {\n        immediate: true,\n        handler(d) {\n          if (!d) return;\n          if (d.st != null)     this.pumpSt = d.st;\n          if (d.fsm_to != null) this.fsmSt  = d.fsm_to;\n        }\n      }\n    }\n  }\n</script>"
-  },
-  {
-    "id": "w_telem",
-    "type": "ui-template",
-    "z": "fl_main",
-    "group": "grp_telem",
-    "name": "Stats Infusión",
-    "order": 1,
-    "width": 6,
-    "height": 2,
-    "storeState": true,
-    "passthru": false,
-    "resendOnReconnect": true,
-    "templateScope": "local",
-    "className": "",
-    "x": 560,
-    "y": 180,
-    "wires": [],
-    "format": "<template>\n  <div style=\"padding:8px;font-size:13px\">\n    <div style=\"display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid #333\">\n      <span>Infundido</span>\n      <b>{{ msg.payload && msg.payload.vol_inf != null ? msg.payload.vol_inf.toFixed(2) : '—' }} mL</b>\n    </div>\n    <div style=\"display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid #333\">\n      <span>Objetivo</span>\n      <b>{{ msg.payload && msg.payload.vol_tgt != null ? msg.payload.vol_tgt.toFixed(2) : '—' }} mL</b>\n    </div>\n    <div style=\"display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid #333\">\n      <span>Transcurrido</span>\n      <b>{{ msg.payload && msg.payload.t_ela_s ? (Math.floor(msg.payload.t_ela_s/3600)+'h '+Math.floor(msg.payload.t_ela_s%3600/60)+'m '+Math.floor(msg.payload.t_ela_s%60)+'s') : '0h 0m 0s' }}</b>\n    </div>\n    <div style=\"display:flex;justify-content:space-between;padding:5px 0\">\n      <span>Restante</span>\n      <b>{{ msg.payload && msg.payload.t_rem_h > 0 ? (msg.payload.t_rem_h * 60).toFixed(1)+' min' : '—' }}</b>\n    </div>\n  </div>\n</template>"
-  },
-  {
-    "id": "w_rate",
-    "type": "ui-gauge",
-    "z": "fl_main",
-    "group": "grp_rate",
-    "name": "Caudal",
-    "order": 1,
-    "width": 6,
-    "height": 4,
-    "label": "Caudal",
-    "format": "{{value}} mL/h",
-    "gtype": "gauge-half",
-    "gstyle": "needle",
-    "min": 0,
-    "max": 500,
-    "sizeThickness": 16,
-    "sizeGap": 4,
-    "sizeKeyThickness": 8,
-    "styleRounded": true,
-    "styleGlow": false,
-    "segments": [
-      {"from": 0,   "color": "#4caf50"},
-      {"from": 200, "color": "#ffb300"},
-      {"from": 400, "color": "#f44336"}
-    ],
-    "className": "",
-    "x": 560,
-    "y": 60,
-    "wires": []
-  },
-  {
-    "id": "w_chart",
-    "type": "ui-chart",
-    "z": "fl_main",
-    "group": "grp_chart",
-    "name": "Fuerza ADC",
-    "label": "Fuerza sensor ADC (mmHg)",
-    "order": 1,
-    "chartType": "line",
-    "category": "topic",
-    "categoryType": "msg",
-    "xAxisType": "time",
-    "xAxisFormat": "HH:mm:ss",
-    "removeOlder": 5,
-    "removeOlderUnit": "60",
-    "removeOlderPoints": "",
-    "colors": ["#1565C0", "#E53935"],
-    "width": 12,
-    "height": 4,
-    "className": "",
-    "x": 560,
-    "y": 280,
-    "wires": []
-  },
-  {
-    "id": "w_alm",
-    "type": "ui-template",
-    "z": "fl_main",
-    "group": "grp_alm",
-    "name": "Alarmas",
-    "order": 1,
-    "width": 12,
-    "height": 2,
-    "storeState": true,
-    "passthru": false,
-    "resendOnReconnect": true,
-    "templateScope": "local",
-    "className": "",
-    "x": 560,
-    "y": 380,
-    "wires": [],
-    "format": "<template>\n  <div style=\"display:flex;flex-wrap:wrap;gap:8px;padding:8px\">\n    <span v-for=\"(v,k) in (msg.payload && msg.payload.alm || {})\" :key=\"k\"\n          :style=\"{padding:'4px 14px',borderRadius:'4px',fontWeight:'bold',fontSize:'13px',\n                   background:v?'#b71c1c':'#1b5e20',color:'#fff',transition:'background 0.3s'}\">\n      {{ k.toUpperCase() }}: {{ v ? '⚠' : '✓' }}\n    </span>\n  </div>\n</template>"
-  },
-  {
-    "id": "w_fsm_state_ctrl",
-    "type": "ui-template",
-    "z": "fl_main",
-    "group": "grp_fsm_status",
-    "name": "Estado FSM",
-    "order": 1,
-    "width": 12,
-    "height": 2,
-    "storeState": true,
-    "passthru": false,
-    "resendOnReconnect": true,
-    "templateScope": "local",
-    "className": "",
-    "x": 700,
-    "y": 600,
-    "wires": [],
-    "format": "<template>\n  <div style=\"display:flex;align-items:center;justify-content:center;gap:24px;padding:12px;height:100%\">\n    <div style=\"text-align:center\">\n      <div style=\"font-size:9px;letter-spacing:.12em;opacity:0.4;margin-bottom:6px\">ESTADO MOTOR (Core1 FSM)</div>\n      <div :style=\"{fontSize:'32px',fontWeight:'bold',color:fsmColor,transition:'color 0.4s',letterSpacing:'.02em'}\">{{ fsmLabel }}</div>\n      <div v-if=\"fsmSt !== null\" style=\"font-size:11px;opacity:0.35;margin-top:4px\">estado #{{ fsmSt }}</div>\n    </div>\n    <div :style=\"{width:'14px',height:'14px',borderRadius:'50%',background:fsmColor,boxShadow:'0 0 8px '+fsmColor,transition:'background 0.4s',flexShrink:0}\"></div>\n  </div>\n</template>\n<script>\n  const CORE1_LABELS = [\n    'ESPERANDO','HOMING','REL_LSW_INI','COLOQUE JERINGA',\n    'BUSCANDO JERINGA','JERINGA OK','DISPENSANDO','FIN DE DISPENSADO',\n    'NUEVO DISP','BUSCANDO EOT','FRENANDO EOT','FIN DE RECORRIDO',\n    'FALLA','OCLUSIÓN','OCC LIBERANDO','OCC PAUSADO',\n    'MANUAL','INICIANDO CALIBRACIÓN','CALIBRANDO...','FREN LSW INI','FREN LSW FIN'\n  ];\n  const CORE1_COLORS = [\n    '#9e9e9e','#ffb300','#ffb300','#4caf50',\n    '#2196f3','#2196f3','#4caf50','#9e9e9e',\n    '#9e9e9e','#2196f3','#ffb300','#9e9e9e',\n    '#f44336','#f44336','#ffb300','#ff9800',\n    '#9c27b0','#00bcd4','#00bcd4','#ffb300','#ffb300'\n  ];\n  export default {\n    data() { return { fsmSt: null } },\n    computed: {\n      fsmLabel() { return this.fsmSt != null ? (CORE1_LABELS[this.fsmSt] || String(this.fsmSt)) : 'SIN DATOS' },\n      fsmColor() { return this.fsmSt != null ? (CORE1_COLORS[this.fsmSt] || '#9e9e9e') : '#555' }\n    },\n    watch: {\n      'msg.payload': {\n        immediate: true,\n        handler(d) { if (d && d.fsm_to != null) this.fsmSt = d.fsm_to; }\n      }\n    }\n  }\n</script>"
-  },
-  {
-    "id": "w_fsm_cmds",
-    "type": "ui-template",
-    "z": "fl_main",
-    "group": "grp_fsm_cmds",
-    "name": "Control FSM",
-    "order": 1,
-    "width": 12,
-    "height": 5,
-    "storeState": false,
-    "passthru": false,
-    "resendOnReconnect": false,
-    "templateScope": "local",
-    "className": "",
-    "x": 700,
-    "y": 680,
-    "wires": [["fn_mk_cmd"]],
-    "format": "<template>\n  <div style=\"padding:10px;font-size:13px\">\n    <div style=\"display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:12px\">\n      <!-- Home -->\n      <div style=\"background:#1a1a2e;border:1px solid #2a2a4a;border-radius:6px;padding:10px\">\n        <div style=\"font-size:10px;color:#9e9e9e;margin-bottom:6px;letter-spacing:.05em\">IR A HOME</div>\n        <div style=\"font-size:10px;color:#666;margin-bottom:3px\">Velocidad (µm/s)</div>\n        <input type=\"number\" v-model.number=\"homeVel\" min=\"100\" max=\"5000\" step=\"100\"\n          style=\"width:100%;box-sizing:border-box;background:#111;color:#fff;border:1px solid #444;border-radius:4px;padding:5px 8px;font-size:13px;margin-bottom:8px\"/>\n        <button @click=\"send({payload:'fsm_home,'+homeVel.toFixed(1)})\"\n          style=\"width:100%;padding:7px;background:#1565C0;color:#fff;border:none;border-radius:4px;font-size:12px;cursor:pointer;font-weight:bold\">\n          ↩ Home\n        </button>\n      </div>\n      <!-- Buscar jeringa -->\n      <div style=\"background:#1a1a2e;border:1px solid #2a2a4a;border-radius:6px;padding:10px\">\n        <div style=\"font-size:10px;color:#9e9e9e;margin-bottom:6px;letter-spacing:.05em\">BUSCAR JERINGA</div>\n        <div style=\"font-size:10px;color:#666;margin-bottom:3px\">Velocidad (µm/s)</div>\n        <input type=\"number\" v-model.number=\"searchVel\" min=\"50\" max=\"1000\" step=\"50\"\n          style=\"width:100%;box-sizing:border-box;background:#111;color:#fff;border:1px solid #444;border-radius:4px;padding:5px 8px;font-size:13px;margin-bottom:8px\"/>\n        <button @click=\"send({payload:'fsm_search,'+searchVel.toFixed(1)})\"\n          style=\"width:100%;padding:7px;background:#00838F;color:#fff;border:none;border-radius:4px;font-size:12px;cursor:pointer;font-weight:bold\">\n          🔍 Buscar Jeringa\n        </button>\n      </div>\n      <!-- Dispensar -->\n      <div style=\"background:#1a1a2e;border:1px solid #2a2a4a;border-radius:6px;padding:10px\">\n        <div style=\"font-size:10px;color:#9e9e9e;margin-bottom:6px;letter-spacing:.05em\">DISPENSAR</div>\n        <div style=\"font-size:10px;color:#666;margin-bottom:3px\">Objetivo (µm)</div>\n        <input type=\"number\" v-model.number=\"dispTarget\" min=\"0\" step=\"1000\"\n          style=\"width:100%;box-sizing:border-box;background:#111;color:#fff;border:1px solid #444;border-radius:4px;padding:5px 8px;font-size:13px;margin-bottom:4px\"/>\n        <div style=\"font-size:10px;color:#666;margin-bottom:3px\">Velocidad (µm/s)</div>\n        <input type=\"number\" v-model.number=\"dispVel\" min=\"1\" max=\"5000\" step=\"100\"\n          style=\"width:100%;box-sizing:border-box;background:#111;color:#fff;border:1px solid #444;border-radius:4px;padding:5px 8px;font-size:13px;margin-bottom:8px\"/>\n        <button\n          @click=\"dispTarget>0 && dispVel>0 && send({payload:'fsm_dispense,'+dispTarget.toFixed(1)+','+dispVel.toFixed(1)})\"\n          :style=\"{width:'100%',padding:'7px',background:'#2E7D32',color:'#fff',border:'none',borderRadius:'4px',fontSize:'12px',cursor:'pointer',fontWeight:'bold',opacity:dispTarget>0&&dispVel>0?1:0.4}\">\n          ► Dispensar\n        </button>\n      </div>\n    </div>\n    <!-- Fila de acciones sin parámetros -->\n    <div style=\"display:flex;gap:8px;flex-wrap:wrap\">\n      <button @click=\"send({payload:'fsm_calibrate'})\"\n        style=\"flex:1;min-width:100px;padding:8px;background:#37474F;color:#fff;border:none;border-radius:4px;font-size:12px;cursor:pointer\">\n        Calibrar\n      </button>\n      <button @click=\"send({payload:'fsm_search_eot'})\"\n        style=\"flex:1;min-width:100px;padding:8px;background:#4527A0;color:#fff;border:none;border-radius:4px;font-size:12px;cursor:pointer\">\n        Buscar EOT\n      </button>\n      <button @click=\"send({payload:'fsm_cont'})\"\n        style=\"flex:1;min-width:100px;padding:8px;background:#1B5E20;color:#fff;border:none;border-radius:4px;font-size:12px;cursor:pointer\">\n        Continuar\n      </button>\n      <button @click=\"send({payload:'fsm_occ_rel'})\"\n        style=\"flex:1;min-width:100px;padding:8px;background:#1565C0;color:#fff;border:none;border-radius:4px;font-size:12px;cursor:pointer\">\n        Lib. Oclusión\n      </button>\n      <button @click=\"send({payload:'fsm_resume'})\"\n        style=\"flex:1;min-width:100px;padding:8px;background:#006064;color:#fff;border:none;border-radius:4px;font-size:12px;cursor:pointer\">\n        Reanudar\n      </button>\n      <button @click=\"send({payload:'fsm_reset'})\"\n        style=\"flex:1;min-width:100px;padding:8px;background:#6A1B9A;color:#fff;border:none;border-radius:4px;font-size:12px;cursor:pointer\">\n        Reset FSM\n      </button>\n    </div>\n  </div>\n</template>\n<script>\n  export default {\n    data() { return { homeVel: 1500, searchVel: 200, dispTarget: 30000, dispVel: 500 } }\n  }\n</script>"
-  },
-  {
-    "id": "w_ack",
-    "type": "ui-text",
-    "z": "fl_main",
-    "group": "grp_ack",
-    "order": 1,
-    "width": 12,
-    "height": 1,
-    "name": "Último ACK",
-    "label": "Último ACK",
-    "format": "{{msg.payload}}",
-    "layout": "row-spread",
-    "style": false,
-    "font": "",
-    "fontSize": 14,
-    "color": "#9e9e9e",
-    "className": "",
-    "x": 560,
-    "y": 240,
-    "wires": []
-  },
-  {
-    "id": "w_events",
-    "type": "ui-table",
-    "z": "fl_main",
-    "group": "grp_ack",
-    "order": 2,
-    "width": 12,
-    "height": 5,
-    "name": "Eventos",
-    "label": "",
-    "maxrows": 25,
-    "passthru": false,
-    "autocols": false,
-    "showSearch": false,
-    "selectionType": "none",
-    "columns": [
-      {"title": "Hora",    "key": "time",    "width": ""},
-      {"title": "Tipo",    "key": "tipo",    "width": ""},
-      {"title": "Detalle", "key": "detalle", "width": ""}
-    ],
-    "className": "",
-    "x": 560,
-    "y": 300,
-    "wires": []
-  },
-  {
-    "id": "w_notif",
-    "type": "ui-notification",
-    "z": "fl_main",
-    "ui": "cf_base",
-    "name": "Alarma Notif",
-    "position": "top right",
-    "colorDefault": true,
-    "color": "#f44336",
-    "colorText": "#ffffff",
-    "displayTime": "5",
-    "showCountdown": true,
-    "allowDismiss": true,
-    "dismissText": "OK",
-    "className": "",
-    "x": 560,
-    "y": 180,
-    "wires": []
-  },
-  {
-    "id": "btn_stop",
-    "type": "ui-button",
-    "z": "fl_main",
-    "group": "grp_cmds",
-    "order": 1,
-    "width": 3,
-    "height": 1,
-    "name": "",
-    "label": "STOP",
-    "topic": "",
-    "topicType": "str",
-    "buttonColor": "#C62828",
-    "textColor": "#fff",
-    "iconColor": "#fff",
-    "icon": "",
-    "iconPosition": "left",
-    "payload": "stop",
-    "payloadType": "str",
-    "className": "",
-    "x": 120,
-    "y": 480,
-    "wires": [["fn_mk_cmd"]]
-  },
-  {
-    "id": "btn_stop_imm",
-    "type": "ui-button",
-    "z": "fl_main",
-    "group": "grp_cmds",
-    "order": 2,
-    "width": 3,
-    "height": 1,
-    "name": "",
-    "label": "STOP IMM",
-    "topic": "",
-    "topicType": "str",
-    "buttonColor": "#b71c1c",
-    "textColor": "#fff",
-    "iconColor": "#fff",
-    "icon": "",
-    "iconPosition": "left",
-    "payload": "stop_imm",
-    "payloadType": "str",
-    "className": "",
-    "x": 120,
-    "y": 520,
-    "wires": [["fn_mk_cmd"]]
-  },
-  {
-    "id": "w_move_cmd",
-    "type": "ui-template",
-    "z": "fl_main",
-    "group": "grp_cmds",
-    "order": 3,
-    "width": 6,
-    "height": 2,
-    "name": "Mover (um, um/s)",
-    "format": "<template>\n  <div style=\"padding:8px 4px\">\n    <div style=\"font-size:11px;color:#9e9e9e;margin-bottom:8px;letter-spacing:.05em\">MOVIMIENTO LINEAL</div>\n    <div style=\"display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap\">\n      <div style=\"flex:1;min-width:110px\">\n        <div style=\"font-size:10px;color:#9e9e9e;margin-bottom:3px\">Posición (µm) — neg: retroceso</div>\n        <input type=\"number\" v-model.number=\"pos\" step=\"1000\"\n          style=\"width:100%;box-sizing:border-box;background:#1e1e1e;color:#fff;\n                 border:1px solid #555;border-radius:4px;padding:6px 8px;font-size:14px\"/>\n      </div>\n      <div style=\"flex:1;min-width:110px\">\n        <div style=\"font-size:10px;color:#9e9e9e;margin-bottom:3px\">Velocidad (µm/s)</div>\n        <input type=\"number\" v-model.number=\"vel\" min=\"1\" max=\"5000\" step=\"100\"\n          style=\"width:100%;box-sizing:border-box;background:#1e1e1e;color:#fff;\n                 border:1px solid #555;border-radius:4px;padding:6px 8px;font-size:14px\"/>\n      </div>\n      <button\n        @click=\"pos !== 0 && vel > 0 && send({payload: pos.toFixed(1)+','+vel.toFixed(1)})\"\n        :style=\"{opacity: pos!==0 && vel>0 ? 1 : 0.4,\n                 height:'34px',padding:'0 16px',background: pos<0 ? '#6a1b9a' : '#1976d2',\n                 color:'#fff',border:'none',borderRadius:'4px',\n                 fontSize:'13px',cursor:'pointer',whiteSpace:'nowrap'}\"\n      >{{ pos < 0 ? '&#9664; Retroceder' : '&#9654; Mover' }}</button>\n    </div>\n  </div>\n</template>\n<script>\n  export default {\n    data() { return { pos: 30000, vel: 500 } }\n  }\n</script>",
-    "storeState": true,
-    "passthru": false,
-    "className": "",
-    "x": 210,
-    "y": 560,
-    "wires": [["fn_mk_cmd"]],
-    "templateScope": "local",
-    "resendOnReconnect": true
-  },
-  {
-    "id": "btn_sim_infuse",
-    "type": "ui-button",
-    "z": "fl_main",
-    "group": "grp_sim",
-    "order": 1,
-    "width": 6,
-    "height": 1,
-    "name": "",
-    "label": "▶ Infundir 50mL/h × 20mL",
-    "topic": "",
-    "topicType": "str",
-    "buttonColor": "#1B5E20",
-    "textColor": "#fff",
-    "iconColor": "#fff",
-    "icon": "",
-    "iconPosition": "left",
-    "payload": "infuse,50.0,20.0",
-    "payloadType": "str",
-    "className": "",
-    "x": 120,
-    "y": 760,
-    "wires": [["fn_fault_topic"]]
-  },
-  {
-    "id": "btn_sim_occ",
-    "type": "ui-button",
-    "z": "fl_main",
-    "group": "grp_sim",
-    "order": 2,
-    "width": 3,
-    "height": 1,
-    "name": "",
-    "label": "⚠ Oclusión",
-    "topic": "",
-    "topicType": "str",
-    "buttonColor": "#BF360C",
-    "textColor": "#fff",
-    "iconColor": "#fff",
-    "icon": "",
-    "iconPosition": "left",
-    "payload": "fault_occ",
-    "payloadType": "str",
-    "className": "",
-    "x": 120,
-    "y": 800,
-    "wires": [["fn_fault_topic"]]
-  },
-  {
-    "id": "btn_sim_bub",
-    "type": "ui-button",
-    "z": "fl_main",
-    "group": "grp_sim",
-    "order": 3,
-    "width": 3,
-    "height": 1,
-    "name": "",
-    "label": "⚠ Burbuja",
-    "topic": "",
-    "topicType": "str",
-    "buttonColor": "#BF360C",
-    "textColor": "#fff",
-    "iconColor": "#fff",
-    "icon": "",
-    "iconPosition": "left",
-    "payload": "fault_bubble",
-    "payloadType": "str",
-    "className": "",
-    "x": 120,
-    "y": 840,
-    "wires": [["fn_fault_topic"]]
-  },
-  {
-    "id": "btn_sim_clear",
-    "type": "ui-button",
-    "z": "fl_main",
-    "group": "grp_sim",
-    "order": 4,
-    "width": 6,
-    "height": 1,
-    "name": "",
-    "label": "✓ Limpiar Fallas",
-    "topic": "",
-    "topicType": "str",
-    "buttonColor": "#37474F",
-    "textColor": "#fff",
-    "iconColor": "#fff",
-    "icon": "",
-    "iconPosition": "left",
-    "payload": "fault_clear",
-    "payloadType": "str",
-    "className": "",
-    "x": 120,
-    "y": 880,
-    "wires": [["fn_fault_topic"]]
-  },
-  {
-    "id": "inject_init_events",
-    "type": "inject",
-    "z": "fl_main",
-    "name": "Init tabla eventos",
-    "props": [{"p": "payload"}],
-    "repeat": "",
-    "crontab": "",
-    "once": true,
-    "onceDelay": 3,
-    "topic": "",
-    "payload": "{}",
-    "payloadType": "json",
-    "x": 120,
-    "y": 360,
-    "wires": [["fn_init_events"]]
-  },
-  {
-    "id": "fn_init_events",
-    "type": "function",
-    "z": "fl_main",
-    "name": "Reload eventos",
-    "func": "var log = context.global.get('event_log') || [];\nreturn [{ payload: log }];",
-    "outputs": 1,
-    "timeout": 0,
-    "noerr": 0,
-    "initialize": "",
-    "finalize": "",
-    "libs": [],
-    "x": 320,
-    "y": 360,
-    "wires": [["w_events"]]
-  }
 ]

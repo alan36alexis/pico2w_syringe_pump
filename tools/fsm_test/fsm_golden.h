@@ -112,10 +112,10 @@ typedef struct {
 } GoldenEntry_t;
 
 /* -------------------------------------------------------------------------
- * Golden table — 28 preserved + 6 deliberate changes = 34 entries total.
+ * Golden table — 29 preserved + 6 deliberate changes = 35 entries total.
  * Ordered: globals first, then locals by state value.
  * ------------------------------------------------------------------------- */
-#define GOLDEN_TABLE_SIZE 34
+#define GOLDEN_TABLE_SIZE 35
 
 extern const GoldenEntry_t GOLDEN_TABLE[GOLDEN_TABLE_SIZE];
 

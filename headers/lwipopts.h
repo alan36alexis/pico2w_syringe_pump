@@ -16,7 +16,7 @@
 
 #define MEM_LIBC_MALLOC             0
 #define MEM_ALIGNMENT               4
-#define MEM_SIZE                    4000
+#define MEM_SIZE                    8192
 #define MEMP_NUM_TCP_SEG            32
 #define MEMP_NUM_ARP_QUEUE          10
 #define MEMP_NUM_SYS_TIMEOUT        15
@@ -34,6 +34,8 @@
 #define LWIP_IPV4                   1
 
 #define LWIP_MQTT                   1
+#define MQTT_OUTPUT_RINGBUF_SIZE    1024
+#define MQTT_VAR_HEADER_BUFFER_LEN  256
 
 // OS specific settings
 #define TCPIP_THREAD_PRIO           3
