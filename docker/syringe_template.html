@@ -1,0 +1,112 @@
+<div class="pump-container">
+    <svg viewBox="0 0 500 200" width="100%" height="auto" xmlns="http://www.w3.org/2000/svg">
+        <!-- DEFINICIÓN DE ESTILOS -->
+        <defs>
+            <linearGradient id="metal" x1="0%" y1="0%" x2="0%" y2="100%">
+                <stop offset="0%" stop-color="#888" />
+                <stop offset="50%" stop-color="#ccc" />
+                <stop offset="100%" stop-color="#555" />
+            </linearGradient>
+            <linearGradient id="fluid" x1="0%" y1="0%" x2="0%" y2="100%">
+                <stop offset="0%" stop-color="#00aaff" stop-opacity="0.8" />
+                <stop offset="100%" stop-color="#0055aa" stop-opacity="0.8" />
+            </linearGradient>
+        </defs>
+
+        <!-- 1. CHASIS Y HUSILLO (ESTÁTICOS) -->
+        <!-- Riel / Guía -->
+        <rect x="20" y="165" width="460" height="10" fill="#333" rx="3" />
+        <!-- Husillo roscado -->
+        <rect x="20" y="145" width="460" height="6" fill="url(#metal)" />
+        <!-- Clamp / Soporte de la brida de la jeringa -->
+        <rect x="300" y="50" width="12" height="80" fill="#222" rx="2" />
+
+        <!-- 2. JERINGA ESTÁTICA -->
+        <!-- Boquilla / Luer-Lock -->
+        <rect x="390" y="85" width="25" height="10" fill="#ddd" stroke="#999" stroke-width="1" />
+        <path d="M 415 88 L 460 88" stroke="#00aaff" stroke-width="4" fill="none" stroke-linecap="round" />
+        <!-- Cilindro transparente -->
+        <rect x="180" y="60" width="210" height="60" fill="rgba(240, 240, 240, 0.4)" stroke="#444" stroke-width="2"
+            rx="4" />
+        <!-- Brida del cilindro -->
+        <rect x="175" y="45" width="8" height="90" fill="#bbb" stroke="#666" stroke-width="1" />
+        <!-- Marcas de graduación del cilindro -->
+        <line x1="220" y1="60" x2="220" y2="75" stroke="#666" stroke-width="1" />
+        <line x1="260" y1="60" x2="260" y2="75" stroke="#666" stroke-width="1" />
+        <line x1="300" y1="60" x2="300" y2="75" stroke="#666" stroke-width="1" />
+        <line x1="340" y1="60" x2="340" y2="75" stroke="#666" stroke-width="1" />
+        <line x1="380" y1="60" x2="380" y2="75" stroke="#666" stroke-width="1" />
+
+        <!-- 3. LÍQUIDO DINÁMICO (Se encoge al infundir) -->
+        <!-- Coordenada base llena: x=180, width=200. Vacía: width=0 -->
+        <rect id="liquid" x="180" y="62" width="200" height="56" fill="url(#fluid)" />
+
+        <!-- 4. CONJUNTO MÓVIL: CARRO DISPENSADOR + ÉMBOLO -->
+        <!-- Recorrido mecánico útil en X: de 0px (inicio) a 195px (final) -->
+        <g id="pusher-carriage" transform="translate(0, 0)">
+            <!-- Émbolo (vástago y pistón de goma) -->
+            <rect x="30" y="85" width="150" height="10" fill="url(#metal)" />
+            <rect x="175" y="62" width="10" height="56" fill="#111" rx="1" /> <!-- Goma -->
+            <rect x="25" y="65" width="6" height="50" fill="#999" /> <!-- Base émbolo -->
+
+            <!-- Carro mecánico dispensador -->
+            <rect x="10" y="40" width="25" height="135" fill="url(#metal)" stroke="#333" stroke-width="1.5" rx="3" />
+            <!-- Acople a husillo (tuerca/bloque de empuje) -->
+            <rect x="5" y="138" width="35" height="20" fill="#222" rx="2" />
+            <!-- Indicador óptico/LED de movimiento en carro -->
+            <circle cx="22" cy="55" r="4" fill="#00ff66" />
+        </g>
+
+        <!-- LECTURA NUMÉRICA DENTRO DEL SVG -->
+        <text x="250" y="30" text-anchor="middle" fill="#ccc" font-size="14" font-family="monospace">
+            AVANCE: <tspan id="pct-text">0.0</tspan>%
+        </text>
+    </svg>
+</div>
+
+<style>
+    .pump-container {
+        background-color: #1a1a1a;
+        padding: 10px;
+        border-radius: 8px;
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+    }
+</style>
+
+<script>
+    (function (scope) {
+        // Rango cinemático: desplazamiento máximo del carro en píxeles SVG
+        const STROKE_MAX_PX = 195;
+        const LIQUID_MAX_W = 200;
+
+        scope.$watch('msg', function (msg) {
+            if (!msg || typeof msg.payload === 'undefined') return;
+
+            // Normalizar porcentaje (0.0 a 100.0)
+            let pct = parseFloat(msg.payload);
+            if (isNaN(pct)) return;
+            pct = Math.max(0, Math.min(100, pct));
+
+            // Calcular posiciones
+            const displacementX = (pct / 100.0) * STROKE_MAX_PX;
+            const liquidWidth = Math.max(0, LIQUID_MAX_W - ((pct / 100.0) * LIQUID_MAX_W));
+            const liquidX = 180 + ((pct / 100.0) * LIQUID_MAX_W);
+
+            // Manipular elementos del DOM SVG
+            const carriage = document.getElementById('pusher-carriage');
+            const liquid = document.getElementById('liquid');
+            const text = document.getElementById('pct-text');
+
+            if (carriage) {
+                carriage.setAttribute('transform', `translate(${displacementX}, 0)`);
+            }
+            if (liquid) {
+                liquid.setAttribute('x', liquidX);
+                liquid.setAttribute('width', liquidWidth);
+            }
+            if (text) {
+                text.textContent = pct.toFixed(1);
+            }
+        });
+    })(scope);
+</script>

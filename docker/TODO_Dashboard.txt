@@ -1,0 +1,219 @@
+# ==============================================================================
+# ROADMAP & TODO: DASHBOARD DE CONTROL Y MONITORIZACIÓN (PICO2W SYRINGE PUMP)
+# ==============================================================================
+# Archivo de seguimiento de features, arquitectura de datos y requerimientos
+# clínicos/biomédicos para el ecosistema Node-RED Dashboard 2.0.
+# Última actualización: 2026-10-29
+# ==============================================================================
+
+--------------------------------------------------------------------------------
+1. ARQUITECTURA MULTI-DISPOSITIVO Y AISLAMIENTO DE PANTALLAS
+--------------------------------------------------------------------------------
+[ ] 1.1. Selector Global de Dispositivo Activo (Device Switcher en Navbar / Header)
+    - Contexto del problema: Al operar con hardware real (ej. bj-593D7587) y el
+      simulador de software (ej. bj-deadbeef) conectados simultáneamente a Mosquitto,
+      las suscripciones comodín ('bj/+/...') provocan colisión y superposición:
+      los gráficos, métricas, jeringa SVG y estados parpadean saltando de un equipo a otro.
+    - Solución propuesta:
+        * Barra superior o dropdown global en el Dashboard:
+          [ Dispositivo Activo: ▼ bj-593D7587 (Hardware) | bj-deadbeef (Simulador) ]
+        * Descubrimiento automático (Auto-discovery): Listar dinámicamente toda
+          bomba que reporte estado online en bj/+/status o emita telemetría reciente.
+        * Indicador visual de procedencia: Badge distintivo [FÍSICO] vs [SIMULADO].
+        * Persistencia de selección en el contexto de sesión del navegador.
+
+[ ] 1.2. Enrutador Central de Telemetría (Node-RED Ingestion Router)
+    - Crear un nodo o subflujo enrutador temprano en Node-RED que intercepte toda
+      la telemetría entrante (sensors, motion, session, realtime, event).
+    - Despacho selectivo:
+        * Solo reenviar a los widgets de la UI activa (Monitor, Control, Realtime, Trends)
+          los paquetes correspondientes al device_id actualmente seleccionado.
+        * Mantener buffers internos independientes por dispositivo para que, al alternar
+          entre bombas, la UI cargue inmediatamente el estado actual de cada una
+          sin vacíos ni parpadeos.
+        * El registro a disco (CSVs/logs) continúa registrando TODOS los dispositivos
+          en segundo plano en sus respectivas carpetas sin interferir con la pantalla.
+
+[ ] 1.3. Aislamiento Estricto de Comandos (Anti-Crosstalk de Control)
+    - Garantizar que los comandos de la FSM (Homing, Dispensar, Stop, Calibrar, etc.)
+      y los botones de inyección de fallas (Oclusión, Burbuja) se dirijan
+      ÚNICA Y EXCLUSIVAMENTE al tópico bj/{selected_device_id}/cmd.
+    - Bloqueo de seguridad: Evitar que un comando destinado al simulador afecte
+      accidentalmente a la bomba física conectada a un paciente o banco de prueba.
+
+[ ] 1.4. Vista General de Estación / Grilla de Flota (Multi-Pump Station Overview)
+    - Pestaña o panel de "Central de Bombas":
+        * Grilla de tarjetas compactas de todas las bombas conectadas en la red.
+        * Resumen por bomba: ID, Estado FSM (color), Tasa mL/h, % Avance, Alarmas activas.
+        * Botón de un clic "Monitorear" en cada tarjeta para abrir la vista detallada
+          de esa bomba específica en las pestañas principales.
+
+--------------------------------------------------------------------------------
+2. TELEMETRÍA Y ALMACENAMIENTO PERSISTENTE (CSV / SQLITE)
+--------------------------------------------------------------------------------
+[ ] 2.1. Motor de guardado continuo de Hardware Telemetry en CSV
+    - Origen: Mensajes MQTT multi-rate (sensors 2Hz, motion 1Hz, session 0.5Hz, realtime 2Hz).
+    - Almacenamiento: Volumen Docker persistente (/data/telemetry_logs/).
+    - Nomenclatura automática de archivos aislada por equipo:
+        telemetry_YYYY-MM-DD_[device_id]_[session_id].csv
+    - Esquema de columnas recomendado:
+        timestamp_iso, epoch_ms, device_id, session_id, fsm_state,
+        position_mm, encoder_count, speed_ums, progress_pct,
+        infused_ml, target_ml, rate_ml_h,
+        pressure_mmhg, pressure_psi,
+        frc_sens_v, frc_sens_raw, bub_sens_v, bub_sens_raw,
+        vin_sens_v, vin_sens_raw,
+        lsw_start, lsw_end, motor_ena, motor_dir, motor_sg
+    - Política de retención:
+        * Rotación diaria o por inicio/fin de sesión de infusión.
+        * Compresión automática a .gz tras 7 días para optimizar disco.
+
+[ ] 2.2. Interfaz de descarga y gestión de CSVs desde el Dashboard
+    - Botón en la UI para:
+        * "Descargar telemetría de sesión actual".
+        * "Descargar registros por rango de fechas (selector calendario)".
+    - Opción de borrado / purga manual con confirmación de seguridad.
+
+--------------------------------------------------------------------------------
+3. AUDITORÍA, HISTÓRICO DE EVENTOS Y DATALOGS (.LOG)
+--------------------------------------------------------------------------------
+[ ] 3.1. Visor de Datalogs y Eventos en el Dashboard
+    - Nueva pestaña o subpanel: "Histórico de Logs".
+    - Tabla interactiva con búsqueda por texto libre y filtros rápidos:
+        * Filtro por Dispositivo: [Todos] [bj-593D7587] [bj-deadbeef].
+        * Nivel: [INFO] [WARN] [ALARM] [FAULT] [CMD_ACK].
+        * Módulo: FSM, MOTOR, SENSORS, MQTT, NETWORK, USER.
+        * Por código de alarma (OCC, BUBBLE, EOT, BATTERY, KVO).
+    - Códigos de color y marcas de tiempo con precisión de milisegundos.
+
+[ ] 3.2. Persistencia y Exportación de Archivos .log Crudos
+    - Registro append-only en /data/logs/system_events_[device_id].log con formato estándar:
+        YYYY-MM-DD HH:MM:SS.mmm [LEVEL] [DEV_ID] [MODULE]: Mensaje de evento
+    - Botón de descarga: "Exportar Datalog de Eventos (.log)".
+    - Integración con el event broker del firmware (tópico bj/{id}/event).
+
+--------------------------------------------------------------------------------
+4. SESIÓN CLÍNICA DE PACIENTE Y GESTIÓN DE TRATAMIENTO
+--------------------------------------------------------------------------------
+[ ] 4.1. Ficha del Paciente y Contexto de Infusión
+    - Formulario clínico en el Dashboard antes de iniciar la infusión:
+        * ID / Historia Clínica del Paciente (obligatorio).
+        * Cama / Habitación / Sala (UCI, Quirófano, Sala General).
+        * Nombre o Iniciales del Paciente.
+        * Peso del Paciente (kg) — clave para dosificación por kg.
+        * Profesional responsable / Operador (enfermero/médico).
+        * Fármaco / Dilución seleccionada.
+    - Vinculación: asociar automáticamente el session_id del firmware con los
+      metadatos del paciente en el almacenamiento de Node-RED.
+
+[ ] 4.2. Biblioteca de Fármacos (Drug Library) y Calculador de Dosis
+    - Selector desplegable de drogas estándar (ej. Dopamina, Fentanilo, Propofol, Noradrenalina).
+    - Definición de concentración (mg/mL o mcg/mL).
+    - Calculador bidireccional de dosis:
+        * Entrada en mcg/kg/min o mg/kg/h  --> Cálculo automático de mL/h para la bomba.
+    - Límites de seguridad blanda (soft limits) y dura (hard limits) para evitar
+      errores de sobredosificación accidental.
+
+[ ] 4.3. Exportación Integral de Sesión de Infusión (PDF / CSV)
+    - Generación de "Informe de Cierre de Infusión" descargable:
+        * Resumen ejecutivo: Paciente, equipo (ID), droga, fecha/hora inicio y fin.
+        * Parámetros programados vs. reales: Volumen objetivo vs. infundido real, desvío %.
+        * Gráfico embebido: Curva de presión y tasa de infusión a lo largo del tiempo.
+        * Registro de incidencias: Alarmas ocurridas (oclusiones, pausas, burbujas) con
+          tiempo de resolución.
+        * Sección de firma y validación profesional.
+    - Formato imprimible PDF (vía HTML template con CSS print) y CSV unificado.
+
+--------------------------------------------------------------------------------
+5. BIBLIOTECA DE JERINGAS Y CALIBRACIÓN MECÁNICA
+--------------------------------------------------------------------------------
+[ ] 5.1. Selector y Perfiles de Jeringa en el Dashboard
+    - Menú de marcas y modelos comerciales precargados:
+        * BD Plastipak: 10 mL (Ø14.5 mm), 20 mL (Ø19.05 mm), 50/60 mL (Ø26.6 mm).
+        * Terumo: 10 mL (Ø15.8 mm), 20 mL (Ø20.1 mm), 50 mL (Ø29.0 mm).
+        * Nipro / Monoject.
+    - Actualización dinámica: Al cambiar la jeringa en la UI, enviar comando
+      de configuración al firmware/simulador para recalcular área y cinemática.
+    - Ajuste de jeringa personalizada (Custom): Ingreso manual de Ø interno y capacidad.
+
+[ ] 5.2. Visualización reactiva en el Widget Cinemático SVG
+    - Adaptar la escala visual de graduación y el diámetro proporcional del
+      cilindro en SVG según el perfil de jeringa seleccionado.
+
+--------------------------------------------------------------------------------
+6. ANÁLISIS PREDICTIVO Y DIAGNÓSTICO DE HARDWARE
+--------------------------------------------------------------------------------
+[ ] 6.1. Visualización de Umbrales Dinámicos en Pestaña "Trends"
+    - Superponer en el gráfico de FRC_SENS / Presión la línea de corte del
+      umbral de oclusión seleccionado (225, 475, 725, 975 mmHg).
+    - Cálculo de pendiente de presión dP/dt: estimar tiempo restante hasta
+      alarma de oclusión si la presión muestra ascenso sostenido.
+
+[ ] 6.2. Monitoreo de Salud de Batería y Autonomía
+    - Estimador de tiempo de funcionamiento restante en base a VIN_SENS (Li-Ion 4S)
+      y el consumo del motor a la velocidad actual.
+    - Alerta temprana de batería crítica antes de la caída de tensión.
+
+[ ] 6.3. Modo "Replay / Reproductor Histórico" de Sesiones
+    - Capacidad de cargar un archivo CSV previo y reproducirlo en la interfaz
+      (a 1x, 2x, 5x, 10x) para análisis post-evento, auditoría médica o docencia.
+
+--------------------------------------------------------------------------------
+7. SEGURIDAD, ROLES DE ACCESO Y ALARMAS SONORAS (IEC 60601-2-24)
+--------------------------------------------------------------------------------
+[ ] 7.1. Alertas Sonoras en el Navegador (Web Audio API)
+    - Tonos normalizados según prioridad médica:
+        * Alta prioridad (Oclusión, Burbuja, EOT, Falla motor): Beep continuo/urgente.
+        * Media prioridad (Fin de infusión, KVO activo): Beep intermitente suave.
+    - Botón de silenciamiento temporal (Mute por 2 minutos).
+
+[ ] 7.2. Bloqueo de Interfaz (Screen Lock / Anti-tamper)
+    - Botón de "Bloquear pantalla" durante infusión activa para prevenir toques
+      accidentales en botones de parada o cambio de parámetros.
+    - Desbloqueo mediante confirmación de 2 pasos o PIN de operador.
+
+[ ] 7.3. Botón de Parada de Emergencia (E-STOP) Universal
+    - Botón rojo flotante o accesible desde cualquier pestaña que emita stop
+      inmediato prioritario al dispositivo seleccionado (o a todos ante emergencia).
+
+--------------------------------------------------------------------------------
+8. MATRIZ DE PRIORIZACIÓN DE DESARROLLO (ROADMAP)
+--------------------------------------------------------------------------------
+FASE 1 — Fundamentos, Aislamiento y Datos (Inmediato):
+    * [1.1 / 1.2] Selector global de dispositivo y enrutador de telemetría anti-superposición.
+    * [1.3] Aislamiento estricto de comandos por dispositivo seleccionado.
+    * [2.1] Guardado continuo de telemetría HW en CSV con timestamp.
+    * [2.2] Botón de descarga de CSVs desde el dashboard.
+    * [3.1] Pantalla/tabla de datalogs de eventos históricos.
+    * [4.1] Formulario básico de datos de paciente y cama.
+
+FASE 2 — Trazabilidad Clínica y Jeringas (Corto Plazo):
+    * [1.4] Vista general de estación multi-bomba (fleet overview).
+    * [4.3] Exportador de informe resumen de sesión (CSV / PDF preliminar).
+    * [5.1] Selector de marcas de jeringa (BD, Terumo) con envío de comando.
+    * [6.1] Línea de umbral de oclusión en gráficos de Trends.
+    * [7.1] Alarmas sonoras en el navegador ante oclusión/burbuja.
+
+FASE 3 — Inteligencia Clínica y Diagnóstico Avanzado (Mediano Plazo):
+    * [4.2] Biblioteca de fármacos con cálculo de dosis (mcg/kg/min).
+    * [6.2] Estimador de autonomía de batería (VIN_SENS).
+    * [6.3] Modo Replay de sesiones pasadas.
+    * [7.2] Bloqueo de pantalla durante infusión activa.
+
+
+-----------------------------------------------------
+9. DISEÑO DE UI
+-----------------------------------------------------
+
+[x] 9.1 Agregar en el zocalo superior de la pagina el logo UTN adjunto en la carpeta docker
+    "docker" del proyecto y el titulo del proyecto que es "Bomba de infusión a
+    jeringa con control y monitoreo IOT". Esto debe queda fijado al navegar entre ventanas.
+    (Completado: Nodo ui-template global 'w_utn_header' con alcance widget:ui teleportado
+     al app-bar fijo con logo UTN en Base64, título institucional, badge de página activa y reloj).
+
+[x] 9.2 En la ventana "Monitor" quiero que "Cinemática y Estado Mecánico del Émbolo" lo amplies 
+    verticalmente un 50% y "Dispositivo" y "Estado FSM" lo reduzcas y que queden ambos alineados
+    horizontalmente, estas 2 secciones actualmente ocupan mucho espacio innecesariamente. 
+    (Completado: Dispositivo y Estado FSM compactados a fila única horizontal alineados lado a
+     lado en fila 1; Cinemática del Émbolo ampliada un 50% en SVG max-height de 180px a 270px y
+     grid height de 7 a 11 ocupando el foco central del Monitor).

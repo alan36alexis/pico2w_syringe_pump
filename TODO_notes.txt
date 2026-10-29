@@ -1,157 +1,284 @@
 ================================================================
-TODO - pico2w_syringe_pump          (refactorizado 2026-07-06)
+TODO - pico2w_syringe_pump          (actualizado 2026-10-29)
 ================================================================
 
 ---------------------------------------------------------------
-PENDIENTE - Funcionalidad de bomba
+1. PENDIENTE - Funcionalidad de Bomba y Control Clínico
 ---------------------------------------------------------------
-[ ] KVO configurable y previo a infusion
-    - Hoy: Pump_Mode_KVO() solo se activa automaticamente al terminar
-      la infusion, con tasa fija KVO_FLOW_RATE_MLH (1.0 ml/h).
-    - Falta: poder activarlo ANTES de la infusion, parametros de
-      desplazamiento/tasa configurables, y reflejarlo en la FSM de
-      Core 1 (hoy no existe estado KVO en Core1State_t).
-
-[ ] Sesiones por usuario
-    - Historial de configuraciones, drogas, jeringas y dosis dadas,
-      asociado a un usuario/sesion.
-    - Ya existe session_id en los eventos (payload.session, sid en
-      alarmas): usarlo como clave del historial.
-    - Depende de: littlefs (almacenamiento) y RTC DS3231 (timestamps
-      reales para las dosis).
-
----------------------------------------------------------------
-PENDIENTE - Robustez / seguridad
----------------------------------------------------------------
-[ ] Estrategia de falla/desconexion por sensor
-    - Cubierto (indirecto): stall de encoder (Layer 2), deadline de
-      movimiento (Layer 3), timeout de release de LSW.
-    - Falta:
-      * sensor de fuerza: detectar desconexion (cable cortado lee
-        ~0 V y pasa desapercibido) -> validar rango ADC plausible
-        (cubrir dentro de la libreria del sensor de fuerza)
-      * distinguir encoder desconectado vs motor trabado (hoy ambos
-        caen como stall generico)
-      * LSW: deteccion de switch pegado/cortado fuera de movimiento
-      * detector de burbujas: falla/desconexion del sensor (ver
-        libreria en seccion Hardware/drivers)
-
-[ ] Rutina de autochequeo inicial (POST)
-    - Al boot: verificar comunicacion TMC2209, respuesta del encoder,
-      estado de LSW coherente, lectura ADC en rango, CRC de config.
-    - Resultado publicado como evento y visible en HMI.
-
-[ ] Reset a valores de fabrica
-    - Hoy solo hay fallback a defaults cuando la Flash es invalida.
-    - Falta comando explicito (CLI/MQTT/HMI) que borre la config
-      y restaure defaults a demanda.
-
----------------------------------------------------------------
-PENDIENTE - Hardware / drivers nuevos
----------------------------------------------------------------
-[ ] Libreria sensor de fuerza: ADC -> presion (mmHg)
-    - Lectura via ADC con traduccion a presion en mmHg.
-    - Hoy: umbrales crudos en volts hardcodeados en core1_main.c
-      (2.0 V contacto, 3.0 V oclusion); las alarmas ya reportan
-      "presion mmHg" pero sin conversion real detras.
-    - Incluir: calibracion offset/ganancia persistida, umbrales de
-      oclusion configurables en unidades de presion, y deteccion de
-      desconexion por rango ADC implausible.
-    - Absorbe la sugerencia "umbrales de oclusion configurables".
-
-[ ] Libreria detector de burbujas + integracion a FSM
-    - Driver del sensor + nuevo evento (iEV_BUBBLE_DETECTED) en la
-      FSM de Core 1, con estado/accion de pausa segura.
-    - Conectar con el flag bubble_in_line ya definido en
-      syringe_pump_api y con alarma via event broker.
-    - Actualizar tabla golden y auditoria de cobertura al agregar
-      el evento.
-
-[ ] RTC DS3231 por I2C
-    - Fecha/hora real para: timestamps del log persistente, registro
-      de dosis en sesiones, y sellado de eventos de alarma (hoy solo
-      hay ms desde boot).
-
----------------------------------------------------------------
-PENDIENTE - Infraestructura
----------------------------------------------------------------
-[ ] Migrar uso de Flash a littlefs
-    - Hoy: escritura cruda de un sector con magic+CRC en
-      config_manager.c (requiere lockout de Core 1 e IRQs off).
-    - littlefs da wear-leveling y robustez ante cortes de energia,
-      y habilita multiples archivos: config, calibracion, log de
-      eventos, sesiones/historiales.
-    - Prerequisito natural de: sesiones por usuario y registro de
-      eventos persistente.
-
-[ ] Reducir uso de stack de MQTT_Rx
-    - Sigue en configMINIMAL_STACK_SIZE * 8 (la mas grande despues
-      de la TFT). SysMon ya imprime high water marks por tarea:
-      usar esos datos para dimensionar.
-
-[ ] Migracion EDA pub-sub logging: completar pasos 3-6
-    - Pasos 1+2 ya hechos (jun-2026).
-
----------------------------------------------------------------
-SUGERENCIAS NUEVAS (a evaluar/priorizar)
----------------------------------------------------------------
-[ ] Watchdog de hardware
-    - No hay ningun watchdog activo. Con dos cores (FreeRTOS en
-      Core 0, loop de control en Core 1) un cuelgue de cualquiera
-      deja el motor en el ultimo estado. Alimentarlo desde ambos
-      cores (p.ej. flags cruzados + watchdog_update en uno solo).
+[ ] Familia de comandos clínicos 'pump_<cmd>' en syringe_pump_api
+    - Contexto: Actualmente los comandos de despacho (cmd_dispatcher)
+      operan a nivel cinemático de bajo nivel ('fsm_dispense,<target_um>,<vel_ums>').
+      Los comandos de 'syringe_pump_api' (Pump_Mode_Continuous, Bolus, Purge, KVO)
+      no tienen interfaz de invocación directa desde Serial/MQTT/HMI.
+    - Implementación requerida:
+      * 'pump_select_syringe,<diam_mm>,<capacity_ml>': valida y configura
+        la jeringa comercial, calcula el área del pistón y persiste la selección.
+      * 'pump_start,<rate_ml_h>[,<vtbi_ml>]': traduce caudal clínico (mL/h)
+        y volumen objetivo (mL) a desplazamiento lineal (um y um/s), valida
+        límites fisiológicos y despacha la acción a la FSM vía cmd_gate.
+      * 'pump_bolus,<vol_ml>,<rate_ml_h>': administra un bolo clínico con
+        velocidad y volumen controlados, acumulando en la sesión activa.
+      * 'pump_purge': purga segura del set de infusión previa a conexión
+        con el paciente (caudal de purga controlado).
+      * 'pump_kvo': activación de Keep-Vein-Open a tasa mínima (1.0 mL/h).
+      * 'pump_pause' / 'pump_stop': detención clínica preservando el
+        volumen infundido acumulado y el VTBI remanente.
+      * 'pump_resume': reanudación de infusión tras pausa u oclusión.
+      * 'pump_status': consulta del contexto clínico completo (estado,
+        infundido, remanente, tasa, presión actual y alarmas).
+    - Despacho universal: accesible desde CLI serie y MQTT con envelope
+      '{"cid": N, "cmd": "pump_start,25.0,50.0"}' generando su respectivo ACK.
 
 [ ] Integrar syringe_pump_api con la FSM real de Core 1
-    - Pump_SelectSyringe(), alarmas near_end/syringe_empty y el
-      calculo diametro->velocidad viven en una capa que hoy corre
-      en paralelo a la FSM de Core 1. Unificar para que la seleccion
-      de jeringa gobierne realmente la conversion ml/h -> um/s del
-      movimiento.
+    - Unificar el modelo: que 'PumpContext_t' se sincronice bidireccionalmente
+      con los estados de Core 1 ('Core1State_t').
+    - El progreso del encoder y el avance de pulsos PIO deben alimentar
+      continuamente 'Pump_UpdateInfusedVolume()' y 'Pump_Tick()'.
+    - Persistir parámetros de jeringa seleccionada en Flash ('SystemConfig_t')
+      para evitar la pérdida de calibración de émbolo tras un reinicio.
 
-[ ] Persistir seleccion de jeringa en Flash
-    - diametro/capacidad no estan en SystemConfig_t; tras un reset
-      se pierde la jeringa configurada.
+[ ] KVO configurable y previo a infusión
+    - Hoy: 'Pump_Mode_KVO()' solo se activa automáticamente al terminar
+      la infusión con tasa fija (1.0 mL/h).
+    - Falta: permitir activar KVO de forma manual/previa a la infusión,
+      admitir parámetros de tasa configurables (0.1 a 5.0 mL/h), y
+      reflejarlo con un estado explícito en la FSM de Core 1.
 
-[ ] Fuentes reales para alarmas de energia
-    - EV_ALARM_BATTERY_LOW y EV_ALARM_MAINS_LOST estan definidos y
-      tienen consumidores (serial/HMI) pero NADIE los emite. Definir
-      hardware de sensado (ADC en VSYS?) y tarea que los publique.
-
-[ ] Banners de alarma en HMI TFT
-    - TODOs pendientes en hmi_consumer.c (lineas 35 y 43): banner de
-      oclusion y banner generico por severidad.
-
-[ ] Registro de eventos persistente (trazabilidad IEC 62304)
-    - Alarmas/transiciones criticas con timestamp, consultable
-      post-mortem. Se apoya en littlefs (storage) y RTC DS3231
-      (fecha/hora real).
-
-[ ] Validacion de limites duros en comandos
-    - Velocidad y volumen maximos de seguridad validados en el
-      dispatcher antes de llegar a Core 1 (independiente de lo que
-      pida MQTT/CLI/HMI).
-
-[ ] Extender test golden de FSM + build de host en CI
-    - Ya existe tools/fsm_test; agregar los estados/eventos nuevos a
-      medida que se sumen (KVO, POST) y correrlo automaticamente.
+[ ] Sesiones por usuario y trazabilidad clínica
+    - Historial de tratamientos: paciente, drogas administradas, jeringas
+      utilizadas, volumen total infundido y registro de eventos.
+    - Utilizar 'session_id' presente en la arquitectura EDA como clave.
+    - Depende de: RTC DS3231 (estampas de tiempo reales) y littlefs.
 
 ---------------------------------------------------------------
-HECHO (referencia rapida)
+2. PENDIENTE - Sensores de Fuerza, Presión y Calibración
 ---------------------------------------------------------------
-[x] Calibracion punta a punta con guardado del conteo de encoder
-    en Flash y recarga al boot (CMD_CALIBRATE, on_calibration_
-    complete_fn, g_calibration_dirty).
-[x] FSM avanza luego de la oclusion (STOPPING -> RELEASE -> PAUSED
-    -> RESUME a DISPENSING).
-[x] El STOP no resetea el encoder. Fuentes de reset: boot,
-    CMD_ENC_RESET y hit de LSW_START (referencia de posicion).
-[x] Timeouts en releases de LSW y deteccion de stall por encoder.
-[x] Dead-time entre freno y release en los LSW (2026-07-07).
-    LSW_REVERSAL_DEAD_TIME_MS (200 ms, system_config.h); release
-    diferido via ctx (schedule_release + fsm_service_release_
-    deadtime), auto-cancela en STOP/fault/reset. Pendiente solo
-    validacion en banco (pausa audible en home/eot/calibrate y
-    stop durante el dead-time).
+[ ] Conversión de ADC (FRC_SENS) a Presión Clínica en syringe_pump_api
+    - Contexto: Actualmente Core 1 muestrea el sensor de fuerza analógico
+      (GP26 / ADC0) y evalúa umbrales de oclusión directamente en voltios
+      crudos (2.0 V contacto, 3.0 V oclusión). La telemetría reporta
+      'pressure_mmhg' y 'pressure_psi', pero sin un modelo físico real.
+    - Modelo de conversión física:
+      * Celda de carga / sensor piezorresistivo:
+        Fuerza en Newtons: F = (V_adc - V_offset) / Sensibilidad_V_per_N
+      * Presión hidráulica en línea según émbolo:
+        P (Pa) = F (N) / Area_embolo (m^2)
+        P (mmHg) = P (Pa) / 133.322
+        P (PSI)  = P (Pa) / 6894.76
+      * Función en API: 'Pump_AdcToPressure(uint16_t adc_raw, float syringe_area_mm2,
+        float *out_mmhg, float *out_psi)'.
 
-Descartado: feature de LSW virtuales (3 finales de carrera,
-estados _VIRTUAL_, posicionamiento relativo por conteo calibrado).
+[ ] Rutina de Calibración de Sensor de Fuerza en Flash
+    - Calibración en 2 puntos:
+      * Punto 0 (Tara / Cero): lectura de voltaje a carga cero (sin jeringa
+        acoplada), registrando 'adc_offset_v'.
+      * Punto 1 (Span / Ganancia): lectura con peso/fuerza patrón conocida
+        o presión patrón de prueba, calculando 'sensitivity_v_per_n'.
+    - Almacenamiento persistente en 'SystemConfig_t' (Flash):
+      'force_calib_offset_v', 'force_calib_gain_v_n', 'force_calib_valid'.
+    - Comandos CLI y MQTT:
+      * 'calib_force_zero': tara de presión atmosférica.
+      * 'calib_force_span,<val_N|val_mmHg>': ajuste de ganancia patrón.
+
+[ ] Setters MQTT y CLI para Umbrales de Presión en Unidades Médicas
+    - Reemplazar la configuración exclusiva en voltios por comandos
+      con unidades clínicas (mmHg y PSI) conforme a IEC 60601-2-24:
+      * 'set_occ_level,<0..3>': selección rápida de umbral por nivel
+        (L0=225, L1=450, L2=700, L3=975 mmHg).
+      * 'set_occ_pressure,<valor>,<mmhg|psi>': umbral exacto de disparo.
+      * 'set_occ_rel_pressure,<valor>,<mmhg|psi>': umbral de liberación
+        post-oclusión para el retroceso anti-bolus.
+    - Conversión dinámica: Core 0 calcula el voltaje ADC equivalente en
+      función del área de la jeringa activa y la calibración del sensor,
+      actualizando a Core 1 mediante 'CMD_SET_ADC_THRESHOLDS'.
+    - Integración completa con envelope MQTT: '{"cid": N, "cmd": "set_occ_level,2"}'.
+
+---------------------------------------------------------------
+3. PENDIENTE - Robustez, Seguridad y Alarmas (IEC 60601-1-8 / 2-24)
+---------------------------------------------------------------
+[ ] Integración de Alarma de Burbujas en FSM de Core 1
+    - Estado actual: El detector óptico (GP27 / ADC1) ya muestrea con
+      filtro debounce y emite 'EV_ALARM_BUBBLE' hacia el broker EDA.
+    - Falta: Que la FSM de Core 1 capture 'iEV_BUBBLE_DETECTED' y realice
+      una transición a un estado de parada segura ('ST_PAUSED' o 'ST_FAULT')
+      deteniendo inmediatamente el motor para proteger al paciente.
+
+[ ] Detección de Falla / Desconexión por Sensor (Out-of-Range)
+    - Sensor de fuerza (FRC_SENS): cable cortado o desconectado lee ~0 V
+      y pasa desapercibido como "presión normal".
+      * Validar ventana eléctrica plausible (ej. 0.15 V a 3.15 V).
+      * Lecturas < 0.15 V = cable cortado; > 3.15 V = saturación/cortocircuito.
+      * Disparar alarma técnica 'EV_ALARM_DRV_FAULT'.
+    - Sensor óptico de burbujas: detectar desconexión vs presencia de aire.
+    - Finales de carrera (LSW): validación de switches trabados/pegados
+      cuando el carro está lejos de los extremos.
+    - Encoder: distinguir encoder desconectado vs motor mecánicamente trabado.
+
+[ ] Rutina de Autochequeo Inicial al Boot (POST - Power-On Self Test)
+    - Verificación automática en 'task_init':
+      * Comunicación con driver TMC2209 (lectura de registros por UART/GPIO).
+      * Respuesta del encoder y lecturas analógicas dentro de rangos plausibles.
+      * Consistencia de finales de carrera (ambos LSW no pueden estar en 1 simultáneamente).
+      * Integridad de Flash (CRC de SystemConfig_t).
+    - Publicar resultado como evento 'EV_SYS_POST_RESULT' y reflejar en HMI/MQTT.
+
+[ ] Reset a Valores de Fábrica
+    - Comando explícito ('config_factory_reset') ejecutable por Serial/MQTT/HMI
+      que borre el sector Flash, restaure perfiles y umbrales por defecto
+      y reinicie de forma controlada.
+
+[ ] Watchdog de Hardware Cruzado (Core 0 + Core 1)
+    - Habilitar el watchdog del RP2350 alimentado de forma dual:
+      ambos cores deben actualizar banderas periódicas para refrescar
+      el watchdog de hardware. Si cualquiera de los dos sufre un cuelgue,
+      el sistema fuerza un reinicio seguro con apagado de motor.
+
+---------------------------------------------------------------
+4. PENDIENTE - Hardware y Periféricos Externos
+---------------------------------------------------------------
+[ ] RTC DS3231 por Bus I2C
+    - Proporcionar fecha y hora real con respaldo de batería para:
+      * Estampas de tiempo ISO en logs de auditoría persistentes.
+      * Registro de dosis clínicas y eventos de alarma (actualmente
+        solo relativo en ms desde el boot).
+
+[ ] Banners y Gestión de Alarmas en HMI TFT (EEZ / LVGL)
+    - Implementar banners visuales prioritarios en 'hmi_consumer.c'
+      para alarmas de oclusión, burbuja, fin de infusión y fallas de hardware.
+
+[ ] Tarea de Gestión de Energía, Batería 4S (18650) y Auto-Apagado Seguro ('task_power')
+    - Contexto: Sistema alimentado por batería Li-Ion 4S (4 celdas 18650 en serie,
+      12.0 V descarga a 16.8 V carga completa) y cargador de red externa (Vdc).
+    - Monitoreo y Procesamiento de Señal de VIN_SENS (GP28 / ADC2):
+      * Lectura analógica escalada por divisor resistivo de entrada.
+      * Filtro digital (promedio móvil o IIR pasa-bajos) para suprimir el ruido
+        eléctrico inducido por la conmutación PWM del driver de motor TMC2209.
+      * Detección de presencia/corte de red externa (Mains Lost vs Mains Present)
+        analizando la tensión de entrada junto con la señal 'CHRG_STATUS' (PCAL9555 P1_1)
+        y 'BATT_INSTALL' (PCAL9555 P1_2): emite 'EV_PWR_MAINS_LOST' / 'EV_PWR_MAINS_RESTORED'.
+      * Estimación de SoC (Estado de Carga %): interpolación por curva OCV (Open Circuit
+        Voltage) de química 18650 (12.0 V = 0%, 14.8 V ~ 50%, 16.8 V = 100%).
+      * Estimación de Autonomía Residual: en modo batería, calcular minutos de
+        autonomía restante según la energía residual y el consumo actual
+        (potencia estática de lógica/TFT + potencia dinámica según caudal mL/h).
+      * Disparo de alarmas preventivas IEC 60601-1-8:
+        'EV_ALARM_BATTERY_LOW' (< 20% o < 12.5 V) y alarma crítica (< 5% o < 11.8 V).
+    - Latch de Alimentación y Control de Apagado (Power Latch & Soft Power-Off):
+      * Al arranque (task_init / task_power): latchear inmediatamente 'OFF_CNTL'
+        (PCAL9555 canal 8 / Pin P1_0, gate de NMOS) en HIGH para autosostener la
+        alimentación general de la placa una vez que el usuario suelte el pulsador físico.
+      * Monitoreo del pulsador de encendido/apagado ('SW_DETECT') vía PCAL9555:
+        contabilizar tiempo de pulsación continua mediante temporizador de software.
+      * Detección de pulsación prolongada de 5 segundos para solicitud de apagado.
+      * Interbloqueo de Seguridad Clínica (Invariante IEC 60601-2-24):
+        - Si la bomba MANTIENE una infusión activa (FSM en ST_DISPENSING,
+          ST_OCCLUSION_*, ST_PAUSED con sesión abierta):
+          -> BLOQUEAR estrictamente el apagado.
+          -> Mantener OFF_CNTL en HIGH.
+          -> Emitir advertencia sonora/visual (buzzer o LED_ALARM) para alertar
+             al operador de que no puede apagarse con tratamiento en curso.
+        - Si la bomba NO tiene infusión activa (ST_STOPPED, ST_READY_AT_HOME):
+          -> Iniciar secuencia de apagado seguro: guardar sesión/configuración en
+             Flash, notificar a Core 1 para desactivar bobinas del TMC2209,
+             emitir evento de apagado y finalmente conmutar 'OFF_CNTL' a LOW (0)
+             para cortar la alimentación general del sistema.
+
+---------------------------------------------------------------
+5. PENDIENTE - Infraestructura, Memoria y Red
+---------------------------------------------------------------
+[ ] Mitigación Definitiva de Errores ERR_MEM (code=-1) en Publicaciones MQTT
+    - Contexto: La incorporación de 'telemetry/realtime' (341 bytes) sumada a
+      la coincidencia periódica exacta de cadencias (500 ms y 1000 ms) y el
+      vaciado en ráfaga instantánea agota los recursos internos del cliente MQTT
+      de lwIP, provocando descartes por 'ERR_MEM (-1)'.
+    - Solución en 3 niveles complementarios:
+      1) Ajustes de Capacidad en la Pila de Red ('headers/lwipopts.h'):
+         * Ampliar el búfer circular de transmisión MQTT:
+           '#define MQTT_OUTPUT_RINGBUF_SIZE 3072' (o 4096 B, actualmente 1024 B).
+           Brinda capacidad para alojar múltiples tramas extensas contiguas.
+         * Ampliar el límite de paquetes en tránsito sin confirmación:
+           '#define MQTT_REQ_MAX_IN_FLIGHT 8' (o 12 slots, actualmente defecto lwIP = 4).
+           Evita que se sature 'client->req_list' mientras el broker responde
+           los acuses de recibo de nivel de transporte (TCP ACKs) por Wi-Fi.
+      2) Desfasaje Temporal de Publicaciones / Time-Slicing ('src/mqtt_consumer.c'):
+         * Actualmente los cuatro temporizadores inician en tick 0, haciendo que
+           cada 1000 ms y 2000 ms se encolen 4 mensajes en el mismo instante.
+         * Introducir un desfase inicial (*phase-offset*):
+           - 't_sensors'  = now + 0 ms      (cadencia 500 ms)
+           - 't_motion'   = now + 100 ms    (cadencia 1000 ms)
+           - 't_realtime' = now + 250 ms    (cadencia 500 ms)
+           - 't_session'  = now + 350 ms    (cadencia 2000 ms)
+         * Elimina las ráfagas concentradas en un único instante y distribuye
+           el flujo de red de forma constante y predecible.
+      3) Mecanismo de Pacing en el Bucle de Drenaje ('src/mqtt_client.c'):
+         * En 'mqtt_client_task', al vaciar 'mqtt_tx_queue' en ráfaga, insertar
+           una micro-pausa ('vTaskDelay(pdMS_TO_TICKS(5))' o 'taskYIELD()')
+           entre llamadas a 'mqtt_publish()' ante paquetes extensos o si se
+           reporta 'ERR_MEM'.
+         * Permite que la tarea del controlador Wi-Fi (CYW43) y el stack lwIP
+           drenen el buffer hacia el medio aéreo antes de empujar el siguiente paquete.
+
+[ ] Migración de Memoria Flash a littlefs
+    - Reemplazar la escritura cruda de sector por un sistema de archivos
+      con wear-leveling y tolerancia a cortes de energía.
+    - Soporte multiactivo para: calibración, configuración, datalogs de eventos
+      y sesiones de infusión.
+
+[ ] Optimización de Memoria de Tareas (Stack Sizing)
+    - Ajustar tamaño de stack de 'MQTT_Rx' y consumidores utilizando las marcas
+      de agua de alta precisión reportadas por 'task_system_monitor'.
+
+---------------------------------------------------------------
+6. HECHO (Implementado y Validado)
+---------------------------------------------------------------
+[x] Arquitectura EDA Pub-Sub Completa (Event-Driven):
+    - Broker de eventos desacoplado ('event_broker') con cola centralizada
+      'g_event_broker_q' y distribución hacia consumidores especializados:
+      'serial_consumer', 'mqtt_consumer' y 'hmi_consumer'.
+[x] Telemetría Multi-Rate en Tiempo Real:
+    - Publicación periódica desacoplada: 'telemetry/sensors' (2 Hz),
+      'telemetry/realtime' (2 Hz con PCAL9555, ADC, encoder y drivers),
+      'telemetry/motion' (1 Hz) y 'telemetry/session' (0.5 Hz).
+    - Mecanismo Anti-Bufferbloat: descarte del paquete más antiguo
+      (*drop-oldest*) ante congestión de transporte Wi-Fi.
+[x] Contrato MQTT Oficial Formalizado ('MQTT_CONTRACT.md'):
+    - Envelope '{"cid": N, "cmd": "..."}' y tópico de respuesta unívoco
+      'bj/{device_id}/cmd/ack' ('accepted' / 'rejected' con motivo).
+    - Inyección de fallas por software ('sim_fault') para validación HIL.
+[x] Gestor de Red Wi-Fi Multi-Perfil (hasta 6 redes en memoria Flash):
+    - Almacenamiento persistente de SSID, contraseña, IP de Broker y puerto
+      MQTT individual por perfil ('WifiProfile_t').
+    - Escaneo inteligente y autónomo al inicio y ante desconexión, con
+      ordenamiento por potencia de señal (RSSI).
+    - Auto-recuperación de perfiles de fábrica ('Telecentro-c220' y 'Kupa').
+    - Regla de histéresis: permanencia estricta en la red activa mientras
+      el enlace continúe arriba sin re-escanear.
+    - Conexión forzada por comando y prioridad automática ante pérdidas de baliza.
+[x] Comandos CLI y MQTT de Gestión de Redes:
+    - 'wifi_add', 'wifi_del', 'wifi_list', 'wifi_scan', 'wifi_connect'.
+[x] Sensado Óptico Analógico de Burbujas de Aire (BUB_SENS):
+    - Muestreo en Core 1 (GP27 / ADC1) con filtro antirrebote de ventana
+      y emisión de alarma 'EV_ALARM_BUBBLE' (IEC 60601-1-8).
+[x] Driver y Mock PCAL9555 por I2C:
+    - Mapeo de entradas de hardware del expansor (switches y estado de carga)
+      con tarea de emulación en tiempo real (*Mock PCAL9555*) para operación
+      sin periféricos físicos en placa Pico 2 W de desarrollo.
+[x] Filtrado Dinámico de Mensajes Serie por Consola ('log_en' / 'log_dis'):
+    - Filtros por categoría: HWS (Hardware Status de Core 1), ADC, TMC,
+      MOT, ACT, FSM, NET y ALM.
+[x] Calibración de Carrera Punta a Punta con Encoder:
+    - Detección precisa de longitud total de jeringa ('fsm_calibrate'),
+      almacenamiento del conteo máximo en Flash y recarga al inicio.
+[x] Secuencia Segura Post-Oclusión en FSM de Core 1:
+    - Transición 'ST_OCCLUSION_STOPPING' -> 'ST_OCCLUSION_RELEASE' ->
+      'ST_OCCLUSION_PAUSED' -> reanudación controlada con 'fsm_resume'.
+    - Retroceso anti-bolus configurable ('config_antibolus,auto|manual').
+[x] Mitigación de Desbordamiento de Stack (HardFault ARMv8-M Cortex-M33):
+    - Reubicación de estructuras de escaneo a '.bss' y ampliación de stack
+      en 'task_cli'.
+[x] Persistencia Segura en Flash:
+    - Sector de configuración de 1024 bytes con Magic Word, Checksum
+      y aislamiento multicore mediante 'multicore_lockout_*'.
+[x] Dead-time configurable entre freno y release de LSW:
+    - 'LSW_REVERSAL_DEAD_TIME_MS' (200 ms) para proteger la mecánica del motor.
+================================================================
