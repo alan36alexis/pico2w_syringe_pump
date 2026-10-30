@@ -183,6 +183,54 @@ TODO - pico2w_syringe_pump          (actualizado 2026-10-29)
              emitir evento de apagado y finalmente conmutar 'OFF_CNTL' a LOW (0)
              para cortar la alimentación general del sistema.
 
+[ ] Estructura de Configuración de Hardware Core 0 -> Core 1 ('DtoCore1HwConfig_t')
+    - Contexto: Core 1 emite periódicamente su estado de bajo nivel hacia Core 0
+      mediante 'DtoCore1HwStatus_t'. En sentido inverso (Core 0 -> Core 1), la
+      configuración de parámetros de hardware está dispersa en comandos individuales
+      ('CMD_SET_ADC_THRESHOLDS', 'CMD_SET_ANTIBOLUS_MODE'). Se requiere un DTO
+      consolidado que encapsule la configuración física de Core 1 y soporte la
+      calibración óptica del sensor de burbuja mediante PWM en GP9.
+    - Definición propuesta de la estructura:
+      typedef struct {
+          float    v_thresh_contact;      // Umbral detección inicio émbolo (V)
+          float    v_thresh_occlusion;    // Umbral de oclusión clínica (V)
+          float    v_thresh_occ_release;  // Umbral alivio de presión anti-bolus (V)
+          float    v_thresh_bubble_air;   // Umbral analógico aire vs líquido (V)
+          uint8_t  bub_calib_pwm_duty;    // Duty cycle PWM en GP9 (0-100% o 0-255)
+          uint8_t  auto_antibolus_en;     // 1=Automático, 0=Manual
+          uint16_t lsw_dead_time_ms;      // Tiempo muerto inversión LSW (200 ms)
+      } DtoCore1HwConfig_t;
+    - Transporte IPC y Manejo en Core 1:
+      * Nuevo comando en 'Core1CmdID_t': 'CMD_SET_HW_CONFIG' que transporta
+        'DtoCore1HwConfig_t' a través de 'crosscore_cmd_queue'.
+      * En Core 1, al recibir 'CMD_SET_HW_CONFIG':
+        1. Actualiza atómicamente los umbrales analógicos internos de fuerza y burbujas.
+        2. Configura el duty cycle del slice PWM en GP9 ('BUB_CALIB_PWM')
+           usando el periférico PWM del RP2350 (frecuencia portadora >= 20 kHz
+           para evitar ruidos audibles e interferencias de conmutación en el ADC).
+        3. Aplica los parámetros de retroceso anti-bolus y dead-time.
+    - Persistencia en Flash ('SystemConfig_t'):
+      * Incorporar a 'SystemConfig_t' en 'headers/config_manager.h':
+        'bub_calib_pwm_duty' (default ej. 50%) y 'v_thresh_bubble_air'.
+      * Al arrancar en 'task_init', enviar la configuración completa almacenada
+        en Flash hacia Core 1 para asegurar consistencia tras el boot.
+    - Comandos CLI y MQTT:
+      * 'set_bubble_pwm,<0..100>': ajusta el duty cycle de calibración óptica en GP9.
+      * 'set_bubble_thresh,<volts>': ajusta el umbral de detección de aire en GP27.
+      * 'config_hw_sync': reenvía atómicamente la estructura completa hacia Core 1.
+    - Feedback y Verificación en Lazo Cerrado (Readback en 'DtoCore1HwStatus_t'):
+      * Incorporar el campo 'uint8_t bub_calib_pwm_duty;' dentro de 'DtoCore1HwStatus_t'
+        en 'headers/system_events.h' para que Core 1 reporte activamente el duty cycle
+        real que está aplicando en el slice PWM de GP9.
+      * Impacto cero en RAM: aprovecha 1 byte del padding de alineación de 32 bits
+        de la estructura actual, manteniendo 'sizeof(DtoCore1HwStatus_t) = 20 B'
+        y respetando el '_Static_assert(sizeof(SystemEvent_t) <= 64)'.
+      * Correlación estímulo-respuesta en 'telemetry/realtime': el Dashboard y los logs
+        serie ('HWS') disponen en un mismo paquete de la excitación óptica (PWM %) y la
+        respuesta del fototransistor (tensión en 'bub_sens_v'), permitiendo el trazado
+        en vivo de la curva de calibración de burbujas.
+    
+
 ---------------------------------------------------------------
 5. PENDIENTE - Infraestructura, Memoria y Red
 ---------------------------------------------------------------
